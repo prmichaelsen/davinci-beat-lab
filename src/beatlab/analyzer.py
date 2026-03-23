@@ -1,4 +1,4 @@
-"""Audio analysis module — beat tracking, onset detection, and feature extraction."""
+"""Audio analysis module — beat tracking, onset detection, section detection, and feature extraction."""
 
 from __future__ import annotations
 
@@ -36,7 +36,74 @@ def load_audio(path: str, sr: int = 22050) -> tuple[np.ndarray, int]:
     return y, sr_out
 
 
-def analyze_audio(path: str, sr: int = 22050) -> dict:
+def detect_sections(
+    y: np.ndarray, sr: int, hop_length: int = 512, segment_duration: float = 4.0,
+) -> list[dict]:
+    """Detect musical sections using RMS energy thresholding.
+
+    Divides audio into fixed-length segments, computes average RMS energy,
+    and classifies each as low_energy, mid_energy, or high_energy.
+
+    Returns list of dicts: {start_time, end_time, type, label}
+    """
+    rms = librosa.feature.rms(y=y, hop_length=hop_length)[0]
+    duration = librosa.get_duration(y=y, sr=sr)
+
+    # Number of frames per segment
+    frames_per_sec = sr / hop_length
+    frames_per_segment = int(frames_per_sec * segment_duration)
+
+    if frames_per_segment < 1:
+        frames_per_segment = 1
+
+    segments = []
+    for start_idx in range(0, len(rms), frames_per_segment):
+        end_idx = min(start_idx + frames_per_segment, len(rms))
+        seg_rms = rms[start_idx:end_idx]
+        avg_energy = float(np.mean(seg_rms))
+        start_time = start_idx / frames_per_sec
+        end_time = min(end_idx / frames_per_sec, duration)
+        segments.append({"start_time": start_time, "end_time": end_time, "energy": avg_energy})
+
+    if not segments:
+        return []
+
+    # Compute thresholds using percentiles of segment energies
+    energies = [s["energy"] for s in segments]
+    p33 = float(np.percentile(energies, 33))
+    p66 = float(np.percentile(energies, 66))
+
+    # Merge consecutive segments with the same classification
+    LABELS = {
+        "low_energy": "verse",
+        "mid_energy": "bridge",
+        "high_energy": "chorus",
+    }
+
+    classified = []
+    for seg in segments:
+        if seg["energy"] <= p33:
+            stype = "low_energy"
+        elif seg["energy"] <= p66:
+            stype = "mid_energy"
+        else:
+            stype = "high_energy"
+
+        if classified and classified[-1]["type"] == stype:
+            # Extend previous section
+            classified[-1]["end_time"] = seg["end_time"]
+        else:
+            classified.append({
+                "start_time": seg["start_time"],
+                "end_time": seg["end_time"],
+                "type": stype,
+                "label": LABELS[stype],
+            })
+
+    return classified
+
+
+def analyze_audio(path: str, sr: int = 22050, detect_sections_flag: bool = False) -> dict:
     """Analyze an audio file and return beat data.
 
     Returns a dict with:
@@ -45,6 +112,7 @@ def analyze_audio(path: str, sr: int = 22050) -> dict:
         sample_rate: int
         beats: list of {time: float, intensity: float}
         onsets: list of {time: float, strength: float}
+        sections: list of {start_time, end_time, type, label} (if detect_sections_flag)
     """
     y, sr_out = load_audio(path, sr=sr)
     duration = librosa.get_duration(y=y, sr=sr_out)
@@ -87,10 +155,16 @@ def analyze_audio(path: str, sr: int = 22050) -> dict:
     # tempo may be an ndarray with one element in newer librosa
     tempo_val = float(tempo) if np.ndim(tempo) == 0 else float(tempo[0])
 
-    return {
+    result = {
         "tempo": tempo_val,
         "duration": float(duration),
         "sample_rate": sr_out,
         "beats": beats,
         "onsets": onsets,
     }
+
+    # Section detection
+    if detect_sections_flag:
+        result["sections"] = detect_sections(y, sr_out)
+
+    return result

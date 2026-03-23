@@ -90,37 +90,42 @@ milestones:
   - id: M3
     title: Effect Library & Intelligence
     file: agent/milestones/milestone-3-effect-library.md
-    status: not_started
+    status: completed
+    started: 2026-03-23
+    completed: 2026-03-23
     estimated_weeks: 1.5
     tasks_total: 3
-    tasks_completed: 0
+    tasks_completed: 3
     tasks:
       - id: task-7
         title: Effect Preset Library
         file: agent/tasks/milestone-3-effect-library/task-7-effect-presets.md
-        status: not_started
+        status: completed
         estimated_hours: 3
-        started: null
-        actual_hours: null
+        started: 2026-03-23T21:00:00Z
+        completed_date: 2026-03-23T21:10:00Z
+        actual_hours: 0.2
         dependencies:
           - task-5
       - id: task-8
         title: Intensity Mapping & Section Detection
         file: agent/tasks/milestone-3-effect-library/task-8-intensity-and-sections.md
-        status: not_started
+        status: completed
         estimated_hours: 4
-        started: null
-        actual_hours: null
+        started: 2026-03-23T21:00:00Z
+        completed_date: 2026-03-23T21:10:00Z
+        actual_hours: 0.2
         dependencies:
           - task-2
           - task-7
       - id: task-9
         title: Spline Curves & Polish
         file: agent/tasks/milestone-3-effect-library/task-9-spline-curves.md
-        status: not_started
+        status: completed
         estimated_hours: 2
-        started: null
-        actual_hours: null
+        started: 2026-03-23T21:00:00Z
+        completed_date: 2026-03-23T21:10:00Z
+        actual_hours: 0.2
         dependencies:
           - task-5
           - task-7
@@ -160,17 +165,16 @@ documentation:
 
 progress:
   planning: 100
-  implementation: 55
-  overall: 55
+  implementation: 82
+  overall: 82
 
 recent_work:
   - date: 2026-03-23
-    description: "MVP complete — M1 (audio analysis) and M2 (Fusion comp generation) both done. 6/11 tasks finished."
+    description: "M3 complete — 6 effect presets, intensity mapping (linear/exp/log), section detection, smooth spline curves, overshoot. 9/11 tasks done."
 
 next_steps:
-  - "Start M3: Task 7 — Effect Preset Library"
-  - "Test generated .setting files in DaVinci Resolve"
-  - "MVP is usable now: beatlab run audio.mp3 -o comp.setting"
+  - "Start M4: Task 10 — Resolve Script Packaging"
+  - "Test section-aware generation in DaVinci Resolve"
 
 notes:
   - "Total estimated: ~30 hours across 11 tasks"

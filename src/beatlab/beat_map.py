@@ -19,6 +19,14 @@ def time_to_frame(time_sec: float, fps: float) -> int:
     return round(time_sec * fps)
 
 
+def _assign_section(beat_time: float, sections: list[dict]) -> str | None:
+    """Find which section a beat belongs to by timestamp."""
+    for sec in sections:
+        if sec["start_time"] <= beat_time < sec["end_time"]:
+            return sec["type"]
+    return None
+
+
 def create_beat_map(
     analysis: dict,
     fps: float,
@@ -34,14 +42,19 @@ def create_beat_map(
     Returns:
         Beat map dict ready for JSON serialization.
     """
-    beats = [
-        {
+    sections = analysis.get("sections", [])
+    has_sections = len(sections) > 0
+
+    beats = []
+    for b in analysis["beats"]:
+        entry = {
             "time": b["time"],
             "frame": time_to_frame(b["time"], fps),
             "intensity": b["intensity"],
         }
-        for b in analysis["beats"]
-    ]
+        if has_sections:
+            entry["section"] = _assign_section(b["time"], sections)
+        beats.append(entry)
 
     onsets = [
         {
@@ -52,8 +65,8 @@ def create_beat_map(
         for o in analysis["onsets"]
     ]
 
-    return {
-        "version": "1.0",
+    result = {
+        "version": "1.1" if has_sections else "1.0",
         "source_file": str(Path(source_file).name),
         "duration": analysis["duration"],
         "tempo": analysis["tempo"],
@@ -61,6 +74,21 @@ def create_beat_map(
         "beats": beats,
         "onsets": onsets,
     }
+
+    if has_sections:
+        result["sections"] = [
+            {
+                "start_time": s["start_time"],
+                "end_time": s["end_time"],
+                "start_frame": time_to_frame(s["start_time"], fps),
+                "end_frame": time_to_frame(s["end_time"], fps),
+                "type": s["type"],
+                "label": s["label"],
+            }
+            for s in sections
+        ]
+
+    return result
 
 
 def save_beat_map(beat_map: dict, output_path: str) -> None:

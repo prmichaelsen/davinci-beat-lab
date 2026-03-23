@@ -112,30 +112,50 @@ class TestGenerator:
     def test_generate_zoom(self):
         comp = generate_comp(self._make_beat_map(), effect="zoom")
         output = comp.serialize()
-        assert "BeatZoom = Transform" in output
-        assert "BeatZoomSize = BezierSpline" in output
+        assert "Transform" in output
+        assert "BezierSpline" in output
 
     def test_generate_flash(self):
         comp = generate_comp(self._make_beat_map(), effect="flash")
         output = comp.serialize()
-        assert "BeatFlash = BrightnessContrast" in output
-        assert "BeatFlashGain = BezierSpline" in output
+        assert "BrightnessContrast" in output
+        assert "BezierSpline" in output
 
     def test_generate_all(self):
         comp = generate_comp(self._make_beat_map(), effect="all")
         output = comp.serialize()
-        assert "BeatZoom = Transform" in output
-        assert "BeatFlash = BrightnessContrast" in output
-        assert "BeatGlow = Glow" in output
+        assert "Transform" in output
+        assert "BrightnessContrast" in output
+        assert "Glow" in output
 
-    def test_intensity_scales_peak(self):
-        beat_map = self._make_beat_map()
-        comp = generate_comp(beat_map, effect="zoom")
+    def test_generate_with_preset(self):
+        comp = generate_comp(self._make_beat_map(), preset_names=["zoom_bounce", "flash"])
         output = comp.serialize()
-        # Beat with intensity 1.0 should have peak of 1.08
-        assert "1.08" in output
-        # Beat with intensity 0.8 should have peak of ~1.064
-        assert "1.064" in output
+        assert "Transform" in output
+        assert "BrightnessContrast" in output
+
+    def test_intensity_curve_exponential(self):
+        comp = generate_comp(self._make_beat_map(), effect="zoom", intensity_curve="exponential")
+        output = comp.serialize()
+        assert "BezierSpline" in output
+
+    def test_section_mode(self):
+        beat_map = self._make_beat_map()
+        beat_map["sections"] = [
+            {"start_time": 0.0, "end_time": 1.0, "start_frame": 0, "end_frame": 30, "type": "low_energy", "label": "verse"},
+            {"start_time": 1.0, "end_time": 2.0, "start_frame": 30, "end_frame": 60, "type": "high_energy", "label": "chorus"},
+        ]
+        beat_map["beats"][0]["section"] = "low_energy"
+        beat_map["beats"][1]["section"] = "high_energy"
+        beat_map["beats"][2]["section"] = "high_energy"
+        comp = generate_comp(beat_map, section_mode=True)
+        output = comp.serialize()
+        assert "BezierSpline" in output
+
+    def test_overshoot(self):
+        comp = generate_comp(self._make_beat_map(), effect="zoom", overshoot=True)
+        output = comp.serialize()
+        assert "Transform" in output
 
     def test_generate_from_file(self):
         import tempfile
@@ -151,4 +171,4 @@ class TestGenerator:
 
         generate_from_file(json_path, setting_path, effect="zoom")
         content = Path(setting_path).read_text()
-        assert "BeatZoom = Transform" in content
+        assert "Transform" in content

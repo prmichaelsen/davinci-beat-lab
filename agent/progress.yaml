@@ -50,34 +50,39 @@ milestones:
   - id: M2
     title: Fusion Comp Generation
     file: agent/milestones/milestone-2-fusion-comp-generation.md
-    status: not_started
+    status: completed
+    started: 2026-03-23
+    completed: 2026-03-23
     estimated_weeks: 1.5
     tasks_total: 3
-    tasks_completed: 0
+    tasks_completed: 3
     tasks:
       - id: task-4
         title: Fusion .setting Format Research
         file: agent/tasks/milestone-2-fusion-comp-generation/task-4-fusion-format-research.md
-        status: not_started
+        status: completed
         estimated_hours: 3
-        started: null
-        actual_hours: null
+        started: 2026-03-23T20:47:00Z
+        completed_date: 2026-03-23T20:55:00Z
+        actual_hours: 0.1
       - id: task-5
         title: Fusion Comp Generator
         file: agent/tasks/milestone-2-fusion-comp-generation/task-5-fusion-comp-generator.md
-        status: not_started
+        status: completed
         estimated_hours: 4
-        started: null
-        actual_hours: null
+        started: 2026-03-23T20:47:00Z
+        completed_date: 2026-03-23T20:55:00Z
+        actual_hours: 0.1
         dependencies:
           - task-4
       - id: task-6
         title: End-to-End Pipeline & CLI
         file: agent/tasks/milestone-2-fusion-comp-generation/task-6-end-to-end-pipeline.md
-        status: not_started
+        status: completed
         estimated_hours: 2
-        started: null
-        actual_hours: null
+        started: 2026-03-23T20:47:00Z
+        completed_date: 2026-03-23T20:55:00Z
+        actual_hours: 0.1
         dependencies:
           - task-3
           - task-5
@@ -155,17 +160,17 @@ documentation:
 
 progress:
   planning: 100
-  implementation: 0
-  overall: 5
+  implementation: 55
+  overall: 55
 
 recent_work:
   - date: 2026-03-23
-    description: "Project initialized, requirements defined, 4 milestones and 11 tasks planned"
+    description: "MVP complete — M1 (audio analysis) and M2 (Fusion comp generation) both done. 6/11 tasks finished."
 
 next_steps:
-  - "Start M1: Task 1 — Project Setup & Audio Loader"
-  - "Task 4 (Fusion format research) can start in parallel with M1"
-  - "MVP complete at end of M2 (Task 6)"
+  - "Start M3: Task 7 — Effect Preset Library"
+  - "Test generated .setting files in DaVinci Resolve"
+  - "MVP is usable now: beatlab run audio.mp3 -o comp.setting"
 
 notes:
   - "Total estimated: ~30 hours across 11 tasks"

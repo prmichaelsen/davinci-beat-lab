@@ -10,11 +10,12 @@ milestones:
   - id: M1
     title: Audio Analysis Pipeline
     file: agent/milestones/milestone-1-audio-analysis-pipeline.md
-    status: in_progress
+    status: completed
     started: 2026-03-23
+    completed: 2026-03-23
     estimated_weeks: 1.5
     tasks_total: 3
-    tasks_completed: 1
+    tasks_completed: 3
     tasks:
       - id: task-1
         title: Project Setup & Audio Loader
@@ -28,19 +29,21 @@ milestones:
       - id: task-2
         title: Beat Detection & Analysis
         file: agent/tasks/milestone-1-audio-analysis-pipeline/task-2-beat-detection.md
-        status: not_started
+        status: completed
         estimated_hours: 3
-        started: null
-        actual_hours: null
+        started: 2026-03-23T20:40:00Z
+        completed_date: 2026-03-23T20:46:00Z
+        actual_hours: 0.1
         dependencies:
           - task-1
       - id: task-3
         title: Beat Map Generation & CLI
         file: agent/tasks/milestone-1-audio-analysis-pipeline/task-3-beat-map-cli.md
-        status: not_started
+        status: completed
         estimated_hours: 2
-        started: null
-        actual_hours: null
+        started: 2026-03-23T20:40:00Z
+        completed_date: 2026-03-23T20:46:00Z
+        actual_hours: 0.1
         dependencies:
           - task-2
 

@@ -35,7 +35,7 @@ _register(EffectPreset(
     name="zoom_pulse",
     description="Gentle zoom in/out on each beat",
     node_type="Transform", parameter="Size",
-    base_value=1.0, peak_value=1.08,
+    base_value=1.0, peak_value=1.15,
     attack_frames=2, release_frames=4, curve="smooth",
 ))
 
@@ -43,7 +43,7 @@ _register(EffectPreset(
     name="zoom_bounce",
     description="Snappy zoom with fast attack and slow release",
     node_type="Transform", parameter="Size",
-    base_value=1.0, peak_value=1.15,
+    base_value=1.0, peak_value=1.25,
     attack_frames=1, release_frames=6, curve="smooth",
 ))
 
@@ -51,15 +51,15 @@ _register(EffectPreset(
     name="flash",
     description="Brightness flash on beat",
     node_type="BrightnessContrast", parameter="Gain",
-    base_value=1.0, peak_value=1.4,
+    base_value=1.0, peak_value=1.8,
     attack_frames=1, release_frames=3, curve="linear",
 ))
 
 _register(EffectPreset(
     name="glow_swell",
-    description="Soft glow that swells on beat",
+    description="Subtle bloom that swells on beat — use sparingly, can soften image at high values",
     node_type="Glow", parameter="Glow",
-    base_value=0.0, peak_value=0.5,
+    base_value=0.0, peak_value=0.3,
     attack_frames=3, release_frames=6, curve="smooth",
 ))
 
@@ -67,7 +67,7 @@ _register(EffectPreset(
     name="hard_cut",
     description="Sharp brightness spike — instant on, instant off",
     node_type="BrightnessContrast", parameter="Gain",
-    base_value=1.0, peak_value=2.0,
+    base_value=1.0, peak_value=2.5,
     attack_frames=0, release_frames=1, curve="step",
 ))
 
@@ -75,7 +75,7 @@ _register(EffectPreset(
     name="contrast_pop",
     description="Contrast boost on beat for punchy look",
     node_type="BrightnessContrast", parameter="Contrast",
-    base_value=0.0, peak_value=0.3,
+    base_value=0.0, peak_value=0.5,
     attack_frames=1, release_frames=4, curve="smooth",
 ))
 

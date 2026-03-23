@@ -72,6 +72,23 @@ class FusionNode:
         return "\n".join(lines)
 
 
+def make_media_in(name: str = "MediaIn1", pos_x: float = -110) -> FusionNode:
+    """Create a MediaIn node."""
+    return FusionNode(name=name, tool_type="MediaIn", pos_x=pos_x)
+
+
+def make_media_out(
+    name: str = "MediaOut1",
+    source_op: str | None = None,
+    pos_x: float = 550,
+) -> FusionNode:
+    """Create a MediaOut node."""
+    inputs: dict = {}
+    if source_op:
+        inputs["Input"] = {"SourceOp": source_op, "Source": "Output"}
+    return FusionNode(name=name, tool_type="MediaOut", inputs=inputs, pos_x=pos_x)
+
+
 def make_transform(
     name: str = "Transform1",
     source_op: str | None = None,
@@ -103,8 +120,9 @@ def make_glow(
     source_op: str | None = None,
     pos_x: float = 330,
 ) -> FusionNode:
-    """Create a Glow node."""
+    """Create a Glow node with reduced GlowSize to avoid blur."""
     inputs: dict = {}
     if source_op:
         inputs["Input"] = {"SourceOp": source_op, "Source": "Output"}
+    inputs["GlowSize"] = 2.0  # Default is 10 which blurs the whole image
     return FusionNode(name=name, tool_type="Glow", inputs=inputs, pos_x=pos_x)

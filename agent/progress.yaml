@@ -157,28 +157,74 @@ milestones:
         dependencies:
           - task-10
 
+  - id: M5
+    title: AI Effect Director
+    file: agent/milestones/milestone-5-ai-effect-director.md
+    status: not_started
+    estimated_weeks: 1.5
+    tasks_total: 4
+    tasks_completed: 0
+    tasks:
+      - id: task-12
+        title: Spectral Features
+        file: agent/tasks/milestone-5-ai-effect-director/task-12-spectral-features.md
+        status: not_started
+        estimated_hours: 2
+        started: null
+        actual_hours: null
+        dependencies:
+          - task-8
+      - id: task-13
+        title: LLM Provider & Effect Plan
+        file: agent/tasks/milestone-5-ai-effect-director/task-13-llm-provider.md
+        status: not_started
+        estimated_hours: 3
+        started: null
+        actual_hours: null
+      - id: task-14
+        title: AI Director & Prompt
+        file: agent/tasks/milestone-5-ai-effect-director/task-14-ai-director.md
+        status: not_started
+        estimated_hours: 3
+        started: null
+        actual_hours: null
+        dependencies:
+          - task-12
+          - task-13
+      - id: task-15
+        title: Generator Integration & CLI
+        file: agent/tasks/milestone-5-ai-effect-director/task-15-generator-cli.md
+        status: not_started
+        estimated_hours: 2
+        started: null
+        actual_hours: null
+        dependencies:
+          - task-14
+
 documentation:
-  design_documents: 1
-  milestone_documents: 4
+  design_documents: 2
+  milestone_documents: 5
   pattern_documents: 0
-  task_documents: 11
+  task_documents: 15
 
 progress:
   planning: 100
-  implementation: 82
-  overall: 82
+  implementation: 60
+  overall: 60
 
 recent_work:
   - date: 2026-03-23
-    description: "M3 complete — 6 effect presets, intensity mapping (linear/exp/log), section detection, smooth spline curves, overshoot. 9/11 tasks done."
+    description: "M5 planned — AI Effect Director with 4 tasks. Design doc from clarification. M1-M3 complete (9/15 tasks)."
 
 next_steps:
-  - "Start M4: Task 10 — Resolve Script Packaging"
-  - "Test section-aware generation in DaVinci Resolve"
+  - "Start M5: Task 12 — Spectral Features"
+  - "Task 13 (LLM Provider) can start in parallel with Task 12"
+  - "M4 (Resolve integration) deferred as nice-to-have"
 
 notes:
-  - "Total estimated: ~30 hours across 11 tasks"
-  - "MVP (M1+M2) estimated: ~16 hours across 6 tasks"
-  - "Task 4 has no dependency on M1 — can be done in parallel"
+  - "Total estimated: ~40 hours across 15 tasks"
+  - "MVP (M1+M2) complete"
+  - "M4 (Resolve integration) deferred — nice-to-have"
+  - "M5 requires anthropic SDK as optional dependency"
 
 current_blockers: []

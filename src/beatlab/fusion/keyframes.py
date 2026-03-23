@@ -43,7 +43,7 @@ class Keyframe:
         if flags:
             parts.append(flags)
 
-        return f"[{self.frame}] = {{ {', '.join(parts)}, }}"
+        return f"[{self.frame}] = {{ {', '.join(parts)}, }},"
 
 
 @dataclass

@@ -66,7 +66,7 @@ def create_beat_map(
     ]
 
     result = {
-        "version": "1.1" if has_sections else "1.0",
+        "version": "1.2" if (has_sections and any("spectral" in s for s in sections)) else ("1.1" if has_sections else "1.0"),
         "source_file": str(Path(source_file).name),
         "duration": analysis["duration"],
         "tempo": analysis["tempo"],
@@ -84,6 +84,7 @@ def create_beat_map(
                 "end_frame": time_to_frame(s["end_time"], fps),
                 "type": s["type"],
                 "label": s["label"],
+                **({"spectral": s["spectral"]} if "spectral" in s else {}),
             }
             for s in sections
         ]

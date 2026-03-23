@@ -160,44 +160,50 @@ milestones:
   - id: M5
     title: AI Effect Director
     file: agent/milestones/milestone-5-ai-effect-director.md
-    status: not_started
+    status: completed
+    started: 2026-03-23
+    completed: 2026-03-23
     estimated_weeks: 1.5
     tasks_total: 4
-    tasks_completed: 0
+    tasks_completed: 4
     tasks:
       - id: task-12
         title: Spectral Features
         file: agent/tasks/milestone-5-ai-effect-director/task-12-spectral-features.md
-        status: not_started
+        status: completed
         estimated_hours: 2
-        started: null
-        actual_hours: null
+        started: 2026-03-23T21:30:00Z
+        completed_date: 2026-03-23T21:40:00Z
+        actual_hours: 0.2
         dependencies:
           - task-8
       - id: task-13
         title: LLM Provider & Effect Plan
         file: agent/tasks/milestone-5-ai-effect-director/task-13-llm-provider.md
-        status: not_started
+        status: completed
         estimated_hours: 3
-        started: null
-        actual_hours: null
+        started: 2026-03-23T21:30:00Z
+        completed_date: 2026-03-23T21:45:00Z
+        actual_hours: 0.3
       - id: task-14
         title: AI Director & Prompt
         file: agent/tasks/milestone-5-ai-effect-director/task-14-ai-director.md
-        status: not_started
+        status: completed
         estimated_hours: 3
-        started: null
-        actual_hours: null
+        started: 2026-03-23T21:30:00Z
+        completed_date: 2026-03-23T21:45:00Z
+        actual_hours: 0.3
         dependencies:
           - task-12
           - task-13
       - id: task-15
         title: Generator Integration & CLI
         file: agent/tasks/milestone-5-ai-effect-director/task-15-generator-cli.md
-        status: not_started
+        status: completed
         estimated_hours: 2
-        started: null
-        actual_hours: null
+        started: 2026-03-23T21:45:00Z
+        completed_date: 2026-03-23T21:55:00Z
+        actual_hours: 0.2
         dependencies:
           - task-14
 
@@ -209,17 +215,17 @@ documentation:
 
 progress:
   planning: 100
-  implementation: 60
-  overall: 60
+  implementation: 87
+  overall: 87
 
 recent_work:
   - date: 2026-03-23
-    description: "M5 planned — AI Effect Director with 4 tasks. Design doc from clarification. M1-M3 complete (9/15 tasks)."
+    description: "M5 complete — AI Effect Director with --ai and --prompt flags. 13/15 tasks done. Also fixed .setting trailing commas and intensity floor."
 
 next_steps:
-  - "Start M5: Task 12 — Spectral Features"
-  - "Task 13 (LLM Provider) can start in parallel with Task 12"
-  - "M4 (Resolve integration) deferred as nice-to-have"
+  - "Test --ai flag with ANTHROPIC_API_KEY on real audio"
+  - "Test .setting import in Resolve (comma fix)"
+  - "M4 (Resolve integration) available if desired"
 
 notes:
   - "Total estimated: ~40 hours across 15 tasks"

@@ -36,15 +36,50 @@ def load_audio(path: str, sr: int = 22050) -> tuple[np.ndarray, int]:
     return y, sr_out
 
 
+def _compute_spectral_features(
+    y: np.ndarray, sr: int, start_sample: int, end_sample: int,
+) -> dict[str, float]:
+    """Compute spectral features for a segment of audio."""
+    segment = y[start_sample:end_sample]
+    if len(segment) == 0:
+        return {"centroid": 0.0, "rms_energy": 0.0, "rolloff": 0.0, "contrast": 0.0}
+
+    centroid = librosa.feature.spectral_centroid(y=segment, sr=sr)
+    rms = librosa.feature.rms(y=segment)
+    rolloff = librosa.feature.spectral_rolloff(y=segment, sr=sr)
+    contrast = librosa.feature.spectral_contrast(y=segment, sr=sr)
+
+    return {
+        "centroid": float(np.mean(centroid)),
+        "rms_energy": float(np.mean(rms)),
+        "rolloff": float(np.mean(rolloff)),
+        "contrast": float(np.mean(contrast)),
+    }
+
+
+def _normalize_spectral(sections: list[dict]) -> None:
+    """Normalize spectral features across all sections to 0.0-1.0 range in-place."""
+    if not sections or "spectral" not in sections[0]:
+        return
+
+    for key in ("centroid", "rms_energy", "rolloff", "contrast"):
+        values = [s["spectral"][key] for s in sections]
+        vmin, vmax = min(values), max(values)
+        rng = vmax - vmin
+        for s in sections:
+            s["spectral"][key] = (s["spectral"][key] - vmin) / rng if rng > 0 else 0.0
+
+
 def detect_sections(
     y: np.ndarray, sr: int, hop_length: int = 512, segment_duration: float = 4.0,
 ) -> list[dict]:
-    """Detect musical sections using RMS energy thresholding.
+    """Detect musical sections using RMS energy thresholding with spectral features.
 
-    Divides audio into fixed-length segments, computes average RMS energy,
-    and classifies each as low_energy, mid_energy, or high_energy.
+    Divides audio into fixed-length segments, computes average RMS energy and spectral
+    features, classifies each as low_energy, mid_energy, or high_energy, and merges
+    consecutive segments with the same classification.
 
-    Returns list of dicts: {start_time, end_time, type, label}
+    Returns list of dicts with: start_time, end_time, type, label, spectral
     """
     rms = librosa.feature.rms(y=y, hop_length=hop_length)[0]
     duration = librosa.get_duration(y=y, sr=sr)
@@ -63,7 +98,18 @@ def detect_sections(
         avg_energy = float(np.mean(seg_rms))
         start_time = start_idx / frames_per_sec
         end_time = min(end_idx / frames_per_sec, duration)
-        segments.append({"start_time": start_time, "end_time": end_time, "energy": avg_energy})
+
+        # Compute spectral features for this segment
+        start_sample = int(start_time * sr)
+        end_sample = min(int(end_time * sr), len(y))
+        spectral = _compute_spectral_features(y, sr, start_sample, end_sample)
+
+        segments.append({
+            "start_time": start_time,
+            "end_time": end_time,
+            "energy": avg_energy,
+            "spectral": spectral,
+        })
 
     if not segments:
         return []
@@ -90,15 +136,30 @@ def detect_sections(
             stype = "high_energy"
 
         if classified and classified[-1]["type"] == stype:
-            # Extend previous section
-            classified[-1]["end_time"] = seg["end_time"]
+            # Extend previous section — average the spectral features
+            prev = classified[-1]
+            prev["end_time"] = seg["end_time"]
+            prev["_seg_count"] += 1
+            n = prev["_seg_count"]
+            for key in ("centroid", "rms_energy", "rolloff", "contrast"):
+                prev["spectral"][key] = (
+                    prev["spectral"][key] * (n - 1) + seg["spectral"][key]
+                ) / n
         else:
             classified.append({
                 "start_time": seg["start_time"],
                 "end_time": seg["end_time"],
                 "type": stype,
                 "label": LABELS[stype],
+                "spectral": dict(seg["spectral"]),
+                "_seg_count": 1,
             })
+
+    # Clean up internal field and normalize spectral features
+    for s in classified:
+        del s["_seg_count"]
+
+    _normalize_spectral(classified)
 
     return classified
 
@@ -112,7 +173,7 @@ def analyze_audio(path: str, sr: int = 22050, detect_sections_flag: bool = False
         sample_rate: int
         beats: list of {time: float, intensity: float}
         onsets: list of {time: float, strength: float}
-        sections: list of {start_time, end_time, type, label} (if detect_sections_flag)
+        sections: list of {start_time, end_time, type, label, spectral} (if detect_sections_flag)
     """
     y, sr_out = load_audio(path, sr=sr)
     duration = librosa.get_duration(y=y, sr=sr_out)
@@ -125,11 +186,13 @@ def analyze_audio(path: str, sr: int = 22050, detect_sections_flag: bool = False
     onset_env = librosa.onset.onset_strength(y=y, sr=sr_out)
 
     # Sample onset envelope at beat positions and normalize
+    # Floor of 0.2 ensures even quiet beats produce visible effects
     beat_strengths = onset_env[beat_frames] if len(beat_frames) > 0 else np.array([])
     if len(beat_strengths) > 0 and beat_strengths.max() > 0:
-        beat_intensities = (beat_strengths - beat_strengths.min()) / (
+        normalized = (beat_strengths - beat_strengths.min()) / (
             beat_strengths.max() - beat_strengths.min()
         )
+        beat_intensities = 0.2 + 0.8 * normalized  # range: 0.2 to 1.0
     else:
         beat_intensities = beat_strengths
 

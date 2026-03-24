@@ -44,16 +44,19 @@ def apply_effects(
     clip = VideoFileClip(video_path)
     video_fps = fps or clip.fps
 
-    # Build beat lookup: time → intensity
+    # Build beat lookup: time → intensity, downbeat flag
     beat_times = []
     beat_intensities = []
+    beat_is_downbeat = []
     for b in beat_map.get("beats", []):
         if b.get("intensity", 0) > 0:
             beat_times.append(b["time"])
             beat_intensities.append(b["intensity"])
+            beat_is_downbeat.append(b.get("downbeat", False))
 
     beat_times = np.array(beat_times)
     beat_intensities = np.array(beat_intensities)
+    beat_is_downbeat = np.array(beat_is_downbeat)
 
     # Build section lookup: time → section index
     sections = beat_map.get("sections", [])
@@ -88,8 +91,11 @@ def apply_effects(
                 return i
         return 0
 
-    def get_beat_intensity(t: float, attack: float = 0.08, release: float = 0.2) -> float:
-        """Get the beat effect intensity at time t, with attack/release envelope."""
+    def get_beat_intensity(t: float) -> float:
+        """Get the beat effect intensity at time t, with attack/release envelope.
+
+        Downbeats get snappier attack and longer release for more punch.
+        """
         if len(beat_times) == 0:
             return 0.0
 
@@ -100,7 +106,12 @@ def apply_effects(
 
         beat_t = beat_times[idx]
         beat_i = beat_intensities[idx]
+        is_db = beat_is_downbeat[idx] if idx < len(beat_is_downbeat) else False
         dt = t - beat_t
+
+        # Downbeats: snappy attack, longer sustain
+        attack = 0.03 if is_db else 0.08
+        release = 0.3 if is_db else 0.2
 
         if dt < 0:
             return 0.0

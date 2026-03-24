@@ -178,81 +178,64 @@ def analyze_audio(path: str, sr: int = 22050, detect_sections_flag: bool = False
     y, sr_out = load_audio(path, sr=sr)
     duration = librosa.get_duration(y=y, sr=sr_out)
 
-    # Beat tracking — BPM grid anchored to percussion
+    # Beat tracking — beat_this (SOTA neural beat/downbeat tracker)
     hop_length = 512
-
-    # Separate percussive component for beat tracking
-    # This isolates kicks, snares, hi-hats from melodic content
-    y_harmonic, y_percussive = librosa.effects.hpss(y)
-
-    # Use percussive onset envelope for beat detection and intensity
-    perc_env = librosa.onset.onset_strength(y=y_percussive, sr=sr_out, hop_length=hop_length)
-    # Full onset envelope still used for general onset detection
     onset_env = librosa.onset.onset_strength(y=y, sr=sr_out, hop_length=hop_length)
 
-    # Estimate tempo from percussive signal (more accurate for rhythmic music)
-    tempo, beat_frames = librosa.beat.beat_track(
-        y=y_percussive, sr=sr_out, hop_length=hop_length, onset_envelope=perc_env,
-    )
-    tempo_val = float(tempo) if np.ndim(tempo) == 0 else float(tempo[0])
+    try:
+        from beat_this.inference import File2Beats
+        f2b = File2Beats(device='cpu')
+        beat_times_arr, downbeat_times_arr = f2b(path)
 
-    # Generate a perfect metronome grid from the detected BPM
-    beat_interval = 60.0 / tempo_val  # seconds per beat
+        # Estimate tempo from beat intervals
+        if len(beat_times_arr) >= 2:
+            intervals = np.diff(beat_times_arr)
+            median_interval = float(np.median(intervals))
+            tempo_val = 60.0 / median_interval if median_interval > 0 else 120.0
+        else:
+            tempo_val = 120.0
 
-    # Find the best grid anchor: strongest PERCUSSIVE onset in the first few beats
-    search_window = beat_interval * 4
-    perc_onset_frames = librosa.onset.onset_detect(
-        y=y_percussive, sr=sr_out, hop_length=hop_length, onset_envelope=perc_env,
-    )
-    perc_onset_times = librosa.frames_to_time(perc_onset_frames, sr=sr_out, hop_length=hop_length)
+        # Build beat list with intensity from onset envelope + downbeat flag
+        # Downbeats get full intensity (1.0), regular beats get scaled by onset strength
+        max_env_idx = len(onset_env) - 1
+        downbeat_set = set(float(round(t, 3)) for t in downbeat_times_arr)
 
-    early_mask = perc_onset_times < search_window
-    if np.any(early_mask):
-        early_onsets = perc_onset_frames[early_mask]
-        early_strengths = perc_env[np.clip(early_onsets, 0, len(perc_env) - 1)]
-        strongest_idx = np.argmax(early_strengths)
-        first_beat_time = float(perc_onset_times[early_mask][strongest_idx])
-    elif len(beat_frames) > 0:
-        first_beat_time = float(librosa.frames_to_time(beat_frames[0], sr=sr_out, hop_length=hop_length))
-    else:
-        first_beat_time = 0.0
-
-    # Build grid: extend backward from first beat to time 0, then forward to end
-    grid_times = []
-    t = first_beat_time
-    while t >= 0:
-        grid_times.insert(0, t)
-        t -= beat_interval
-    t = first_beat_time + beat_interval
-    while t < duration:
-        grid_times.append(t)
-        t += beat_interval
-    beat_times = np.array(grid_times)
-
-    # Sample PERCUSSIVE onset envelope at grid positions for intensity
-    # (how hard the drums hit at each beat position, not vocals/synths)
-    max_perc_idx = len(perc_env) - 1
-    max_env_idx = len(onset_env) - 1
-    beat_env_frames = np.clip(
-        librosa.time_to_frames(beat_times, sr=sr_out, hop_length=hop_length),
-        0, max_perc_idx,
-    )
-    beat_strengths = perc_env[beat_env_frames]
-
-    if len(beat_strengths) > 0 and beat_strengths.max() > 0:
-        normalized = (beat_strengths - beat_strengths.min()) / (
-            beat_strengths.max() - beat_strengths.min()
+        beat_env_frames = np.clip(
+            librosa.time_to_frames(beat_times_arr, sr=sr_out, hop_length=hop_length),
+            0, max_env_idx,
         )
-        beat_intensities = 0.2 + 0.8 * normalized  # range: 0.2 to 1.0
-    else:
-        beat_intensities = np.zeros_like(beat_times)
+        beat_strengths = onset_env[beat_env_frames]
 
-    beats = [
-        {"time": float(t), "intensity": float(i)}
-        for t, i in zip(beat_times, beat_intensities)
-    ]
+        if len(beat_strengths) > 0 and beat_strengths.max() > 0:
+            normalized = (beat_strengths - beat_strengths.min()) / (
+                beat_strengths.max() - beat_strengths.min()
+            )
+            beat_intensities = 0.2 + 0.8 * normalized
+        else:
+            beat_intensities = np.full_like(beat_times_arr, 0.5)
 
-    # Onset detection (for onset data in beat map, not used for beat timing)
+        beats = []
+        for t, intensity in zip(beat_times_arr, beat_intensities):
+            is_downbeat = round(float(t), 3) in downbeat_set
+            # Boost downbeats — these are the "1" of each measure
+            final_intensity = min(1.0, float(intensity) * 1.3) if is_downbeat else float(intensity)
+            beats.append({
+                "time": float(t),
+                "intensity": final_intensity,
+                "downbeat": is_downbeat,
+            })
+
+    except Exception as e:
+        # Fallback to librosa if beat_this fails
+        import sys
+        print(f"[beat_this failed: {e}, falling back to librosa]", file=sys.stderr)
+        tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr_out, hop_length=hop_length)
+        tempo_val = float(tempo) if np.ndim(tempo) == 0 else float(tempo[0])
+        beat_times_arr = librosa.frames_to_time(beat_frames, sr=sr_out, hop_length=hop_length)
+        beats = [{"time": float(t), "intensity": 0.5} for t in beat_times_arr]
+
+    # Onset detection (for onset data in beat map)
+    max_env_idx = len(onset_env) - 1
     onset_frames_arr = librosa.onset.onset_detect(
         y=y, sr=sr_out, hop_length=hop_length, onset_envelope=onset_env, backtrack=True,
     )

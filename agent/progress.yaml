@@ -297,30 +297,66 @@ milestones:
         dependencies:
           - task-21
 
+  - id: M8
+    title: EbSynth Hybrid Temporal Coherence
+    file: agent/milestones/milestone-8-ebsynth-coherence.md
+    status: not_started
+    estimated_weeks: 1
+    tasks_total: 3
+    tasks_completed: 0
+    tasks:
+      - id: task-23
+        title: Keyframe Selection
+        file: agent/tasks/milestone-8-ebsynth-coherence/task-23-keyframe-selection.md
+        status: not_started
+        estimated_hours: 2
+        started: null
+        actual_hours: null
+        dependencies:
+          - task-19
+      - id: task-24
+        title: EbSynth Integration
+        file: agent/tasks/milestone-8-ebsynth-coherence/task-24-ebsynth-integration.md
+        status: not_started
+        estimated_hours: 3
+        started: null
+        actual_hours: null
+        dependencies:
+          - task-23
+      - id: task-25
+        title: Pipeline Integration
+        file: agent/tasks/milestone-8-ebsynth-coherence/task-25-pipeline-integration.md
+        status: not_started
+        estimated_hours: 3
+        started: null
+        actual_hours: null
+        dependencies:
+          - task-24
+
 documentation:
-  design_documents: 2
-  milestone_documents: 7
+  design_documents: 3
+  milestone_documents: 8
   pattern_documents: 0
-  task_documents: 22
+  task_documents: 25
 
 progress:
   planning: 100
-  implementation: 91
-  overall: 91
+  implementation: 80
+  overall: 80
 
 recent_work:
   - date: 2026-03-24
-    description: "M7 complete — AI video stylization pipeline. Frame extraction, ComfyUI SD render, Vast.ai cloud GPU, beatlab render CLI. 20/22 tasks done."
+    description: "M8 planned — EbSynth hybrid temporal coherence. 3 tasks for keyframe selection, EbSynth integration, pipeline rewrite."
 
 next_steps:
-  - "Test beatlab render with a real video + Vast.ai"
-  - "Push all commits"
-  - "M4 (Resolve integration) still available if desired"
+  - "Start M8: Task 23 — Keyframe Selection"
+  - "Test current per-frame render on sample clip"
+  - "Evaluate flicker before/after EbSynth"
 
 notes:
-  - "Total estimated: ~62 hours across 22 tasks"
-  - "M1-M3, M5-M7 complete (20/22 tasks)"
-  - "M4 (Resolve integration) deferred — nice-to-have"
-  - "M7 requires: Vast.ai API key, ffmpeg, ~$3 per 30min video"
+  - "Total estimated: ~70 hours across 25 tasks"
+  - "M1-M3, M5-M7 complete (20/25 tasks)"
+  - "M4 (Resolve integration) deferred"
+  - "M8 replaces per-frame render with 10-20x faster keyframe+EbSynth approach"
 
 current_blockers: []

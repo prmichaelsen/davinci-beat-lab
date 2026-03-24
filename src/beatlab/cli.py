@@ -216,13 +216,14 @@ def run(
 @click.option("--vertex/--no-vertex", default=False, help="Use Vertex AI instead of AI Studio (higher rate limits, requires GCP project)")
 @click.option("--audio-prompt/--no-audio-prompt", default=False, help="Include audio descriptions in Veo video generation prompts")
 @click.option("--motion", default=None, type=str, help="Camera/motion direction for Veo (e.g. 'forward dolly through void, warp speed')")
+@click.option("--plan-patch", default=None, type=click.Path(exists=True), help="Patch JSON to merge into cached plan — only re-renders changed sections")
 def render(
     video_file: str, beats: str | None, fps: float | None, style: str,
     ai: bool, prompt: str | None, output: str, base_denoise: float,
     beat_denoise: float, model: str, local_comfyui: str | None,
     sr: int, dry_run: bool, destroy: bool, fresh: bool, work_dir: str,
     engine: str, preview: bool, describe: str | None, vertex: bool,
-    audio_prompt: bool, motion: str | None,
+    audio_prompt: bool, motion: str | None, plan_patch: str | None,
 ):
     """Render AI-stylized video: extract frames → SD img2img → reassemble.
 
@@ -333,6 +334,44 @@ def render(
             for sp in plan.sections:
                 if sp.style_prompt:
                     section_styles[sp.section_index] = sp.style_prompt
+
+    # ── Step 3.5: Apply plan patch if provided ──
+    changed_indices: list[int] = []
+    if plan_patch:
+        from beatlab.render.patcher import load_patch, merge_plan, detect_stale_outputs, save_plan
+
+        _log(f"  Applying plan patch: {plan_patch}")
+        patch = load_patch(plan_patch)
+
+        # Load current cached plan
+        if work.has_plan():
+            base_plan = work.load_plan()
+        else:
+            _log("  ERROR: No cached plan to patch. Run without --plan-patch first.")
+            return
+
+        merged, changed_indices = merge_plan(base_plan, patch)
+        _log(f"  Patched {len(changed_indices)} sections: {changed_indices}")
+
+        # Save merged plan
+        save_plan(merged, str(work.root / "plan.json"))
+
+        # Delete stale outputs for changed sections
+        stale = detect_stale_outputs(str(work.root), changed_indices)
+        if stale:
+            _log(f"  Deleting {len(stale)} stale outputs...")
+            for f in stale:
+                Path(f).unlink(missing_ok=True)
+
+        # Re-parse the merged plan
+        from beatlab.ai.plan import parse_effect_plan
+        plan = parse_effect_plan(json.dumps(merged))
+
+        # Rebuild section styles from patched plan
+        section_styles = {}
+        for sp in plan.sections:
+            if sp.style_prompt:
+                section_styles[sp.section_index] = sp.style_prompt
 
     if not section_styles:
         # Use --prompt as SD style if provided, otherwise fall back to --style
@@ -568,6 +607,38 @@ def render(
 
     _log(f"Done! Output: {output}")
     _log(f"  Work dir cached at: {work.root} (use --fresh to redo)")
+
+
+@main.command(name="make-patch")
+@click.argument("video_name", type=str)
+@click.argument("patch_file", type=click.Path())
+@click.option("--work-dir", default=".beatlab_work", type=str, help="Work directory")
+@click.option("--sections", "-s", type=str, help="Comma-separated section indices to include in patch")
+def make_patch(video_name: str, patch_file: str, work_dir: str, sections: str | None):
+    """Extract sections from a cached plan into a patch file for editing.
+
+    Example: beatlab make-patch beyond_the_veil patch_001.json -s 88,89,90,91
+    """
+    plan_path = Path(work_dir) / video_name / "plan.json"
+    if not plan_path.exists():
+        _log(f"No cached plan found at {plan_path}")
+        return
+
+    with open(plan_path) as f:
+        plan = json.load(f)
+
+    if sections:
+        indices = set(int(s.strip()) for s in sections.split(","))
+        patch_sections = [s for s in plan["sections"] if s["section_index"] in indices]
+    else:
+        patch_sections = plan["sections"]
+
+    patch = {"sections": patch_sections}
+    with open(patch_file, "w") as f:
+        json.dump(patch, f, indent=2)
+
+    _log(f"Extracted {len(patch_sections)} sections to {patch_file}")
+    _log(f"Edit the file, then run: beatlab render <video> --plan-patch {patch_file}")
 
 
 @main.command(name="destroy-gpu")

@@ -211,12 +211,13 @@ def run(
 @click.option("--work-dir", default=".beatlab_work", type=str, help="Work directory for caching (default: .beatlab_work)")
 @click.option("--engine", default="ebsynth", type=click.Choice(["ebsynth", "wan"]), help="Render engine (default: ebsynth)")
 @click.option("--preview/--no-preview", default=False, help="Render at 512x512 for fast preview (Wan2.1 only)")
+@click.option("--describe", default=None, is_flag=False, flag_value="generate", help="Describe sections with Gemini. Pass a .md file to reuse existing descriptions.")
 def render(
     video_file: str, beats: str | None, fps: float | None, style: str,
     ai: bool, prompt: str | None, output: str, base_denoise: float,
     beat_denoise: float, model: str, local_comfyui: str | None,
     sr: int, dry_run: bool, destroy: bool, fresh: bool, work_dir: str,
-    engine: str, preview: bool,
+    engine: str, preview: bool, describe: str | None,
 ):
     """Render AI-stylized video: extract frames → SD img2img → reassemble.
 
@@ -278,8 +279,22 @@ def render(
         f"Sections: {len(beat_map.get('sections', []))}"
         )
 
+    # ── Step 2.5: Audio descriptions (optional) ──
+    audio_descriptions = None
+    if describe and beat_map.get("sections"):
+        if describe != "generate" and describe.endswith(".md"):
+            audio_descriptions = _load_descriptions(describe, len(beat_map["sections"]))
+        elif work.has_audio():
+            audio_descriptions = _describe_sections(str(work.audio_path), sr, beat_map["sections"])
+        else:
+            # Extract audio first if needed
+            _log("  Extracting audio for descriptions...")
+            extract_audio(video_file, str(work.audio_path), sr=sr)
+            audio_descriptions = _describe_sections(str(work.audio_path), sr, beat_map["sections"])
+
     # ── Step 3: AI effect plan ──
     section_styles: dict[int, str] = {}
+    plan = None
     if ai:
         if work.has_plan() and not fresh:
             _log("  AI plan: using cached")
@@ -287,7 +302,7 @@ def render(
             from beatlab.ai.plan import parse_effect_plan
             plan = parse_effect_plan(json.dumps(plan_data))
         else:
-            plan = _get_ai_plan(beat_map, prompt)
+            plan = _get_ai_plan(beat_map, prompt, audio_descriptions=audio_descriptions)
             if plan:
                 # Cache the plan
                 plan_dict = {

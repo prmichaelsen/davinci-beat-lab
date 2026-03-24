@@ -134,11 +134,15 @@ def render_kling_pipeline(
         prompt_parts.append("Smooth, flowing motion. The visual style gradually transforms.")
         prompt = " ".join(prompt_parts)
 
-        _log(f"  [{i+1}/{num_segments}] Segment {i}→{i+1}: {label_a}→{label_b} (10s)...")
+        # Match duration to section length (Kling supports 5 or 10)
+        sec_duration = sec_b.get("start_time", 0) - sec_a.get("start_time", 0)
+        duration = 5 if sec_duration <= 7 else 10
+
+        _log(f"  [{i+1}/{num_segments}] Segment {i}→{i+1}: {label_a}→{label_b} ({duration}s, span={sec_duration:.1f}s)...")
         try:
             kling_client.generate_segment(
                 styled_paths[i], styled_paths[i + 1], prompt, seg_path,
-                duration=10,
+                duration=duration,
             )
         except Exception as e:
             _log(f"  [{i+1}/{num_segments}] FAILED: {e}")

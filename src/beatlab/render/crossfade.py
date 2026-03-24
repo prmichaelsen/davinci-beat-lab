@@ -184,7 +184,12 @@ def burn_section_labels(
 
     for seg_path, idx in zip(segment_paths, section_indices):
         out_path = str(Path(output_dir) / f"labeled_{idx:03d}.mp4")
-        # Escape colons in text for ffmpeg drawtext
+
+        # Skip if already labeled and source hasn't changed
+        if Path(out_path).exists() and Path(out_path).stat().st_mtime >= Path(seg_path).stat().st_mtime:
+            labeled.append(out_path)
+            continue
+
         text = f"Section {idx}"
         drawtext = (
             f"drawtext=text='{text}'"

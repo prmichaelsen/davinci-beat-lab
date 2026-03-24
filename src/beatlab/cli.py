@@ -76,12 +76,12 @@ def list_presets():
 @click.option("--overshoot/--no-overshoot", default=False, help="Add overshoot bounce to zoom effects")
 @click.option("--ai/--no-ai", default=False, help="Use AI to select effects per section (requires ANTHROPIC_API_KEY)")
 @click.option("--prompt", default=None, type=str, help="Creative direction for AI mode (e.g. 'cinematic with hard drops')")
-@click.option("--describe/--no-describe", default=False, help="Use Qwen2-Audio to describe sections (requires GPU)")
+@click.option("--describe", default=None, is_flag=False, flag_value="generate", help="Describe sections with Gemini. Pass a .md file to reuse existing descriptions.")
 def generate(
     beats_json: str, output: str, effect: str | None, preset: str | None,
     attack: int | None, release: int | None, intensity_curve: str,
     section_mode: bool, overshoot: bool, ai: bool, prompt: str | None,
-    describe: bool,
+    describe: str | None,
 ):
     """Generate a Fusion .setting file from a beat map JSON."""
     from beatlab.beat_map import load_beat_map
@@ -126,13 +126,13 @@ def generate(
 @click.option("--overshoot/--no-overshoot", default=False, help="Add overshoot bounce to zoom effects")
 @click.option("--ai/--no-ai", default=False, help="Use AI to select effects per section (requires ANTHROPIC_API_KEY)")
 @click.option("--prompt", default=None, type=str, help="Creative direction for AI mode")
-@click.option("--describe/--no-describe", default=False, help="Use Qwen2-Audio to describe sections (requires GPU)")
+@click.option("--describe", default=None, is_flag=False, flag_value="generate", help="Describe sections with Gemini. Pass a .md file to reuse existing descriptions.")
 def run(
     audio_file: str, fps: float, output: str, effect: str | None,
     preset: str | None, attack: int | None, release: int | None,
     sr: int, beats_out: str | None, intensity_curve: str,
     section_mode: bool, overshoot: bool, ai: bool, prompt: str | None,
-    describe: bool,
+    describe: str | None,
 ):
     """Full pipeline: audio file → beat analysis → Fusion .setting file."""
     from beatlab.analyzer import analyze_audio
@@ -140,7 +140,7 @@ def run(
     from beatlab.generator import generate_comp
 
     # AI or describe mode always needs sections
-    detect_sections = section_mode or ai or describe
+    detect_sections = section_mode or ai or (describe is not None)
     click.echo(f"Analyzing: {audio_file}", err=True)
     analysis = analyze_audio(audio_file, sr=sr, detect_sections_flag=detect_sections)
     click.echo(
@@ -158,10 +158,13 @@ def run(
         save_beat_map(beat_map, beats_out)
         click.echo(f"  Beat map saved to: {beats_out}", err=True)
 
-    # Audio description via Qwen2-Audio
+    # Audio descriptions — generate fresh or load from file
     audio_descriptions = None
     if describe and "sections" in analysis:
-        audio_descriptions = _describe_sections(audio_file, sr, analysis["sections"])
+        if describe != "generate" and describe.endswith(".md"):
+            audio_descriptions = _load_descriptions(describe, len(analysis["sections"]))
+        else:
+            audio_descriptions = _describe_sections(audio_file, sr, analysis["sections"])
 
     plan = None
     if ai:
@@ -200,11 +203,12 @@ def run(
 @click.option("--local-comfyui", default=None, type=str, help="Local ComfyUI URL (e.g. http://localhost:8188)")
 @click.option("--sr", default=22050, type=int, help="Sample rate for analysis")
 @click.option("--dry-run/--no-dry-run", default=False, help="Show cost estimate without rendering")
+@click.option("--destroy/--keep-alive", default=False, help="Destroy instance after render (default: keep alive for reuse)")
 def render(
     video_file: str, beats: str | None, fps: float | None, style: str,
     ai: bool, prompt: str | None, output: str, base_denoise: float,
     beat_denoise: float, model: str, local_comfyui: str | None,
-    sr: int, dry_run: bool,
+    sr: int, dry_run: bool, destroy: bool,
 ):
     """Render AI-stylized video: extract frames → SD img2img → reassemble."""
     import tempfile
@@ -295,22 +299,19 @@ def render(
                     )
             else:
                 # Cloud GPU render
-                click.echo("  Provisioning cloud GPU (Vast.ai)...", err=True)
                 from beatlab.render.cloud import VastAIManager
                 vast = VastAIManager()
 
-                offer = vast.find_instance()
-                click.echo(
-                    f"  Found: {offer.get('gpu_name', '?')} "
-                    f"${offer.get('dph_total', '?')}/hr",
-                    err=True,
-                )
+                click.echo("  Looking for GPU instance...", err=True)
+                instance_id, reused = vast.get_or_create_instance()
 
-                instance_id = vast.create_instance(offer["id"])
-                try:
-                    click.echo("  Waiting for instance...", err=True)
+                if reused:
+                    click.echo(f"  Reusing running instance {instance_id}", err=True)
+                else:
+                    click.echo(f"  Created new instance {instance_id}, waiting for it to start...", err=True)
                     vast.wait_until_ready(instance_id)
 
+                try:
                     comfyui_url = vast.get_comfyui_url(instance_id)
                     click.echo(f"  ComfyUI at: {comfyui_url}", err=True)
 
@@ -332,15 +333,100 @@ def render(
 
                     click.echo("  Downloading results...", err=True)
                     vast.download_files(instance_id, "/workspace/output", styled_dir)
-                finally:
-                    click.echo("  Destroying cloud instance...", err=True)
-                    vast.destroy_instance(instance_id)
+
+                    if destroy:
+                        click.echo("  Destroying cloud instance...", err=True)
+                        vast.destroy_instance(instance_id)
+                    else:
+                        click.echo(
+                            f"  Instance {instance_id} kept alive for reuse. "
+                            f"Run 'beatlab destroy-gpu' to stop it.",
+                            err=True,
+                        )
+                except Exception:
+                    if not reused:
+                        click.echo("  Error occurred. Destroying new instance...", err=True)
+                        vast.destroy_instance(instance_id)
+                    raise
 
             # 8. Reassemble
             click.echo("  Reassembling video...", err=True)
             reassemble_video(styled_dir, output, actual_fps, audio_source=video_file)
 
     click.echo(f"Done! Output: {output}", err=True)
+
+
+@main.command(name="destroy-gpu")
+def destroy_gpu():
+    """Destroy the kept-alive Vast.ai GPU instance."""
+    from beatlab.render.cloud import _load_instance_state, VastAIManager
+
+    state = _load_instance_state()
+    if not state:
+        click.echo("No kept-alive instance found.", err=True)
+        return
+
+    instance_id = state["instance_id"]
+    click.echo(f"Destroying instance {instance_id} ({state.get('gpu_name', '?')})...", err=True)
+    try:
+        vast = VastAIManager()
+        vast.destroy_instance(instance_id)
+        click.echo("  Instance destroyed.", err=True)
+    except Exception as e:
+        click.echo(f"  Failed: {e}", err=True)
+        from beatlab.render.cloud import _clear_instance_state
+        _clear_instance_state()
+
+
+def _load_descriptions(md_path: str, num_sections: int) -> list[str]:
+    """Load audio descriptions from a previously generated markdown file."""
+    import re
+
+    click.echo(f"  Loading descriptions from: {md_path}", err=True)
+    with open(md_path) as f:
+        content = f.read()
+
+    # Parse sections: ## Section N ... or ## Sections N-M ...
+    # Everything between section headers is the description
+    parts = re.split(r"^## ", content, flags=re.MULTILINE)
+    descriptions_by_index: dict[int, str] = {}
+
+    for part in parts[1:]:  # skip content before first ##
+        lines = part.strip().split("\n")
+        header = lines[0]
+
+        # Extract section indices from header
+        range_match = re.match(r"Sections? (\d+)(?:-(\d+))?", header)
+        if not range_match:
+            continue
+
+        start_idx = int(range_match.group(1))
+        end_idx = int(range_match.group(2)) if range_match.group(2) else start_idx
+
+        # Description is everything after the **Time** line
+        desc_lines = []
+        past_time = False
+        for line in lines[1:]:
+            if line.startswith("**Time**"):
+                past_time = True
+                continue
+            if past_time and line.strip():
+                desc_lines.append(line.strip())
+        desc = "\n".join(desc_lines)
+
+        for i in range(start_idx, end_idx + 1):
+            descriptions_by_index[i] = desc
+
+    # Build ordered list, filling gaps
+    descriptions = []
+    last_desc = ""
+    for i in range(num_sections):
+        if i in descriptions_by_index:
+            last_desc = descriptions_by_index[i]
+        descriptions.append(last_desc)
+
+    click.echo(f"  Loaded {len(descriptions_by_index)} unique descriptions for {num_sections} sections", err=True)
+    return descriptions
 
 
 def _describe_sections(audio_file: str, sr: int, sections: list[dict]):

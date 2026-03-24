@@ -9,6 +9,35 @@ import time
 from pathlib import Path
 
 
+INSTANCE_STATE_FILE = Path.home() / ".beatlab" / "vast_instance.json"
+
+
+def _load_instance_state() -> dict | None:
+    """Load saved instance state from disk."""
+    if INSTANCE_STATE_FILE.exists():
+        with open(INSTANCE_STATE_FILE) as f:
+            return json.load(f)
+    return None
+
+
+def _save_instance_state(instance_id: str, gpu_name: str, price: float) -> None:
+    """Save instance state to disk for reuse."""
+    INSTANCE_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(INSTANCE_STATE_FILE, "w") as f:
+        json.dump({
+            "instance_id": instance_id,
+            "gpu_name": gpu_name,
+            "price": price,
+            "created_at": time.time(),
+        }, f)
+
+
+def _clear_instance_state() -> None:
+    """Remove saved instance state."""
+    if INSTANCE_STATE_FILE.exists():
+        INSTANCE_STATE_FILE.unlink()
+
+
 class VastAIManager:
     """Manages Vast.ai GPU instances for rendering."""
 
@@ -94,7 +123,7 @@ class VastAIManager:
             raise RuntimeError(f"Failed to create instance: {output}")
         return str(instance_id)
 
-    def wait_until_ready(self, instance_id: str, timeout: int = 600) -> dict:
+    def wait_until_ready(self, instance_id: str, timeout: int = 3600) -> dict:
         """Wait until instance is running. Returns instance info."""
         start = time.time()
         while time.time() - start < timeout:
@@ -133,9 +162,37 @@ class VastAIManager:
         ssh_host = info.get("ssh_host", "localhost")
         return f"http://{ssh_host}:8188"
 
+    def get_or_create_instance(self) -> tuple[str, bool]:
+        """Reuse a saved running instance or create a new one.
+
+        Returns (instance_id, was_reused).
+        """
+        state = _load_instance_state()
+        if state:
+            instance_id = state["instance_id"]
+            try:
+                output = self._vastai_cmd("show", "instance", instance_id, "--raw")
+                info = json.loads(output) if output.strip() else {}
+                if info.get("actual_status") == "running":
+                    return instance_id, True
+            except Exception:
+                pass
+            _clear_instance_state()
+
+        # No reusable instance — create new
+        offer = self.find_instance()
+        instance_id = self.create_instance(offer["id"])
+        _save_instance_state(
+            instance_id,
+            offer.get("gpu_name", "unknown"),
+            offer.get("dph_total", 0),
+        )
+        return instance_id, False
+
     def destroy_instance(self, instance_id: str) -> None:
-        """Destroy an instance."""
+        """Destroy an instance and clear saved state."""
         self._vastai_cmd("destroy", "instance", instance_id)
+        _clear_instance_state()
 
     def ssh_run(self, instance_id: str, command: str) -> str:
         """Run a command on the instance via SSH."""

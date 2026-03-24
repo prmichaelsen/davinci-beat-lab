@@ -21,6 +21,8 @@ class SectionPlan:
     attack_frames: int | None = None
     release_frames: int | None = None
     style_prompt: str | None = None  # SD style for video render mode
+    wan_denoise: float | None = None  # Wan2.1 denoising strength (0.0-1.0)
+    transition_frames: int | None = None  # FILM transition frames at section boundary (2-30)
 
 
 @dataclass
@@ -70,6 +72,8 @@ def parse_effect_plan(text: str) -> EffectPlan:
                 attack_frames=s.get("attack_frames"),
                 release_frames=s.get("release_frames"),
                 style_prompt=s.get("style_prompt"),
+                wan_denoise=s.get("wan_denoise"),
+                transition_frames=s.get("transition_frames"),
             ))
 
     return EffectPlan(sections=sections)
@@ -98,5 +102,17 @@ def validate_effect_plan(plan: EffectPlan) -> list[str]:
                         f"Section {sp.section_index}: custom effect {i} "
                         f"missing required key '{required_key}'"
                     )
+
+        if sp.wan_denoise is not None and not (0.0 <= sp.wan_denoise <= 1.0):
+            warnings.append(
+                f"Section {sp.section_index}: wan_denoise {sp.wan_denoise} "
+                f"out of range (expected 0.0-1.0)"
+            )
+
+        if sp.transition_frames is not None and not (1 <= sp.transition_frames <= 60):
+            warnings.append(
+                f"Section {sp.section_index}: transition_frames {sp.transition_frames} "
+                f"out of range (expected 1-60)"
+            )
 
     return warnings

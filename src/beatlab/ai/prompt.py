@@ -110,7 +110,9 @@ Respond with ONLY a JSON object (no markdown, no explanation). The JSON must fol
       "intensity_curve": "linear",
       "attack_frames": 2,
       "release_frames": 4,
-      "style_prompt": "dark ethereal watercolor, muted tones, cinematic"
+      "style_prompt": "dark ethereal watercolor, muted tones, cinematic",
+      "wan_denoise": 0.35,
+      "transition_frames": 15
     }}
   ]
 }}
@@ -135,6 +137,31 @@ Examples:
 - Drop: "intense chromatic aberration, glitch art, saturated electric colors"
 - Breakdown: "desaturated film grain, dark moody noir, minimal"
 - Buildup: "swirling abstract patterns, gradually intensifying colors"
+
+## Wan2.1 Video-to-Video (wan_denoise)
+
+ALWAYS include `wan_denoise` for every section. This controls how much Wan2.1 transforms the source video (0.0 = no change, 1.0 = completely reimagined).
+
+Guidelines:
+- Low energy / verse / intro: 0.3-0.4 (subtle transformation, preserves detail)
+- Mid energy / bridge: 0.4-0.5 (moderate stylization)
+- High energy / chorus: 0.5-0.6 (noticeable transformation)
+- Drop / climax: 0.6-0.7 (dramatic transformation)
+- Breakdown / ambient: 0.3-0.35 (minimal, atmospheric)
+
+Match wan_denoise to the audio description — if it describes "distorted bass" or "aggressive synths", go higher. If "soft pads" or "gentle melody", go lower.
+
+## FILM Transitions (transition_frames)
+
+ALWAYS include `transition_frames` for every section. This controls how many interpolated frames FILM generates at the boundary BEFORE this section (blending from the previous section's style into this one).
+
+Guidelines:
+- Hard drop after quiet section: 2-4 frames (abrupt style shift = impact)
+- Verse → chorus: 10-15 frames (smooth mood transition)
+- Similar sections: 6-8 frames (subtle smoothing)
+- Breakdown → buildup: 15-20 frames (gradual morph)
+- Buildup → drop: 2-3 frames (snap into new look)
+- First section: 0 (no transition before the first section)
 
 IMPORTANT: If there are many sections (>20), you may group consecutive sections of the same type into one entry by listing multiple section indices. Use "section_indices": [0, 1, 2] instead of "section_index" for grouped entries. This keeps the output compact."""
 

@@ -341,42 +341,52 @@ milestones:
   - id: M9
     title: Wan2.1 Video-to-Video + FILM Transitions
     file: agent/milestones/milestone-9-wan21-film-pipeline.md
-    status: not_started
+    status: completed
+    started: 2026-03-24
+    completed: 2026-03-24
     estimated_weeks: 2.5
     tasks_total: 4
-    tasks_completed: 0
+    tasks_completed: 4
     tasks:
       - id: task-26
         title: Wan2.1 ComfyUI Workflow
         file: agent/tasks/milestone-9-wan21-film-pipeline/task-26-wan21-workflow.md
-        status: not_started
+        status: completed
         estimated_hours: 4
-        started: null
+        started: 2026-03-24T06:00:00Z
+        completed_date: 2026-03-24T06:10:00Z
+        actual_hours: 0.2
         actual_hours: null
         dependencies:
           - task-20
       - id: task-27
         title: FILM Integration
         file: agent/tasks/milestone-9-wan21-film-pipeline/task-27-film-integration.md
-        status: not_started
+        status: completed
         estimated_hours: 3
-        started: null
+        started: 2026-03-24T06:10:00Z
+        completed_date: 2026-03-24T06:20:00Z
+        actual_hours: 0.2
         actual_hours: null
       - id: task-28
         title: Engine Selection & AI Plan
         file: agent/tasks/milestone-9-wan21-film-pipeline/task-28-engine-plan.md
-        status: not_started
+        status: completed
         estimated_hours: 2
-        started: null
+        started: 2026-03-24T06:20:00Z
+        completed_date: 2026-03-24T06:30:00Z
+        actual_hours: 0.2
         actual_hours: null
         dependencies:
           - task-22
       - id: task-29
         title: Wan Pipeline Assembly
         file: agent/tasks/milestone-9-wan21-film-pipeline/task-29-pipeline-assembly.md
-        status: not_started
+        status: completed
         estimated_hours: 4
-        started: null
+        started: 2026-03-24T06:30:00Z
+        completed_date: 2026-03-24T06:45:00Z
+        actual_hours: 0.3
         actual_hours: null
         dependencies:
           - task-26
@@ -396,17 +406,18 @@ progress:
 
 recent_work:
   - date: 2026-03-24
-    description: "M9 planned — Wan2.1 + FILM pipeline. 4 tasks, ~13 hours. Design from clarification-2."
+    description: "M9 complete — Wan2.1 + FILM pipeline. wan.py, film.py, wan_pipeline.py, --engine wan/--preview flags, AI plan wan_denoise/transition_frames."
 
 next_steps:
-  - "Start M9: Task 26 (Wan2.1 ComfyUI Workflow) and Task 27 (FILM Integration) can run in parallel"
-  - "Task 28 (Engine Selection) can also start in parallel"
+  - "Test Wan2.1 pipeline on sample clip with cloud GPU"
+  - "Compare EbSynth vs Wan2.1 output quality"
 
 notes:
   - "Total estimated: ~83 hours across 29 tasks"
-  - "M1-M3, M5-M8 complete (23/25 tasks)"
+  - "M1-M3, M5-M9 complete (27/29 tasks)"
   - "M4 (Resolve integration) deferred"
-  - "M9: Wan2.1 requires 24GB+ VRAM (cloud GPU)"
+  - "Wan2.1 requires 24GB+ VRAM (cloud GPU)"
   - "FILM runs between ALL clip boundaries (intra-section smoothing + inter-section style morphing)"
+  - "FILM falls back to ffmpeg minterpolate if torch not available"
 
 current_blockers: []

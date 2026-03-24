@@ -4,8 +4,15 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime
 
 import click
+
+
+def _log(msg: str, **kwargs) -> None:
+    """Print a timestamped log line to stderr."""
+    ts = datetime.now().strftime("%H:%M:%S")
+    click.echo(f"[{ts}] {msg}", err=True, **kwargs)
 
 
 EFFECT_CHOICES = click.Choice(["zoom", "flash", "glow", "all"])
@@ -30,23 +37,22 @@ def analyze(audio_file: str, fps: float, output: str | None, sr: int, sections: 
     from beatlab.analyzer import analyze_audio
     from beatlab.beat_map import create_beat_map, save_beat_map
 
-    click.echo(f"Analyzing: {audio_file}", err=True)
+    _log(f"Analyzing: {audio_file}")
     analysis = analyze_audio(audio_file, sr=sr, detect_sections_flag=sections)
-    click.echo(
+    _log(
         f"  Tempo: {analysis['tempo']:.1f} BPM | "
         f"Beats: {len(analysis['beats'])} | "
         f"Onsets: {len(analysis['onsets'])} | "
-        f"Duration: {analysis['duration']:.1f}s",
-        err=True,
+        f"Duration: {analysis['duration']:.1f}s"
     )
     if sections and "sections" in analysis:
-        click.echo(f"  Sections: {len(analysis['sections'])} detected", err=True)
+        _log(f"  Sections: {len(analysis['sections'])} detected")
 
     beat_map = create_beat_map(analysis, fps=fps, source_file=audio_file)
 
     if output:
         save_beat_map(beat_map, output)
-        click.echo(f"  Beat map written to: {output}", err=True)
+        _log(f"  Beat map written to: {output}")
     else:
         json.dump(beat_map, sys.stdout, indent=2)
         sys.stdout.write("\n")
@@ -94,12 +100,12 @@ def generate(
         plan = _get_ai_plan(beat_map, prompt)
 
     if plan:
-        click.echo("Generating Fusion comp from AI effect plan", err=True)
+        _log("Generating Fusion comp from AI effect plan")
         comp = generate_comp(beat_map, effect_plan=plan)
     else:
         preset_names = [p.strip() for p in preset.split(",")] if preset else None
         label = preset or effect or "zoom_pulse"
-        click.echo(f"Generating Fusion comp: {label}", err=True)
+        _log(f"Generating Fusion comp: {label}")
         comp = generate_comp(
             beat_map, effect=effect, preset_names=preset_names,
             attack_frames=attack, release_frames=release,
@@ -108,7 +114,7 @@ def generate(
         )
 
     comp.save(output)
-    click.echo(f"  Written to: {output}", err=True)
+    _log(f"  Written to: {output}")
 
 
 @main.command()
@@ -141,22 +147,21 @@ def run(
 
     # AI or describe mode always needs sections
     detect_sections = section_mode or ai or (describe is not None)
-    click.echo(f"Analyzing: {audio_file}", err=True)
+    _log(f"Analyzing: {audio_file}")
     analysis = analyze_audio(audio_file, sr=sr, detect_sections_flag=detect_sections)
-    click.echo(
+    _log(
         f"  Tempo: {analysis['tempo']:.1f} BPM | "
         f"Beats: {len(analysis['beats'])} | "
-        f"Duration: {analysis['duration']:.1f}s",
-        err=True,
-    )
+        f"Duration: {analysis['duration']:.1f}s"
+        )
     if detect_sections and "sections" in analysis:
-        click.echo(f"  Sections: {len(analysis['sections'])} detected", err=True)
+        _log(f"  Sections: {len(analysis['sections'])} detected")
 
     beat_map = create_beat_map(analysis, fps=fps, source_file=audio_file)
 
     if beats_out:
         save_beat_map(beat_map, beats_out)
-        click.echo(f"  Beat map saved to: {beats_out}", err=True)
+        _log(f"  Beat map saved to: {beats_out}")
 
     # Audio descriptions — generate fresh or load from file
     audio_descriptions = None
@@ -171,12 +176,12 @@ def run(
         plan = _get_ai_plan(beat_map, prompt, audio_descriptions=audio_descriptions)
 
     if plan:
-        click.echo("Generating Fusion comp from AI effect plan", err=True)
+        _log("Generating Fusion comp from AI effect plan")
         comp = generate_comp(beat_map, effect_plan=plan)
     else:
         preset_names = [p.strip() for p in preset.split(",")] if preset else None
         label = preset or effect or "zoom_pulse"
-        click.echo(f"Generating Fusion comp: {label}", err=True)
+        _log(f"Generating Fusion comp: {label}")
         comp = generate_comp(
             beat_map, effect=effect, preset_names=preset_names,
             attack_frames=attack, release_frames=release,
@@ -185,8 +190,8 @@ def run(
         )
 
     comp.save(output)
-    click.echo(f"  Fusion comp written to: {output}", err=True)
-    click.echo("Done! Import the .setting file into Resolve's Fusion page.", err=True)
+    _log(f"  Fusion comp written to: {output}")
+    _log("Done! Import the .setting file into Resolve's Fusion page.")
 
 
 @main.command()
@@ -206,11 +211,14 @@ def run(
 @click.option("--destroy/--keep-alive", default=False, help="Destroy instance after render (default: keep alive)")
 @click.option("--fresh/--resume", default=False, help="Wipe work dir and start fresh (default: resume)")
 @click.option("--work-dir", default=".beatlab_work", type=str, help="Work directory for caching (default: .beatlab_work)")
+@click.option("--engine", default="ebsynth", type=click.Choice(["ebsynth", "wan"]), help="Render engine (default: ebsynth)")
+@click.option("--preview/--no-preview", default=False, help="Render at 512x512 for fast preview (Wan2.1 only)")
 def render(
     video_file: str, beats: str | None, fps: float | None, style: str,
     ai: bool, prompt: str | None, output: str, base_denoise: float,
     beat_denoise: float, model: str, local_comfyui: str | None,
     sr: int, dry_run: bool, destroy: bool, fresh: bool, work_dir: str,
+    engine: str, preview: bool,
 ):
     """Render AI-stylized video: extract frames → SD img2img → reassemble.
 
@@ -230,17 +238,17 @@ def render(
     work = WorkDir(video_file, base_dir=work_dir)
     if fresh:
         work.clean()
-        click.echo("  Cleaned work directory.", err=True)
+        _log("  Cleaned work directory.")
 
-    click.echo(f"Video: {video_file}", err=True)
+    _log(f"Video: {video_file}")
 
     # Show cached state if resuming
     if not fresh and (work.has_beats() or work.has_frames()):
-        click.echo(f"  Resuming from cached state:\n  {work.summary()}", err=True)
+        _log(f"  Resuming from cached state:\n  {work.summary()}")
 
     # ── Step 1: Detect FPS ──
     video_fps = fps or detect_fps(video_file)
-    click.echo(f"  FPS: {video_fps:.2f}", err=True)
+    _log(f"  FPS: {video_fps:.2f}")
 
     # ── Step 2: Audio analysis → beat map ──
     if beats:
@@ -248,36 +256,35 @@ def render(
         beat_map = load_beat_map(beats)
         work.save_beats(beat_map)
     elif work.has_beats():
-        click.echo("  Beats: using cached", err=True)
+        _log("  Beats: using cached")
         beat_map = work.load_beats()
     else:
         if work.has_audio():
-            click.echo("  Audio: using cached", err=True)
+            _log("  Audio: using cached")
             audio_path = str(work.audio_path)
         else:
-            click.echo("  Extracting audio...", err=True)
+            _log("  Extracting audio...")
             extract_audio(video_file, str(work.audio_path), sr=sr)
             audio_path = str(work.audio_path)
 
         from beatlab.analyzer import analyze_audio
         from beatlab.beat_map import create_beat_map
-        click.echo("  Analyzing beats and sections...", err=True)
+        _log("  Analyzing beats and sections...")
         analysis = analyze_audio(audio_path, sr=sr, detect_sections_flag=True)
         beat_map = create_beat_map(analysis, fps=video_fps, source_file=video_file)
         work.save_beats(beat_map)
 
-    click.echo(
+    _log(
         f"  Tempo: {beat_map['tempo']:.1f} BPM | "
         f"Beats: {len(beat_map['beats'])} | "
-        f"Sections: {len(beat_map.get('sections', []))}",
-        err=True,
-    )
+        f"Sections: {len(beat_map.get('sections', []))}"
+        )
 
     # ── Step 3: AI effect plan ──
     section_styles: dict[int, str] = {}
     if ai:
         if work.has_plan() and not fresh:
-            click.echo("  AI plan: using cached", err=True)
+            _log("  AI plan: using cached")
             plan_data = work.load_plan()
             from beatlab.ai.plan import parse_effect_plan
             plan = parse_effect_plan(json.dumps(plan_data))
@@ -314,19 +321,51 @@ def render(
     frames_dir = work.ensure_frames_dir()
     if work.has_frames():
         frame_count = work.frame_count()
-        click.echo(f"  Frames: using {frame_count} cached", err=True)
+        _log(f"  Frames: using {frame_count} cached")
         actual_fps = video_fps
     else:
-        click.echo("  Extracting frames...", err=True)
+        _log("  Extracting frames...")
         frame_count, actual_fps = extract_frames(video_file, frames_dir, fps=fps)
-        click.echo(f"  Extracted {frame_count} frames", err=True)
+        _log(f"  Extracted {frame_count} frames")
 
-    # ── Step 5: Select keyframes ──
+    # ── Wan2.1 engine branch ──
+    if engine == "wan":
+        from beatlab.render.wan_pipeline import render_wan_pipeline
+
+        comfyui_url = local_comfyui or "127.0.0.1:8188"
+        host, port = comfyui_url.replace("http://", "").split(":")
+
+        def _wan_progress(stage, done, total):
+            _log(f"  [{stage}] {done}/{total}")
+
+        _log(f"  Wan2.1 engine: {'preview 512x512' if preview else 'full 1280x720'}")
+        result = render_wan_pipeline(
+            video_file=video_file,
+            beat_map=beat_map,
+            effect_plan=plan if ai else None,
+            work_dir=str(work.root),
+            comfyui_host=host,
+            comfyui_port=int(port),
+            fps=actual_fps,
+            preview=preview,
+            model=model,
+            default_style=prompt or style,
+            progress_callback=_wan_progress,
+        )
+
+        # Move to final output
+        import shutil
+        shutil.move(result, output)
+        work.save_status("complete", {"output": output, "engine": "wan"})
+        _log(f"Done! Output: {output}")
+        return
+
+    # ── Step 5: Select keyframes (EbSynth path) ──
     from beatlab.render.keyframe_selector import select_keyframes
     keyframes_path = work.root / "keyframes.json"
 
     if keyframes_path.exists() and not fresh:
-        click.echo("  Keyframes: using cached", err=True)
+        _log("  Keyframes: using cached")
         with open(keyframes_path) as f:
             keyframe_list = json.load(f)
     else:
@@ -339,25 +378,23 @@ def render(
         with open(str(keyframes_path), "w") as f:
             json.dump(keyframe_list, f, indent=2)
 
-    click.echo(
+    _log(
         f"  Keyframes: {len(keyframe_list)} selected "
-        f"({len(keyframe_list) * 100 // max(1, frame_count)}% of {frame_count} frames)",
-        err=True,
-    )
+        f"({len(keyframe_list) * 100 // max(1, frame_count)}% of {frame_count} frames)"
+        )
 
     # ── Step 6: Cost estimate (keyframes only) ──
     already_styled = work.styled_count()
     remaining_kf = max(0, len(keyframe_list) - already_styled)
     cost = estimate_cost(remaining_kf)
-    click.echo(
+    _log(
         f"  SD render: {remaining_kf} keyframes"
         + f", ~{cost['estimated_hours']:.2f}h, ~${cost['estimated_cost_usd']:.2f}"
-        + " + EbSynth propagation (fast, CPU)",
-        err=True,
-    )
+        + " + EbSynth propagation (fast, CPU)"
+        )
 
     if dry_run:
-        click.echo("\n  Dry run — no rendering performed.", err=True)
+        _log("\n  Dry run — no rendering performed.")
         return
 
     # ── Step 7: Render ──
@@ -368,7 +405,7 @@ def render(
         host, port = local_comfyui.replace("http://", "").split(":")
         client = ComfyUIClient(host=host, port=int(port))
 
-        click.echo(f"  Rendering via {local_comfyui}...", err=True)
+        _log(f"  Rendering via {local_comfyui}...")
         with click.progressbar(length=frame_count, label="  Rendering", file=sys.stderr) as bar:
             client.render_batch(
                 frame_params, frames_dir, styled_dir,
@@ -379,13 +416,13 @@ def render(
         from beatlab.render.cloud import VastAIManager
         vast = VastAIManager()
 
-        click.echo("  Looking for GPU instance...", err=True)
+        _log("  Looking for GPU instance...")
         instance_id, reused = vast.get_or_create_instance()
 
         if reused:
-            click.echo(f"  Reusing running instance {instance_id}", err=True)
+            _log(f"  Reusing running instance {instance_id}")
         else:
-            click.echo(f"  Created new instance {instance_id}, waiting for it to start...", err=True)
+            _log(f"  Created new instance {instance_id}, waiting for it to start...")
             vast.wait_until_ready(instance_id)
 
         try:
@@ -396,7 +433,7 @@ def render(
             # Upload v2 render script
             import beatlab.render.remote_script_v2 as rs
             script_path = rs.__file__
-            click.echo("  Uploading render script (v2 — keyframe + EbSynth)...", err=True)
+            _log("  Uploading render script (v2 — keyframe + EbSynth)...")
             vast.ssh_run(instance_id, "mkdir -p /workspace")
             host, port = vast.get_ssh_info(instance_id)
             ssh_opts = vast._ssh_opts(port)
@@ -409,15 +446,14 @@ def render(
 
             # Clean remote output from previous runs and upload frames + keyframes
             vast.ssh_run(instance_id, "rm -rf /workspace/output && mkdir -p /workspace/output")
-            click.echo(f"  Uploading {frame_count} frames + keyframes.json...", err=True)
+            _log(f"  Uploading {frame_count} frames + keyframes.json...")
             vast.upload_files(instance_id, frames_dir, "/workspace/input")
 
             # Run v2 render script (keyframe SD + EbSynth propagation)
-            click.echo(
+            _log(
                 f"  Phase 1: Rendering {len(keyframe_list)} keyframes on GPU...\n"
-                f"  Phase 2: EbSynth propagation to {frame_count} frames (CPU)...",
-                err=True,
-            )
+                f"  Phase 2: EbSynth propagation to {frame_count} frames (CPU)..."
+                )
 
             ssh_cmd = (
                 f'{ssh_opts} root@{host} '
@@ -429,40 +465,38 @@ def render(
                 text=True,
             )
             for line in proc.stdout:
-                click.echo(f"    {line.rstrip()}", err=True)
+                _log(f"    {line.rstrip()}")
             proc.wait()
             if proc.returncode != 0:
                 raise RuntimeError(f"Remote render failed with exit code {proc.returncode}")
 
             # Download results to work dir
-            click.echo("  Downloading styled frames...", err=True)
+            _log("  Downloading styled frames...")
             vast.download_files(instance_id, "/workspace/output", styled_dir)
 
             if destroy:
-                click.echo("  Destroying cloud instance...", err=True)
+                _log("  Destroying cloud instance...")
                 vast.destroy_instance(instance_id)
             else:
-                click.echo(
+                _log(
                     f"  Instance {instance_id} kept alive. "
-                    f"Run 'beatlab destroy-gpu' to stop it.",
-                    err=True,
-                )
+                    f"Run 'beatlab destroy-gpu' to stop it."
+                    )
         except Exception as e:
-            click.echo(
+            _log(
                 f"\n  Error: {e}\n"
                 f"  Instance {instance_id} kept alive — fix the issue and retry.\n"
-                f"  Run 'beatlab destroy-gpu' to stop it when done.",
-                err=True,
-            )
+                f"  Run 'beatlab destroy-gpu' to stop it when done."
+                )
             raise
 
     # ── Step 8: Reassemble ──
-    click.echo("  Reassembling video...", err=True)
+    _log("  Reassembling video...")
     reassemble_video(styled_dir, output, actual_fps, audio_source=video_file)
     work.save_status("complete", {"output": output})
 
-    click.echo(f"Done! Output: {output}", err=True)
-    click.echo(f"  Work dir cached at: {work.root} (use --fresh to redo)", err=True)
+    _log(f"Done! Output: {output}")
+    _log(f"  Work dir cached at: {work.root} (use --fresh to redo)")
 
 
 @main.command(name="destroy-gpu")
@@ -472,17 +506,17 @@ def destroy_gpu():
 
     state = _load_instance_state()
     if not state:
-        click.echo("No kept-alive instance found.", err=True)
+        _log("No kept-alive instance found.")
         return
 
     instance_id = state["instance_id"]
-    click.echo(f"Destroying instance {instance_id} ({state.get('gpu_name', '?')})...", err=True)
+    _log(f"Destroying instance {instance_id} ({state.get('gpu_name', '?')})...")
     try:
         vast = VastAIManager()
         vast.destroy_instance(instance_id)
-        click.echo("  Instance destroyed.", err=True)
+        _log("  Instance destroyed.")
     except Exception as e:
-        click.echo(f"  Failed: {e}", err=True)
+        _log(f"  Failed: {e}")
         from beatlab.render.cloud import _clear_instance_state
         _clear_instance_state()
 
@@ -491,7 +525,7 @@ def _load_descriptions(md_path: str, num_sections: int) -> list[str]:
     """Load audio descriptions from a previously generated markdown file."""
     import re
 
-    click.echo(f"  Loading descriptions from: {md_path}", err=True)
+    _log(f"  Loading descriptions from: {md_path}")
     with open(md_path) as f:
         content = f.read()
 
@@ -534,7 +568,7 @@ def _load_descriptions(md_path: str, num_sections: int) -> list[str]:
             last_desc = descriptions_by_index[i]
         descriptions.append(last_desc)
 
-    click.echo(f"  Loaded {len(descriptions_by_index)} unique descriptions for {num_sections} sections", err=True)
+    _log(f"  Loaded {len(descriptions_by_index)} unique descriptions for {num_sections} sections")
     return descriptions
 
 
@@ -548,7 +582,7 @@ def _describe_sections(audio_file: str, sr: int, sections: list[dict]):
     except ImportError as e:
         raise click.ClickException(str(e))
 
-    click.echo("  Connecting to Gemini Flash for audio descriptions...", err=True)
+    _log("  Connecting to Gemini Flash for audio descriptions...")
     try:
         describer = GeminiAudioDescriber()
     except ValueError as e:
@@ -594,7 +628,7 @@ def _describe_sections(audio_file: str, sr: int, sections: list[dict]):
     # Write markdown report
     with open(md_path, "w") as f:
         f.write("\n".join(md_lines))
-    click.echo(f"  Descriptions saved to: {md_path}", err=True)
+    _log(f"  Descriptions saved to: {md_path}")
 
     return descriptions
 
@@ -614,11 +648,11 @@ def _get_ai_plan(beat_map: dict, user_prompt: str | None, audio_descriptions: li
             "Set it with: export ANTHROPIC_API_KEY=your_key_here"
         )
 
-    click.echo("  Asking AI for effect plan...", err=True)
+    _log("  Asking AI for effect plan...")
     try:
         provider = AnthropicProvider()
         plan = create_effect_plan(beat_map, provider, user_prompt=user_prompt, audio_descriptions=audio_descriptions)
-        click.echo(f"  AI plan: {len(plan.sections)} section(s) configured", err=True)
+        _log(f"  AI plan: {len(plan.sections)} section(s) configured")
         return plan
     except Exception as e:
         raise click.ClickException(f"AI effect plan failed: {e}")

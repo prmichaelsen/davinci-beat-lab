@@ -211,10 +211,7 @@ def concat_with_crossfade(
         _log(f"  Recursive chunking: {len(chunk_paths)} chunks")
         concat_with_crossfade(chunk_paths, output_path, crossfade_frames, fps, chunk_size)
 
-    # Clean up chunk files
-    for cp in chunk_paths:
-        Path(cp).unlink(missing_ok=True)
-    chunk_dir.rmdir()
+    # Keep chunks cached for reuse — only stale if source segments change
 
     return output_path
 

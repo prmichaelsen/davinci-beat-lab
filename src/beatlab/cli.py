@@ -365,17 +365,63 @@ def render(
             for f in stale:
                 Path(f).unlink(missing_ok=True)
 
-        # Check for candidate requests in the patch
+        # Auto-generate candidates for sections that request them
         candidate_sections = [
             s for s in patch.get("sections", [])
             if s.get("candidates")
         ]
         if candidate_sections:
-            indices = ",".join(str(s["section_index"]) for s in candidate_sections)
-            counts = set(s["candidates"] for s in candidate_sections)
-            count = max(counts)
-            _log(f"  Patch requests candidates for sections: {indices}")
-            _log(f"  Run: beatlab candidates {Path(work.root).name} -s {indices} -n {count}")
+            from beatlab.render.candidates import generate_image_candidates, make_contact_sheet
+            from beatlab.render.google_video import GoogleVideoClient
+
+            _log(f"  Generating candidates for {len(candidate_sections)} sections...")
+            cand_client = GoogleVideoClient(vertex=vertex)
+
+            def _stylize(source_path, style_prompt, output_path):
+                return cand_client.stylize_image(source_path, style_prompt, output_path)
+
+            # Build plan lookup for style prompts
+            merged_plan_by_idx = {s["section_index"]: s for s in merged.get("sections", [])}
+            beats_data = work.load_beats() if work.has_beats() else beat_map
+            bsections = beats_data.get("sections", [])
+            bfps = beats_data.get("fps", 24)
+            frames_dir = work.ensure_frames_dir()
+
+            for cs in candidate_sections:
+                idx = cs["section_index"]
+                count = cs["candidates"]
+                plan_entry = merged_plan_by_idx.get(idx, {})
+                style = plan_entry.get("style_prompt", cs.get("style_prompt", "artistic stylized"))
+
+                # Find source image
+                source_img = str(work.root / "google_styled" / f"styled_{idx:03d}.png")
+                if not Path(source_img).exists():
+                    # Extract from source video frames
+                    if idx < len(bsections):
+                        t = bsections[idx].get("start_time", 0)
+                        frame_num = round(t * bfps)
+                        source_img = str(Path(frames_dir) / f"frame_{frame_num:06d}.png")
+
+                if not Path(source_img).exists():
+                    _log(f"    Section {idx}: no source image, skipping candidates")
+                    continue
+
+                _log(f"    Section {idx}: generating {count} candidates...")
+                paths = generate_image_candidates(
+                    section_idx=idx,
+                    source_image_path=source_img,
+                    style_prompt=style,
+                    count=count,
+                    work_dir=str(work.root),
+                    stylize_fn=_stylize,
+                )
+
+                grid_path = str(work.root / "candidates" / f"section_{idx:03d}_grid.png")
+                make_contact_sheet(paths, grid_path, idx)
+                _log(f"    Section {idx}: contact sheet → candidates/section_{idx:03d}_grid.png")
+
+            _log(f"  Review contact sheets, then run: beatlab select {Path(work.root).name} <idx>:<variant> ...")
+            _log(f"  Then re-run render to apply selections.")
 
         # Re-parse the merged plan
         from beatlab.ai.plan import parse_effect_plan

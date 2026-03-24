@@ -122,21 +122,31 @@ Every section in the input must have a corresponding entry in your output. Inclu
 
 ## Video Stylization (style_prompt)
 
-ALWAYS include a `style_prompt` for every section. This is a Stable Diffusion prompt that controls how the video frames look when rendered through AI img2img. Each section should have a distinct visual style that matches the music's mood and energy.
+ALWAYS include a `style_prompt` for every section. This prompt controls how AI transforms the source video frame into a stylized image, which then becomes the visual keyframe for that section's video.
+
+**BE BOLD AND CREATIVE.** Do NOT just vary colors or intensity between sections. Each section should be a thematic visual SCENE that manifests what the music FEELS like. Think like a music video director, not a colorist.
 
 Guidelines for style_prompt:
-- Keep prompts concise (under 30 words)
-- Include artistic style, color palette, and mood
-- Match the music: dark music → dark visuals, energetic → vivid/neon
-- Vary between sections for visual interest
-- Use SD-friendly terms: "oil painting", "watercolor", "neon", "film grain", "psychedelic", "fractal", "ethereal", "dramatic lighting"
+- **Interpret the music into visual concepts**: If the audio describes "grinding industrial machinery", make it look like the scene is inside a vast mechanical cathedral. If "ethereal choir with shimmering pads", make it look like floating through luminous clouds.
+- **Transform the scene, don't just recolor it**: Change textures, materials, environments, artistic medium. A face can become carved from obsidian, dissolving into smoke, rendered as stained glass, or emerging from liquid mercury.
+- **Use the audio descriptions**: They tell you what instruments and energy are present. Translate the SOUND into VISUALS — heavy bass = heavy materials (metal, stone, magma). Light melody = light materials (silk, mist, light rays).
+- **Each section should feel like a different WORLD**, not just a different filter on the same world.
+- **Narrative arc**: The sequence of style_prompts should tell a visual story that matches the musical journey. Build, climax, resolve.
+- Keep prompts vivid and specific (20-40 words)
 
-Examples:
-- Low energy / verse: "soft watercolor, muted pastel tones, dreamy atmospheric haze"
-- High energy / chorus: "vivid neon explosion, psychedelic melting colors, high contrast"
-- Drop: "intense chromatic aberration, glitch art, saturated electric colors"
-- Breakdown: "desaturated film grain, dark moody noir, minimal"
-- Buildup: "swirling abstract patterns, gradually intensifying colors"
+Examples of GOOD style_prompts (creative, transformative):
+- "vast mechanical cathedral, copper gears and brass pipes, steam and sparks, industrial Victorian steampunk"
+- "underwater bioluminescent reef, translucent jellyfish textures, deep ocean blue glow, everything pulses with light"
+- "shattered mirror dimension, fractured reflections multiplying infinitely, sharp crystalline edges, chromatic prismatic light"
+- "ancient stone temple overgrown with glowing vines, moss-covered ruins, warm golden hour light filtering through canopy"
+- "liquid mercury surface reflecting a burning sky, metallic ripples, molten silver, everything melting and reforming"
+- "cyberpunk rain-soaked neon alley, holographic advertisements, wet reflections, electric pink and cyan"
+
+Examples of BAD style_prompts (boring, just color/mood):
+- "dark tones, moody atmosphere" — too vague, no transformation
+- "bright neon colors, high contrast" — just a filter
+- "soft pastel, dreamy" — doesn't create a scene
+- "desaturated, film grain" — color grading, not creative direction
 
 ## Wan2.1 Video-to-Video (wan_denoise)
 

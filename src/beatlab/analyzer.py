@@ -190,8 +190,27 @@ def analyze_audio(path: str, sr: int = 22050, detect_sections_flag: bool = False
 
     # Generate a perfect metronome grid from the detected BPM
     beat_interval = 60.0 / tempo_val  # seconds per beat
-    # Use librosa's first beat as the grid anchor
-    first_beat_time = float(librosa.frames_to_time(beat_frames[0], sr=sr_out, hop_length=hop_length)) if len(beat_frames) > 0 else 0.0
+
+    # Find the best grid anchor: strongest onset in the first few beats
+    # librosa's first beat can be off-phase — the strongest early onset
+    # is more likely to be an actual downbeat
+    search_window = beat_interval * 4  # look within first 4 beats
+    onset_frames_early = librosa.onset.onset_detect(
+        y=y, sr=sr_out, hop_length=hop_length, onset_envelope=onset_env,
+    )
+    onset_times_early = librosa.frames_to_time(onset_frames_early, sr=sr_out, hop_length=hop_length)
+
+    # Filter to onsets within the search window
+    early_mask = onset_times_early < search_window
+    if np.any(early_mask):
+        early_onsets = onset_frames_early[early_mask]
+        early_strengths = onset_env[np.clip(early_onsets, 0, len(onset_env) - 1)]
+        strongest_idx = np.argmax(early_strengths)
+        first_beat_time = float(onset_times_early[early_mask][strongest_idx])
+    elif len(beat_frames) > 0:
+        first_beat_time = float(librosa.frames_to_time(beat_frames[0], sr=sr_out, hop_length=hop_length))
+    else:
+        first_beat_time = 0.0
 
     # Build grid: extend backward from first beat to time 0, then forward to end
     grid_times = []

@@ -145,7 +145,7 @@ def render_kling_pipeline(
             progress_callback("kling", i + 1, num_segments)
 
     # ── Phase 4: Concatenate and mux audio ──
-    _log("Phase 4: Assembling final video...")
+    _log("Phase 4: Assembling video...")
 
     concat_list = str(work / "kling_concat.txt")
     with open(concat_list, "w") as f:
@@ -159,14 +159,28 @@ def render_kling_pipeline(
         check=True, capture_output=True,
     )
 
+    # Mux audio
+    muxed_output = str(work / "kling_muxed.mp4")
     subprocess.run(
         ["ffmpeg", "-y",
          "-i", concat_output,
          "-i", video_file,
          "-map", "0:v", "-map", "1:a",
          "-c:v", "copy", "-c:a", "aac", "-shortest",
-         str(output_path)],
+         muxed_output],
         check=True, capture_output=True,
+    )
+
+    # ── Phase 5: Apply beat-synced effects ──
+    _log("Phase 5: Applying beat-synced effects (zoom, shake, flash, color)...")
+    from beatlab.render.effects import apply_effects
+
+    apply_effects(
+        video_path=muxed_output,
+        output_path=str(output_path),
+        beat_map=beat_map,
+        effect_plan=effect_plan,
+        fps=video_fps,
     )
 
     _log(f"Done! Output: {output_path}")

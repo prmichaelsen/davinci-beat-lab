@@ -387,8 +387,10 @@ def render(
             vast.ssh_run(instance_id, "mkdir -p /workspace")
             host, port = vast.get_ssh_info(instance_id)
             ssh_opts = vast._ssh_opts(port)
+            key = vast._ssh_key_arg()
+            key_opt = f"-i {key} " if key else ""
             subprocess.run(
-                f'scp {ssh_opts.replace("ssh ", "")} {script_path} root@{host}:/workspace/render.py',
+                f'scp {key_opt}-o StrictHostKeyChecking=no -P {port} {script_path} root@{host}:/workspace/render.py',
                 shell=True, check=True,
             )
 

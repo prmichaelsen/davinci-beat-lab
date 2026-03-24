@@ -30,29 +30,27 @@ class VastAIManager:
 
     def find_instance(
         self,
-        min_vram_gb: int = 16,
-        max_price_hr: float = 2.0,
-        min_upload_mbps: float = 100,
+        min_vram_gb: int = 8,
+        max_price_hr: float = 10.0,
     ) -> dict:
         """Search for a suitable GPU instance.
 
         Returns instance offer dict with id, gpu_name, price, etc.
         """
-        # Search for instances with enough VRAM and reasonable price
+        # Keep query simple — complex filters cause empty results on Vast.ai CLI
+        query = f"rentable=true dph_total<={max_price_hr} num_gpus=1"
         output = self._vastai_cmd(
             "search", "offers",
-            f"gpu_ram >= {min_vram_gb * 1024}",
-            f"dph_total <= {max_price_hr}",
-            f"inet_up >= {min_upload_mbps}",
-            "reliability >= 0.95",
-            "num_gpus = 1",
-            "--type", "on-demand",
+            query,
             "--order", "dph_total",
             "--limit", "5",
             "--raw",
         )
 
-        offers = json.loads(output) if output.strip() else []
+        all_offers = json.loads(output) if output.strip() else []
+        # Filter by VRAM in Python (CLI filter is unreliable with compound queries)
+        min_ram = min_vram_gb * 1024
+        offers = [o for o in all_offers if o.get("gpu_ram", 0) >= min_ram]
         if not offers:
             raise RuntimeError(
                 f"No Vast.ai instances found with {min_vram_gb}GB+ VRAM under ${max_price_hr}/hr. "

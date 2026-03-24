@@ -128,26 +128,29 @@ ALWAYS include a `style_prompt` for every section. This prompt controls how AI t
 **BE BOLD AND CREATIVE.** Do NOT just vary colors or intensity between sections. Each section should be a thematic visual SCENE that manifests what the music FEELS like. Think like a music video director, not a colorist.
 
 Guidelines for style_prompt:
-- **Interpret the music into visual concepts**: If the audio describes "grinding industrial machinery", make it look like the scene is inside a vast mechanical cathedral. If "ethereal choir with shimmering pads", make it look like floating through luminous clouds.
+- **HIGH PRODUCTION VALUE**: Everything must look like a big-budget music video or film — rich detail, complex textures, sophisticated lighting, depth and dimension. NOT like a cheap 3D render, stock animation, or low-effort digital art.
+- **Interpret the music into visual concepts**: If the audio describes "grinding industrial machinery", make it look like a vast mechanical cathedral with intricate gears and atmospheric steam. If "ethereal choir with shimmering pads", make it look like floating through luminous crystalline clouds.
 - **Transform the scene, don't just recolor it**: Change textures, materials, environments, artistic medium. A face can become carved from obsidian, dissolving into smoke, rendered as stained glass, or emerging from liquid mercury.
-- **Use the audio descriptions**: They tell you what instruments and energy are present. Translate the SOUND into VISUALS — heavy bass = heavy materials (metal, stone, magma). Light melody = light materials (silk, mist, light rays).
+- **Use the audio descriptions**: Translate SOUND into VISUALS — heavy bass = heavy materials (metal, stone, magma). Light melody = light materials (silk, mist, light rays).
 - **Each section should feel like a different WORLD**, not just a different filter on the same world.
 - **Narrative arc**: The sequence of style_prompts should tell a visual story that matches the musical journey. Build, climax, resolve.
+- **Quality anchors**: Always include terms that push toward high fidelity: "intricate detail", "volumetric lighting", "photorealistic textures", "cinematic depth of field", "8K", "Unreal Engine quality", "masterful composition"
+- Neon, digital, psychedelic, abstract — all fine as STYLES, but they must look EXPENSIVE and DETAILED, not cheap
 - Keep prompts vivid and specific (20-40 words)
 
-Examples of GOOD style_prompts (creative, transformative):
-- "vast mechanical cathedral, copper gears and brass pipes, steam and sparks, industrial Victorian steampunk"
-- "underwater bioluminescent reef, translucent jellyfish textures, deep ocean blue glow, everything pulses with light"
-- "shattered mirror dimension, fractured reflections multiplying infinitely, sharp crystalline edges, chromatic prismatic light"
-- "ancient stone temple overgrown with glowing vines, moss-covered ruins, warm golden hour light filtering through canopy"
-- "liquid mercury surface reflecting a burning sky, metallic ripples, molten silver, everything melting and reforming"
-- "cyberpunk rain-soaked neon alley, holographic advertisements, wet reflections, electric pink and cyan"
+Examples of GOOD style_prompts (high production value):
+- "vast mechanical cathedral, intricate copper gears and brass pipes, volumetric steam and sparks, cinematic lighting, masterful detail"
+- "underwater bioluminescent reef, translucent jellyfish with intricate internal structures, caustic light rays through deep ocean, 8K detail"
+- "shattered mirror dimension, thousands of fractured reflections with perfect clarity, sharp crystalline edges catching prismatic light, photorealistic"
+- "ancient stone temple overgrown with glowing vines, every carved surface richly detailed, warm golden hour volumetric light"
+- "liquid mercury surface reflecting a burning sky, photorealistic metallic ripples, molten silver with subsurface scattering"
+- "cyberpunk rain-soaked neon alley, photorealistic wet reflections, volumetric fog, every surface richly textured and detailed"
 
-Examples of BAD style_prompts (boring, just color/mood):
-- "dark tones, moody atmosphere" — too vague, no transformation
-- "bright neon colors, high contrast" — just a filter
-- "soft pastel, dreamy" — doesn't create a scene
-- "desaturated, film grain" — color grading, not creative direction
+Examples of BAD style_prompts (low quality, avoid):
+- "dark tones, moody atmosphere" — too vague, produces generic muddy output
+- "bright neon colors" — no detail guidance, produces flat cheap-looking results
+- "soft pastel, dreamy" — produces blurry low-detail output
+- Any prompt without texture/detail/lighting terms — will default to low-effort rendering
 
 ## Wan2.1 Video-to-Video (wan_denoise)
 

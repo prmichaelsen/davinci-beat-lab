@@ -320,6 +320,9 @@ def render(
                             "style_prompt": sp.style_prompt,
                             "intensity_curve": sp.intensity_curve,
                             "sustained_effects": sp.sustained_effects,
+                            "wan_denoise": sp.wan_denoise,
+                            "transition_frames": sp.transition_frames,
+                            "transition_action": sp.transition_action,
                         }
                         for sp in plan.sections
                     ]

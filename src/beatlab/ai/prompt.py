@@ -177,12 +177,19 @@ def build_user_prompt(
     duration = beat_map.get("duration", 0)
     total_beats = len(beat_map.get("beats", []))
 
+    # Build a compact track overview so Claude sees the full arc
+    section_summary = " → ".join(
+        f"{sec.get('label', '?')}({sec.get('end_time', 0) - sec.get('start_time', 0):.0f}s)"
+        for sec in sections
+    )
+
     lines = [
         f"## Track Info",
         f"- Tempo: {tempo:.1f} BPM",
         f"- Duration: {duration:.1f}s",
         f"- Total beats: {total_beats}",
         f"- Sections: {len(sections)}",
+        f"- Arc: {section_summary}",
         "",
         "## Sections",
         "",
@@ -221,6 +228,19 @@ def build_user_prompt(
 
         if audio_descriptions and i < len(audio_descriptions):
             line += f"\n- Audio: {audio_descriptions[i]}"
+
+        # Neighbor context
+        neighbors = []
+        if i > 0:
+            prev = sections[i - 1]
+            prev_desc = audio_descriptions[i - 1][:100] if audio_descriptions and i - 1 < len(audio_descriptions) else ""
+            neighbors.append(f"prev: {prev.get('label', '?')} ({prev.get('type', '?')})" + (f" — {prev_desc}" if prev_desc else ""))
+        if i < len(sections) - 1:
+            nxt = sections[i + 1]
+            nxt_desc = audio_descriptions[i + 1][:100] if audio_descriptions and i + 1 < len(audio_descriptions) else ""
+            neighbors.append(f"next: {nxt.get('label', '?')} ({nxt.get('type', '?')})" + (f" — {nxt_desc}" if nxt_desc else ""))
+        if neighbors:
+            line += f"\n- Neighbors: {' | '.join(neighbors)}"
 
         lines.append(line)
         lines.append("")

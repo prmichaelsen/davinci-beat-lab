@@ -29,7 +29,12 @@ CLIENT_ID = str(uuid.uuid4())
 # ── EbSynth ──────────────────────────────────────────────────────────────────
 
 def ensure_ebsynth() -> str:
-    """Find or download EbSynth binary."""
+    """Find or build EbSynth binary."""
+    # Check if already built (also check the test build we did manually)
+    for p in ("/workspace/ebsynth_build/bin/ebsynth", "/workspace/ebsynth_check/bin/ebsynth"):
+        if os.path.exists(p) and os.access(p, os.X_OK):
+            return p
+
     # Check PATH
     for name in ("ebsynth",):
         try:
@@ -39,20 +44,35 @@ def ensure_ebsynth() -> str:
         except Exception:
             pass
 
-    # Download
-    ebsynth_path = "/workspace/ebsynth"
-    if os.path.exists(ebsynth_path) and os.access(ebsynth_path, os.X_OK):
-        return ebsynth_path
-
-    print("Downloading EbSynth...", flush=True)
-    url = "https://github.com/jamriska/ebsynth/releases/download/v0.6/ebsynth-linux"
+    # Build from source
+    print("Building EbSynth from source...", flush=True)
+    build_dir = "/workspace/ebsynth_build"
+    binary = f"{build_dir}/bin/ebsynth"
     try:
-        urllib.request.urlretrieve(url, ebsynth_path)
-        os.chmod(ebsynth_path, 0o755)
-        return ebsynth_path
+        if not os.path.exists(build_dir):
+            print("  Cloning ebsynth repo...", flush=True)
+            subprocess.run(
+                ["git", "clone", "https://github.com/jamriska/ebsynth.git", build_dir],
+                capture_output=True, check=True, timeout=60,
+            )
+
+        print("  Compiling (CPU only)...", flush=True)
+        subprocess.run(
+            ["bash", "build-linux-cpu_only.sh"],
+            cwd=build_dir,
+            capture_output=True, check=True, timeout=120,
+        )
+
+        if os.path.exists(binary) and os.access(binary, os.X_OK):
+            print(f"  EbSynth built successfully", flush=True)
+            return binary
+
+        print("WARNING: EbSynth built but binary not found at bin/ebsynth", flush=True)
+        return ""
+
     except Exception as e:
-        print(f"WARNING: Could not download EbSynth: {e}", flush=True)
-        print("Falling back to per-frame rendering (no temporal coherence)", flush=True)
+        print(f"WARNING: Could not build EbSynth: {e}", flush=True)
+        print("Falling back to keyframe-only output (no temporal coherence)", flush=True)
         return ""
 
 
@@ -143,14 +163,75 @@ def _progress(done, total, start_time):
 
 # ── ComfyUI ──────────────────────────────────────────────────────────────────
 
-def wait_for_comfyui(timeout=900):
+def ensure_comfyui_running(timeout=900):
+    """Ensure ComfyUI is running — start it if not."""
+    # Check if already running
+    try:
+        urllib.request.urlopen(f"{COMFYUI_URL}/system_stats", timeout=5)
+        print("ComfyUI already running.", flush=True)
+        return True
+    except Exception:
+        pass
+
+    # Try to start it
+    print("ComfyUI not running. Attempting to start...", flush=True)
+
+    # Find ComfyUI installation
+    comfy_dirs = [
+        "/workspace/ComfyUI_clean",
+        "/workspace/ComfyUI",
+        "/opt/workspace-internal/ComfyUI",
+    ]
+    comfy_dir = None
+    for d in comfy_dirs:
+        main_py = os.path.join(d, "main.py")
+        if os.path.exists(main_py):
+            comfy_dir = d
+            break
+
+    if comfy_dir is None:
+        # Clone fresh
+        print("  No ComfyUI found. Installing...", flush=True)
+        comfy_dir = "/workspace/ComfyUI_clean"
+        subprocess.run(
+            ["git", "clone", "https://github.com/comfyanonymous/ComfyUI.git", comfy_dir],
+            capture_output=True, timeout=120,
+        )
+        subprocess.run(
+            ["pip", "install", "-q", "-r", f"{comfy_dir}/requirements.txt"],
+            capture_output=True, timeout=300,
+        )
+
+    # Ensure models are linked
+    models_dir = os.path.join(comfy_dir, "models")
+    internal_models = "/opt/workspace-internal/ComfyUI/models"
+    if os.path.exists(internal_models) and not os.path.islink(models_dir):
+        print("  Linking models directory...", flush=True)
+        if os.path.exists(models_dir):
+            shutil.rmtree(models_dir)
+        os.symlink(internal_models, models_dir)
+
+    # Start ComfyUI
+    print(f"  Starting ComfyUI from {comfy_dir}...", flush=True)
+    subprocess.Popen(
+        ["python3", "main.py", "--listen", "0.0.0.0", "--port", "8188"],
+        cwd=comfy_dir,
+        stdout=open("/tmp/comfyui.log", "w"),
+        stderr=subprocess.STDOUT,
+    )
+
+    # Wait for it
+    print("  Waiting for ComfyUI to be ready...", flush=True)
     start = time.time()
     while time.time() - start < timeout:
         try:
             urllib.request.urlopen(f"{COMFYUI_URL}/system_stats", timeout=5)
+            print("  ComfyUI ready.", flush=True)
             return True
         except Exception:
-            time.sleep(2)
+            time.sleep(3)
+
+    print("  ERROR: ComfyUI failed to start. Check /tmp/comfyui.log", flush=True)
     return False
 
 
@@ -244,7 +325,7 @@ def main():
     print(f"\nPhase 1: Rendering {len(keyframes)} keyframes through SD...", flush=True)
 
     print("Waiting for ComfyUI...", flush=True)
-    if not wait_for_comfyui():
+    if not ensure_comfyui_running():
         print("ERROR: ComfyUI not responding", flush=True)
         sys.exit(1)
     print("ComfyUI ready.", flush=True)
@@ -330,7 +411,7 @@ def _run_per_frame(input_dir, output_dir, model, negative_prompt, params_path):
 
     print(f"Per-frame mode: {len(frame_params)} frames", flush=True)
     print("Waiting for ComfyUI...", flush=True)
-    if not wait_for_comfyui():
+    if not ensure_comfyui_running():
         print("ERROR: ComfyUI not responding", flush=True)
         sys.exit(1)
 

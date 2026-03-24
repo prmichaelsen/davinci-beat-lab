@@ -365,6 +365,18 @@ def render(
             for f in stale:
                 Path(f).unlink(missing_ok=True)
 
+        # Check for candidate requests in the patch
+        candidate_sections = [
+            s for s in patch.get("sections", [])
+            if s.get("candidates")
+        ]
+        if candidate_sections:
+            indices = ",".join(str(s["section_index"]) for s in candidate_sections)
+            counts = set(s["candidates"] for s in candidate_sections)
+            count = max(counts)
+            _log(f"  Patch requests candidates for sections: {indices}")
+            _log(f"  Run: beatlab candidates {Path(work.root).name} -s {indices} -n {count}")
+
         # Re-parse the merged plan
         from beatlab.ai.plan import parse_effect_plan
         plan = parse_effect_plan(json.dumps(merged))
@@ -642,6 +654,114 @@ def make_patch(video_name: str, patch_file: str, work_dir: str, sections: str | 
 
     _log(f"Extracted {len(patch_sections)} sections to {patch_file}")
     _log(f"Edit the file, then run: beatlab render <video> --plan-patch {patch_file}")
+
+
+@main.command(name="candidates")
+@click.argument("video_name", type=str)
+@click.option("--sections", "-s", required=True, type=str, help="Comma-separated section indices")
+@click.option("--count", "-n", default=4, type=int, help="Number of candidates per section (default: 4)")
+@click.option("--work-dir", default=".beatlab_work", type=str, help="Work directory")
+@click.option("--vertex/--no-vertex", default=False, help="Use Vertex AI")
+def candidates_cmd(video_name: str, sections: str, count: int, work_dir: str, vertex: bool):
+    """Generate candidate styled images for sections to choose from.
+
+    Example: beatlab candidates beyond_the_veil -s 88,92 -n 4
+    """
+    from beatlab.render.candidates import generate_image_candidates, make_contact_sheet
+
+    work = Path(work_dir) / video_name
+    plan_path = work / "plan.json"
+    frames_dir = work / "frames"
+
+    if not plan_path.exists():
+        _log(f"No plan found at {plan_path}")
+        return
+
+    with open(plan_path) as f:
+        plan = json.load(f)
+
+    # Build section index → plan entry lookup
+    plan_by_idx = {s["section_index"]: s for s in plan.get("sections", [])}
+
+    # Set up stylize function
+    from beatlab.render.google_video import GoogleVideoClient
+    client = GoogleVideoClient(vertex=vertex)
+
+    def stylize_fn(source_path, style_prompt, output_path):
+        return client.stylize_image(source_path, style_prompt, output_path)
+
+    indices = [int(s.strip()) for s in sections.split(",")]
+
+    for idx in indices:
+        plan_entry = plan_by_idx.get(idx, {})
+        style = plan_entry.get("style_prompt", "artistic stylized")
+
+        # Source image: extract from video at section start time
+        source_img = str(work / "google_styled" / f"styled_{idx:03d}.png")
+        if not Path(source_img).exists():
+            # Use the original keyframe from frames dir
+            beats_path = work / "beats.json"
+            if beats_path.exists():
+                with open(beats_path) as f:
+                    beats = json.load(f)
+                secs = beats.get("sections", [])
+                if idx < len(secs):
+                    t = secs[idx].get("start_time", 0)
+                    fps = beats.get("fps", 24)
+                    frame_num = round(t * fps)
+                    source_img = str(frames_dir / f"frame_{frame_num:06d}.png")
+
+        if not Path(source_img).exists():
+            _log(f"  Section {idx}: no source image found, skipping")
+            continue
+
+        _log(f"  Section {idx}: generating {count} candidates with style: {style[:60]}...")
+        paths = generate_image_candidates(
+            section_idx=idx,
+            source_image_path=source_img,
+            style_prompt=style,
+            count=count,
+            work_dir=str(work),
+            stylize_fn=stylize_fn,
+        )
+
+        # Make contact sheet
+        grid_path = str(work / "candidates" / f"section_{idx:03d}_grid.png")
+        make_contact_sheet(paths, grid_path, idx)
+        _log(f"  Section {idx}: contact sheet → {grid_path}")
+
+    _log(f"\nReview contact sheets in {work}/candidates/")
+    _log(f"Then run: beatlab select {video_name} <idx>:<variant> ...")
+
+
+@main.command(name="select")
+@click.argument("video_name", type=str)
+@click.argument("selections", nargs=-1, type=str)
+@click.option("--work-dir", default=".beatlab_work", type=str, help="Work directory")
+def select_cmd(video_name: str, selections: tuple[str], work_dir: str):
+    """Apply candidate selections — copies chosen variant to styled image.
+
+    Example: beatlab select beyond_the_veil 88:v2 92:v4
+    """
+    from beatlab.render.candidates import apply_selection
+
+    work = str(Path(work_dir) / video_name)
+
+    for sel in selections:
+        parts = sel.replace("v", "").split(":")
+        if len(parts) != 2:
+            _log(f"  Invalid selection format: {sel} (expected idx:vN, e.g. 88:v2)")
+            continue
+
+        idx = int(parts[0])
+        variant = int(parts[1])
+
+        _log(f"  Section {idx}: applying variant v{variant}")
+        stale = apply_selection(idx, variant, work)
+        if stale:
+            _log(f"    Deleted {len(stale)} stale files")
+
+    _log(f"\nSelections applied. Re-run render to generate new transitions for selected sections.")
 
 
 @main.command(name="split-sections")

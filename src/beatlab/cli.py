@@ -82,12 +82,10 @@ def list_presets():
 @click.option("--overshoot/--no-overshoot", default=False, help="Add overshoot bounce to zoom effects")
 @click.option("--ai/--no-ai", default=False, help="Use AI to select effects per section (requires ANTHROPIC_API_KEY)")
 @click.option("--prompt", default=None, type=str, help="Creative direction for AI mode (e.g. 'cinematic with hard drops')")
-@click.option("--describe", default=None, is_flag=False, flag_value="generate", help="Describe sections with Gemini. Pass a .md file to reuse existing descriptions.")
 def generate(
     beats_json: str, output: str, effect: str | None, preset: str | None,
     attack: int | None, release: int | None, intensity_curve: str,
     section_mode: bool, overshoot: bool, ai: bool, prompt: str | None,
-    describe: str | None,
 ):
     """Generate a Fusion .setting file from a beat map JSON."""
     from beatlab.beat_map import load_beat_map
@@ -408,7 +406,7 @@ def render(
         _log(f"  Rendering via {local_comfyui}...")
         with click.progressbar(length=frame_count, label="  Rendering", file=sys.stderr) as bar:
             client.render_batch(
-                frame_params, frames_dir, styled_dir,
+                keyframe_list, frames_dir, styled_dir,
                 model=model,
                 progress_callback=lambda done, total: bar.update(1),
             )

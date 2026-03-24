@@ -179,14 +179,39 @@ def analyze_audio(path: str, sr: int = 22050, detect_sections_flag: bool = False
     duration = librosa.get_duration(y=y, sr=sr_out)
 
     # Beat tracking
-    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr_out)
-    beat_times = librosa.frames_to_time(beat_frames, sr=sr_out)
+    hop_length = 512
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr_out, hop_length=hop_length)
+    tempo, beat_frames = librosa.beat.beat_track(
+        y=y, sr=sr_out, hop_length=hop_length, onset_envelope=onset_env,
+    )
 
-    # Onset envelope for beat intensity
-    onset_env = librosa.onset.onset_strength(y=y, sr=sr_out)
+    # Snap beats to nearest onset for tighter timing
+    # beat_track returns envelope-grid frames; onsets are more sample-accurate
+    onset_frames_arr = librosa.onset.onset_detect(
+        y=y, sr=sr_out, hop_length=hop_length, onset_envelope=onset_env, backtrack=True,
+    )
+    if len(onset_frames_arr) > 0 and len(beat_frames) > 0:
+        snapped = []
+        for bf in beat_frames:
+            # Find nearest onset within ~50ms (2 hop frames)
+            dists = np.abs(onset_frames_arr.astype(int) - int(bf))
+            nearest_idx = np.argmin(dists)
+            if dists[nearest_idx] <= max(2, int(0.05 * sr_out / hop_length)):
+                snapped.append(onset_frames_arr[nearest_idx])
+            else:
+                snapped.append(bf)
+        beat_frames = np.array(snapped)
+
+    # Clamp all frame indices to valid onset_env range
+    max_env_idx = len(onset_env) - 1
+    if len(beat_frames) > 0:
+        beat_frames = np.clip(beat_frames, 0, max_env_idx)
+    if len(onset_frames_arr) > 0:
+        onset_frames_arr = np.clip(onset_frames_arr, 0, max_env_idx)
+
+    beat_times = librosa.frames_to_time(beat_frames, sr=sr_out, hop_length=hop_length)
 
     # Sample onset envelope at beat positions and normalize
-    # Floor of 0.2 ensures even quiet beats produce visible effects
     beat_strengths = onset_env[beat_frames] if len(beat_frames) > 0 else np.array([])
     if len(beat_strengths) > 0 and beat_strengths.max() > 0:
         normalized = (beat_strengths - beat_strengths.min()) / (
@@ -196,15 +221,26 @@ def analyze_audio(path: str, sr: int = 22050, detect_sections_flag: bool = False
     else:
         beat_intensities = beat_strengths
 
-    beats = [
-        {"time": float(t), "intensity": float(i)}
-        for t, i in zip(beat_times, beat_intensities)
-    ]
+    # Gate: mute beats where onset envelope is below 10th percentile
+    # This filters out phantom tempo pulses in quiet/ambient sections
+    # while keeping real musical beats even if no sharp onset is detected
+    beats = []
+    if len(beat_strengths) > 0:
+        gate_threshold = float(np.percentile(onset_env[onset_env > 0], 10)) if np.any(onset_env > 0) else 0.0
+        for t, i, bf in zip(beat_times, beat_intensities, beat_frames):
+            if onset_env[int(bf)] >= gate_threshold:
+                beats.append({"time": float(t), "intensity": float(i)})
+            else:
+                beats.append({"time": float(t), "intensity": 0.0})
+    else:
+        beats = [
+            {"time": float(t), "intensity": float(i)}
+            for t, i in zip(beat_times, beat_intensities)
+        ]
 
-    # Onset detection
-    onset_frames = librosa.onset.onset_detect(y=y, sr=sr_out)
-    onset_times = librosa.frames_to_time(onset_frames, sr=sr_out)
-    onset_strengths = onset_env[onset_frames] if len(onset_frames) > 0 else np.array([])
+    # Onset detection — reuse already-computed onset_frames_arr
+    onset_times = librosa.frames_to_time(onset_frames_arr, sr=sr_out, hop_length=hop_length)
+    onset_strengths = onset_env[onset_frames_arr] if len(onset_frames_arr) > 0 else np.array([])
     if len(onset_strengths) > 0 and onset_strengths.max() > 0:
         onset_strengths_norm = onset_strengths / onset_strengths.max()
     else:

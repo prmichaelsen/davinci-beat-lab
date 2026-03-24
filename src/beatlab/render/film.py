@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -20,19 +21,15 @@ class FILMInterpolator:
                        or fall back to ffmpeg minterpolate.
         """
         self._model = None
-        self._use_ffmpeg_fallback = False
+        self._use_ffmpeg_fallback = True
 
         try:
             import torch
-            self._has_torch = True
+            if model_path:
+                self._model_path = model_path
+                self._use_ffmpeg_fallback = False
         except ImportError:
-            self._has_torch = False
-            self._use_ffmpeg_fallback = True
-
-        if not self._use_ffmpeg_fallback and model_path:
-            self._model_path = model_path
-        else:
-            self._use_ffmpeg_fallback = True
+            pass
 
     def interpolate_pair(
         self,
@@ -126,7 +123,6 @@ class FILMInterpolator:
             results = []
             for i, src in enumerate(intermediate[:num_frames]):
                 dst = f"{output_dir}/{prefix}_{i:04d}.png"
-                import shutil
                 shutil.copy2(str(src), dst)
                 results.append(dst)
 
@@ -176,7 +172,7 @@ def generate_transition(
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    if num_transition_frames <= 0:
+    if num_transition_frames <= 0 or not frames_a or not frames_b:
         return []
 
     # Use the last frame of A and first frame of B as the primary blend pair

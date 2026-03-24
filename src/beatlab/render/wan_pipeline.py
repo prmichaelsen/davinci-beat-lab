@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Callable
 
-from beatlab.render.film import FILMInterpolator, generate_transition
+from beatlab.render.film import FILMInterpolator, assemble_with_transitions, generate_transition
 from beatlab.render.wan import Wan21Client, chunk_section_frames, frames_to_clip
 
 
@@ -189,7 +190,6 @@ def render_wan_pipeline(
         progress_callback("film", 0, len(transition_counts))
 
     # Generate FILM transitions between sections
-    from beatlab.render.film import assemble_with_transitions
     final_frames = assemble_with_transitions(
         section_clips=all_section_frames,
         transition_frames_per_boundary=transition_counts,
@@ -209,7 +209,6 @@ def render_wan_pipeline(
     for i, frame_path in enumerate(final_frames):
         dst = f"{final_frames_dir}/frame_{i:06d}.png"
         if frame_path != dst:
-            import shutil
             shutil.copy2(frame_path, dst)
 
     # Reassemble with audio from original

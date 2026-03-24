@@ -191,7 +191,7 @@ def run(
 
 @main.command()
 @click.argument("video_file", type=click.Path(exists=True))
-@click.option("--beats", default=None, type=click.Path(), help="Beat map JSON (analyzes video audio if not provided)")
+@click.option("--beats", default=None, type=click.Path(), help="Beat map JSON (skip audio analysis)")
 @click.option("--fps", default=None, type=float, help="Override frame rate")
 @click.option("--style", default="artistic stylized", type=str, help="Default SD style prompt")
 @click.option("--ai/--no-ai", default=False, help="Use AI to pick styles per section")
@@ -202,192 +202,247 @@ def run(
 @click.option("--model", default="sd_xl_base_1.0.safetensors", type=str, help="SD model name")
 @click.option("--local-comfyui", default=None, type=str, help="Local ComfyUI URL (e.g. http://localhost:8188)")
 @click.option("--sr", default=22050, type=int, help="Sample rate for analysis")
-@click.option("--beats-out", default=None, type=click.Path(), help="Save beat map JSON for reuse")
 @click.option("--dry-run/--no-dry-run", default=False, help="Show cost estimate without rendering")
-@click.option("--destroy/--keep-alive", default=False, help="Destroy instance after render (default: keep alive for reuse)")
+@click.option("--destroy/--keep-alive", default=False, help="Destroy instance after render (default: keep alive)")
+@click.option("--fresh/--resume", default=False, help="Wipe work dir and start fresh (default: resume)")
+@click.option("--work-dir", default=".beatlab_work", type=str, help="Work directory for caching (default: .beatlab_work)")
 def render(
     video_file: str, beats: str | None, fps: float | None, style: str,
     ai: bool, prompt: str | None, output: str, base_denoise: float,
     beat_denoise: float, model: str, local_comfyui: str | None,
-    sr: int, beats_out: str | None, dry_run: bool, destroy: bool,
+    sr: int, dry_run: bool, destroy: bool, fresh: bool, work_dir: str,
 ):
-    """Render AI-stylized video: extract frames → SD img2img → reassemble."""
+    """Render AI-stylized video: extract frames → SD img2img → reassemble.
+
+    Caches intermediate results in .beatlab_work/ for resume on failure.
+    Re-run the same command to pick up where it left off.
+    Use --fresh to start over.
+    """
     import subprocess
-    import tempfile
     from beatlab.render.frames import (
         detect_fps, extract_audio, extract_frames,
         generate_frame_params, reassemble_video, save_frame_params,
     )
     from beatlab.render.cloud import estimate_cost
+    from beatlab.render.workdir import WorkDir
 
-    # 1. Detect FPS
+    # Set up persistent work directory
+    work = WorkDir(video_file, base_dir=work_dir)
+    if fresh:
+        work.clean()
+        click.echo("  Cleaned work directory.", err=True)
+
+    click.echo(f"Video: {video_file}", err=True)
+
+    # Show cached state if resuming
+    if not fresh and (work.has_beats() or work.has_frames()):
+        click.echo(f"  Resuming from cached state:\n  {work.summary()}", err=True)
+
+    # ── Step 1: Detect FPS ──
     video_fps = fps or detect_fps(video_file)
-    click.echo(f"Video: {video_file} ({video_fps:.2f} fps)", err=True)
+    click.echo(f"  FPS: {video_fps:.2f}", err=True)
 
-    # 2. Analyze audio if no beat map provided
+    # ── Step 2: Audio analysis → beat map ──
     if beats:
         from beatlab.beat_map import load_beat_map
         beat_map = load_beat_map(beats)
+        work.save_beats(beat_map)
+    elif work.has_beats():
+        click.echo("  Beats: using cached", err=True)
+        beat_map = work.load_beats()
     else:
-        click.echo("  Extracting audio for analysis...", err=True)
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            audio_path = tmp.name
-        extract_audio(video_file, audio_path, sr=sr)
+        if work.has_audio():
+            click.echo("  Audio: using cached", err=True)
+            audio_path = str(work.audio_path)
+        else:
+            click.echo("  Extracting audio...", err=True)
+            extract_audio(video_file, str(work.audio_path), sr=sr)
+            audio_path = str(work.audio_path)
 
         from beatlab.analyzer import analyze_audio
         from beatlab.beat_map import create_beat_map
+        click.echo("  Analyzing beats and sections...", err=True)
         analysis = analyze_audio(audio_path, sr=sr, detect_sections_flag=True)
         beat_map = create_beat_map(analysis, fps=video_fps, source_file=video_file)
-        click.echo(
-            f"  Tempo: {beat_map['tempo']:.1f} BPM | "
-            f"Beats: {len(beat_map['beats'])} | "
-            f"Sections: {len(beat_map.get('sections', []))}",
-            err=True,
-        )
+        work.save_beats(beat_map)
 
-    if beats_out:
-        from beatlab.beat_map import save_beat_map
-        save_beat_map(beat_map, beats_out)
-        click.echo(f"  Beat map saved to: {beats_out}", err=True)
+    click.echo(
+        f"  Tempo: {beat_map['tempo']:.1f} BPM | "
+        f"Beats: {len(beat_map['beats'])} | "
+        f"Sections: {len(beat_map.get('sections', []))}",
+        err=True,
+    )
 
-    # 3. Get AI plan with style_prompts if --ai
+    # ── Step 3: AI effect plan ──
     section_styles: dict[int, str] = {}
     if ai:
-        plan = _get_ai_plan(beat_map, prompt)
+        if work.has_plan() and not fresh:
+            click.echo("  AI plan: using cached", err=True)
+            plan_data = work.load_plan()
+            from beatlab.ai.plan import parse_effect_plan
+            import json
+            plan = parse_effect_plan(json.dumps(plan_data))
+        else:
+            plan = _get_ai_plan(beat_map, prompt)
+            if plan:
+                # Cache the plan
+                plan_dict = {
+                    "sections": [
+                        {
+                            "section_index": sp.section_index,
+                            "presets": sp.presets,
+                            "style_prompt": sp.style_prompt,
+                            "intensity_curve": sp.intensity_curve,
+                            "sustained_effects": sp.sustained_effects,
+                        }
+                        for sp in plan.sections
+                    ]
+                }
+                work.save_plan(plan_dict)
+
         if plan:
             for sp in plan.sections:
                 if sp.style_prompt:
                     section_styles[sp.section_index] = sp.style_prompt
 
     if not section_styles:
-        # Use default style for all sections
         for i in range(len(beat_map.get("sections", []))):
             section_styles[i] = style
 
-    # 4. Extract frames
-    with tempfile.TemporaryDirectory(prefix="beatlab_frames_") as frames_dir:
+    # ── Step 4: Extract frames ──
+    frames_dir = work.ensure_frames_dir()
+    if work.has_frames():
+        frame_count = work.frame_count()
+        click.echo(f"  Frames: using {frame_count} cached", err=True)
+        actual_fps = video_fps
+    else:
         click.echo("  Extracting frames...", err=True)
         frame_count, actual_fps = extract_frames(video_file, frames_dir, fps=fps)
         click.echo(f"  Extracted {frame_count} frames", err=True)
 
-        # 5. Generate per-frame params
+    # ── Step 5: Generate per-frame params ──
+    if work.has_params() and not fresh:
+        click.echo("  Frame params: using cached", err=True)
+        frame_params = work.load_params()
+    else:
         frame_params = generate_frame_params(
             beat_map, frame_count, actual_fps,
             base_denoise=base_denoise, beat_denoise=beat_denoise,
             section_styles=section_styles, default_style=style,
         )
+        work.save_params(frame_params)
 
-        # 6. Cost estimate
-        cost = estimate_cost(frame_count)
-        click.echo(
-            f"  Render estimate: {cost['frames']} frames, "
-            f"~{cost['estimated_hours']:.1f}h, ~${cost['estimated_cost_usd']:.2f}",
-            err=True,
-        )
+    # ── Step 6: Cost estimate ──
+    already_styled = work.styled_count()
+    remaining = frame_count - already_styled
+    cost = estimate_cost(remaining)
+    click.echo(
+        f"  Render: {remaining} frames remaining"
+        + (f" ({already_styled} already done)" if already_styled > 0 else "")
+        + f", ~{cost['estimated_hours']:.1f}h, ~${cost['estimated_cost_usd']:.2f}",
+        err=True,
+    )
 
-        if dry_run:
-            click.echo("\n  Dry run — no rendering performed.", err=True)
-            return
+    if dry_run:
+        click.echo("\n  Dry run — no rendering performed.", err=True)
+        return
 
-        # 7. Render
-        with tempfile.TemporaryDirectory(prefix="beatlab_styled_") as styled_dir:
-            if local_comfyui:
-                # Local ComfyUI render
-                from beatlab.render.comfyui import ComfyUIClient
-                host, port = local_comfyui.replace("http://", "").split(":")
-                client = ComfyUIClient(host=host, port=int(port))
+    # ── Step 7: Render ──
+    styled_dir = work.ensure_styled_dir()
 
-                click.echo(f"  Rendering {frame_count} frames via {local_comfyui}...", err=True)
-                with click.progressbar(length=frame_count, label="  Rendering", file=sys.stderr) as bar:
-                    client.render_batch(
-                        frame_params, frames_dir, styled_dir,
-                        model=model,
-                        progress_callback=lambda done, total: bar.update(1),
-                    )
+    if local_comfyui:
+        from beatlab.render.comfyui import ComfyUIClient
+        host, port = local_comfyui.replace("http://", "").split(":")
+        client = ComfyUIClient(host=host, port=int(port))
+
+        click.echo(f"  Rendering via {local_comfyui}...", err=True)
+        with click.progressbar(length=frame_count, label="  Rendering", file=sys.stderr) as bar:
+            client.render_batch(
+                frame_params, frames_dir, styled_dir,
+                model=model,
+                progress_callback=lambda done, total: bar.update(1),
+            )
+    else:
+        from beatlab.render.cloud import VastAIManager
+        vast = VastAIManager()
+
+        click.echo("  Looking for GPU instance...", err=True)
+        instance_id, reused = vast.get_or_create_instance()
+
+        if reused:
+            click.echo(f"  Reusing running instance {instance_id}", err=True)
+        else:
+            click.echo(f"  Created new instance {instance_id}, waiting for it to start...", err=True)
+            vast.wait_until_ready(instance_id)
+
+        try:
+            # Copy frame_params.json into frames dir for upload
+            import shutil
+            shutil.copy2(str(work.params_path), f"{frames_dir}/frame_params.json")
+
+            # Upload render script
+            import beatlab.render.remote_script as rs
+            script_path = rs.__file__
+            click.echo("  Uploading render script...", err=True)
+            vast.ssh_run(instance_id, "mkdir -p /workspace")
+            host, port = vast.get_ssh_info(instance_id)
+            ssh_opts = vast._ssh_opts(port)
+            subprocess.run(
+                f'scp {ssh_opts.replace("ssh ", "")} {script_path} root@{host}:/workspace/render.py',
+                shell=True, check=True,
+            )
+
+            # Upload frames + params
+            click.echo(f"  Uploading {frame_count} frames...", err=True)
+            vast.upload_files(instance_id, frames_dir, "/workspace/input")
+
+            # Run render script on remote
+            click.echo(f"  Rendering {remaining} frames on cloud GPU...", err=True)
+
+            ssh_cmd = (
+                f'{ssh_opts} root@{host} '
+                f'"python3 /workspace/render.py /workspace/input /workspace/output {model}"'
+            )
+            proc = subprocess.Popen(
+                ssh_cmd, shell=True,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True,
+            )
+            for line in proc.stdout:
+                click.echo(f"    {line.rstrip()}", err=True)
+            proc.wait()
+            if proc.returncode != 0:
+                raise RuntimeError(f"Remote render failed with exit code {proc.returncode}")
+
+            # Download results to work dir
+            click.echo("  Downloading styled frames...", err=True)
+            vast.download_files(instance_id, "/workspace/output", styled_dir)
+
+            if destroy:
+                click.echo("  Destroying cloud instance...", err=True)
+                vast.destroy_instance(instance_id)
             else:
-                # Cloud GPU render — SSH-based batch execution
-                from beatlab.render.cloud import VastAIManager
-                import importlib.resources
-                vast = VastAIManager()
+                click.echo(
+                    f"  Instance {instance_id} kept alive. "
+                    f"Run 'beatlab destroy-gpu' to stop it.",
+                    err=True,
+                )
+        except Exception as e:
+            click.echo(
+                f"\n  Error: {e}\n"
+                f"  Instance {instance_id} kept alive — fix the issue and retry.\n"
+                f"  Run 'beatlab destroy-gpu' to stop it when done.",
+                err=True,
+            )
+            raise
 
-                click.echo("  Looking for GPU instance...", err=True)
-                instance_id, reused = vast.get_or_create_instance()
-
-                if reused:
-                    click.echo(f"  Reusing running instance {instance_id}", err=True)
-                else:
-                    click.echo(f"  Created new instance {instance_id}, waiting for it to start...", err=True)
-                    vast.wait_until_ready(instance_id)
-
-                try:
-                    # Save params alongside frames
-                    params_path = f"{frames_dir}/frame_params.json"
-                    save_frame_params(frame_params, params_path)
-
-                    # Upload render script
-                    import beatlab.render.remote_script as rs
-                    script_path = rs.__file__
-                    click.echo("  Uploading render script...", err=True)
-                    vast.ssh_run(instance_id, "mkdir -p /workspace")
-                    host, port = vast.get_ssh_info(instance_id)
-                    ssh_opts = vast._ssh_opts(port)
-                    subprocess.run(
-                        f'scp {ssh_opts.replace("ssh ", "")} {script_path} root@{host}:/workspace/render.py',
-                        shell=True, check=True,
-                    )
-
-                    # Upload frames + params
-                    click.echo(f"  Uploading {frame_count} frames...", err=True)
-                    vast.upload_files(instance_id, frames_dir, "/workspace/input")
-
-                    # Run render script on remote
-                    click.echo(f"  Rendering {frame_count} frames on cloud GPU...", err=True)
-                    click.echo("  (streaming output from remote):", err=True)
-
-                    # Use SSH with streaming output so user sees progress
-                    ssh_cmd = (
-                        f'{ssh_opts} root@{host} '
-                        f'"python3 /workspace/render.py /workspace/input /workspace/output {model}"'
-                    )
-                    proc = subprocess.Popen(
-                        ssh_cmd, shell=True,
-                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                        text=True,
-                    )
-                    for line in proc.stdout:
-                        click.echo(f"    {line.rstrip()}", err=True)
-                    proc.wait()
-                    if proc.returncode != 0:
-                        raise RuntimeError(f"Remote render failed with exit code {proc.returncode}")
-
-                    # Download results
-                    click.echo("  Downloading styled frames...", err=True)
-                    vast.download_files(instance_id, "/workspace/output", styled_dir)
-
-                    if destroy:
-                        click.echo("  Destroying cloud instance...", err=True)
-                        vast.destroy_instance(instance_id)
-                    else:
-                        click.echo(
-                            f"  Instance {instance_id} kept alive for reuse. "
-                            f"Run 'beatlab destroy-gpu' to stop it.",
-                            err=True,
-                        )
-                except Exception as e:
-                    # Don't destroy on failure — instance is expensive to recreate
-                    click.echo(
-                        f"\n  Error: {e}\n"
-                        f"  Instance {instance_id} kept alive — fix the issue and retry.\n"
-                        f"  Run 'beatlab destroy-gpu' to stop it when done.",
-                        err=True,
-                    )
-                    raise
-
-            # 8. Reassemble
-            click.echo("  Reassembling video...", err=True)
-            reassemble_video(styled_dir, output, actual_fps, audio_source=video_file)
+    # ── Step 8: Reassemble ──
+    click.echo("  Reassembling video...", err=True)
+    reassemble_video(styled_dir, output, actual_fps, audio_source=video_file)
+    work.save_status("complete", {"output": output})
 
     click.echo(f"Done! Output: {output}", err=True)
+    click.echo(f"  Work dir cached at: {work.root} (use --fresh to redo)", err=True)
 
 
 @main.command(name="destroy-gpu")

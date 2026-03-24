@@ -16,6 +16,22 @@ def _log(msg: str) -> None:
     print(f"[{ts}] {msg}", file=sys.stderr, flush=True)
 
 
+def _retry_on_429(func, *args, max_retries: int = 5, **kwargs):
+    """Retry a function call with exponential backoff on 429 rate limit errors."""
+    for attempt in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                wait = 2 ** (attempt + 1)  # 2, 4, 8, 16, 32 seconds
+                _log(f"  Rate limited, waiting {wait}s (attempt {attempt + 1}/{max_retries})...")
+                time.sleep(wait)
+            else:
+                raise
+    # Final attempt — let it raise
+    return func(*args, **kwargs)
+
+
 class GoogleVideoClient:
     """Stylize images with Nano Banana and generate video clips with Veo."""
 
@@ -113,7 +129,8 @@ class GoogleVideoClient:
         ext = Path(image_path).suffix.lower()
         mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}.get(ext, "image/png")
 
-        response = self.client.models.generate_content(
+        response = _retry_on_429(
+            self.client.models.generate_content,
             model=model,
             contents=[
                 types.Content(role="user", parts=[
@@ -177,7 +194,8 @@ class GoogleVideoClient:
 
         img = types.Image(image_bytes=image_bytes, mime_type=mime)
 
-        operation = self.client.models.generate_videos(
+        operation = _retry_on_429(
+            self.client.models.generate_videos,
             model=model,
             prompt=prompt,
             image=img,
@@ -238,7 +256,8 @@ class GoogleVideoClient:
         # Try veo-3.1 with last_frame, fall back to veo-3.0 without it
         try:
             end_img = types.Image(image_bytes=end_bytes, mime_type=mime_map.get(ext_b, "image/png"))
-            operation = self.client.models.generate_videos(
+            operation = _retry_on_429(
+                self.client.models.generate_videos,
                 model="veo-3.1-generate-preview",
                 prompt=prompt,
                 image=start_img,
@@ -252,7 +271,8 @@ class GoogleVideoClient:
             )
         except Exception:
             # Fall back to start-frame-only on veo-3.0
-            operation = self.client.models.generate_videos(
+            operation = _retry_on_429(
+                self.client.models.generate_videos,
                 model=model,
                 prompt=prompt,
                 image=start_img,

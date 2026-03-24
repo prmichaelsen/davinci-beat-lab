@@ -251,43 +251,49 @@ milestones:
   - id: M7
     title: AI Video Stylization
     file: agent/milestones/milestone-7-ai-video-stylization.md
-    status: not_started
+    status: completed
+    started: 2026-03-24
+    completed: 2026-03-24
     estimated_weeks: 2.5
     tasks_total: 4
-    tasks_completed: 0
+    tasks_completed: 4
     tasks:
       - id: task-19
         title: Frame Extraction & Reassembly
         file: agent/tasks/milestone-7-ai-video-stylization/task-19-frame-pipeline.md
-        status: not_started
+        status: completed
         estimated_hours: 2
-        started: null
-        actual_hours: null
+        started: 2026-03-24T00:00:00Z
+        completed_date: 2026-03-24T00:10:00Z
+        actual_hours: 0.2
       - id: task-20
         title: SD Render Pipeline
         file: agent/tasks/milestone-7-ai-video-stylization/task-20-sd-render.md
-        status: not_started
+        status: completed
         estimated_hours: 6
-        started: null
-        actual_hours: null
+        started: 2026-03-24T00:10:00Z
+        completed_date: 2026-03-24T00:20:00Z
+        actual_hours: 0.2
         dependencies:
           - task-19
       - id: task-21
         title: Cloud GPU Provisioning
         file: agent/tasks/milestone-7-ai-video-stylization/task-21-cloud-gpu.md
-        status: not_started
+        status: completed
         estimated_hours: 4
-        started: null
-        actual_hours: null
+        started: 2026-03-24T00:20:00Z
+        completed_date: 2026-03-24T00:30:00Z
+        actual_hours: 0.2
         dependencies:
           - task-20
       - id: task-22
         title: Render CLI & AI Director
         file: agent/tasks/milestone-7-ai-video-stylization/task-22-render-cli.md
-        status: not_started
+        status: completed
         estimated_hours: 3
-        started: null
-        actual_hours: null
+        started: 2026-03-24T00:30:00Z
+        completed_date: 2026-03-24T00:40:00Z
+        actual_hours: 0.2
         dependencies:
           - task-21
 
@@ -299,22 +305,22 @@ documentation:
 
 progress:
   planning: 100
-  implementation: 73
-  overall: 73
+  implementation: 91
+  overall: 91
 
 recent_work:
   - date: 2026-03-24
-    description: "M7 planned — AI video stylization with SD render pipeline on cloud GPU. 4 tasks, ~15 hours."
+    description: "M7 complete — AI video stylization pipeline. Frame extraction, ComfyUI SD render, Vast.ai cloud GPU, beatlab render CLI. 20/22 tasks done."
 
 next_steps:
-  - "Start M7: Task 19 — Frame Extraction & Reassembly"
-  - "Set up Vast.ai account and API key"
-  - "Push current work (M1-M6 complete, M7 planned)"
+  - "Test beatlab render with a real video + Vast.ai"
+  - "Push all commits"
+  - "M4 (Resolve integration) still available if desired"
 
 notes:
   - "Total estimated: ~62 hours across 22 tasks"
-  - "M1-M3, M5-M6 complete (16/22 tasks)"
+  - "M1-M3, M5-M7 complete (20/22 tasks)"
   - "M4 (Resolve integration) deferred — nice-to-have"
-  - "M7 requires Vast.ai API key, ffmpeg, ~$3 per 30min video render"
+  - "M7 requires: Vast.ai API key, ffmpeg, ~$3 per 30min video"
 
 current_blockers: []

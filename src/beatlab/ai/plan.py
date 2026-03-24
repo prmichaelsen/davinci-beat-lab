@@ -20,6 +20,7 @@ class SectionPlan:
     intensity_curve: str = "linear"
     attack_frames: int | None = None
     release_frames: int | None = None
+    style_prompt: str | None = None  # SD style for video render mode
 
 
 @dataclass
@@ -68,6 +69,7 @@ def parse_effect_plan(text: str) -> EffectPlan:
                 intensity_curve=s.get("intensity_curve", "linear"),
                 attack_frames=s.get("attack_frames"),
                 release_frames=s.get("release_frames"),
+                style_prompt=s.get("style_prompt"),
             ))
 
     return EffectPlan(sections=sections)

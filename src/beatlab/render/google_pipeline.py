@@ -160,20 +160,12 @@ def render_google_pipeline(
         if progress_callback:
             progress_callback("veo", i + 1, num_segments)
 
-    # ── Phase 4: Concatenate and mux audio ──
-    _log("Phase 4: Assembling final video...")
-
-    concat_list = str(work / "google_concat.txt")
-    with open(concat_list, "w") as f:
-        for seg_path in segment_paths:
-            f.write(f"file '{Path(seg_path).resolve()}'\n")
+    # ── Phase 4: Concatenate with crossfade and mux audio ──
+    _log("Phase 4: Assembling with 8-frame crossfades...")
 
     concat_output = str(work / "google_concat.mp4")
-    subprocess.run(
-        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list,
-         "-c:v", "libx264", "-pix_fmt", "yuv420p", concat_output],
-        check=True, capture_output=True,
-    )
+    from beatlab.render.crossfade import concat_with_crossfade
+    concat_with_crossfade(segment_paths, concat_output, crossfade_frames=8, fps=video_fps)
 
     # Mux audio from original video
     muxed_output = str(work / "google_muxed.mp4")

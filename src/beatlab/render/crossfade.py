@@ -1,0 +1,103 @@
+"""Crossfade concatenation for video segments using ffmpeg xfade filter."""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+
+
+def _log(msg: str) -> None:
+    ts = datetime.now().strftime("%H:%M:%S")
+    print(f"[{ts}] {msg}", file=sys.stderr, flush=True)
+
+
+def concat_with_crossfade(
+    segment_paths: list[str],
+    output_path: str,
+    crossfade_frames: int = 8,
+    fps: float = 24.0,
+) -> str:
+    """Concatenate video segments with crossfade transitions between each pair.
+
+    Args:
+        segment_paths: List of video file paths to concatenate.
+        output_path: Where to write the output.
+        crossfade_frames: Number of frames for each crossfade transition.
+        fps: Frame rate (used to convert frames to seconds).
+
+    Returns:
+        output_path
+    """
+    if not segment_paths:
+        raise ValueError("No segments to concatenate")
+
+    if len(segment_paths) == 1:
+        shutil.copy2(segment_paths[0], output_path)
+        return output_path
+
+    xfade_duration = crossfade_frames / fps
+
+    # Get duration of each segment
+    seg_durations = []
+    for seg_path in segment_paths:
+        p = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", seg_path],
+            capture_output=True, text=True,
+        )
+        try:
+            seg_durations.append(float(p.stdout.strip()))
+        except ValueError:
+            seg_durations.append(8.0)
+
+    # Build ffmpeg command with xfade filter chain
+    inputs = []
+    for seg_path in segment_paths:
+        inputs.extend(["-i", str(Path(seg_path).resolve())])
+
+    n = len(segment_paths)
+
+    if n == 2:
+        offset = max(0, seg_durations[0] - xfade_duration)
+        filter_str = f"[0:v][1:v]xfade=transition=fade:duration={xfade_duration:.4f}:offset={offset:.4f}[v]"
+    else:
+        filters = []
+        prev = "[0:v]"
+        cumulative_duration = seg_durations[0]
+        for j in range(1, n):
+            offset = max(0, cumulative_duration - xfade_duration)
+            out = f"[v{j}]" if j < n - 1 else "[v]"
+            filters.append(f"{prev}[{j}:v]xfade=transition=fade:duration={xfade_duration:.4f}:offset={offset:.4f}{out}")
+            prev = out
+            cumulative_duration += seg_durations[j] - xfade_duration
+        filter_str = ";".join(filters)
+
+    cmd = ["ffmpeg", "-y"] + inputs + [
+        "-filter_complex", filter_str,
+        "-map", "[v]",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        output_path,
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        _log(f"  xfade failed, falling back to hard concat: {result.stderr[-300:]}")
+        _hard_concat(segment_paths, output_path)
+
+    return output_path
+
+
+def _hard_concat(segment_paths: list[str], output_path: str) -> None:
+    """Fallback: simple concat without crossfade."""
+    concat_list = output_path + ".concat.txt"
+    with open(concat_list, "w") as f:
+        for seg_path in segment_paths:
+            f.write(f"file '{Path(seg_path).resolve()}'\n")
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list,
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", output_path],
+        check=True, capture_output=True,
+    )
+    Path(concat_list).unlink(missing_ok=True)

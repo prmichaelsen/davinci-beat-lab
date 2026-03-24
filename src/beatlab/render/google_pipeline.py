@@ -24,6 +24,7 @@ def render_google_pipeline(
     fps: float | None = None,
     default_style: str = "artistic stylized",
     progress_callback: Callable[[str, int, int], None] | None = None,
+    vertex: bool = False,
 ) -> str:
     """Run the full Nano Banana + Veo pipeline.
 
@@ -53,7 +54,7 @@ def render_google_pipeline(
 
     video_fps = fps or beat_map.get("fps", 30.0)
 
-    client = GoogleVideoClient()
+    client = GoogleVideoClient(vertex=vertex)
 
     # Build plan map
     plan_map: dict[int, object] = {}

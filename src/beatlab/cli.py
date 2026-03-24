@@ -213,12 +213,13 @@ def run(
 @click.option("--engine", default="ebsynth", type=click.Choice(["ebsynth", "wan", "google", "kling"]), help="Render engine: ebsynth, wan, google (Nano Banana+Veo), kling (Nano Banana+Kling 3.0)")
 @click.option("--preview/--no-preview", default=False, help="Render at 512x512 for fast preview (Wan2.1 only)")
 @click.option("--describe", default=None, is_flag=False, flag_value="generate", help="Describe sections with Gemini. Pass a .md file to reuse existing descriptions.")
+@click.option("--vertex/--no-vertex", default=False, help="Use Vertex AI instead of AI Studio (higher rate limits, requires GCP project)")
 def render(
     video_file: str, beats: str | None, fps: float | None, style: str,
     ai: bool, prompt: str | None, output: str, base_denoise: float,
     beat_denoise: float, model: str, local_comfyui: str | None,
     sr: int, dry_run: bool, destroy: bool, fresh: bool, work_dir: str,
-    engine: str, preview: bool, describe: str | None,
+    engine: str, preview: bool, describe: str | None, vertex: bool,
 ):
     """Render AI-stylized video: extract frames → SD img2img → reassemble.
 
@@ -380,7 +381,7 @@ def render(
         def _google_progress(stage, done, total):
             _log(f"  [{stage}] {done}/{total}")
 
-        _log("  Google engine: Nano Banana + Veo (API)")
+        _log(f"  Google engine: Nano Banana + Veo ({'Vertex AI' if vertex else 'AI Studio'})")
         result = render_google_pipeline(
             video_file=video_file,
             beat_map=beat_map,
@@ -389,6 +390,7 @@ def render(
             fps=actual_fps,
             default_style=prompt or style,
             progress_callback=_google_progress,
+            vertex=vertex,
         )
 
         import shutil

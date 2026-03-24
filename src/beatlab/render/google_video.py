@@ -19,7 +19,8 @@ def _log(msg: str) -> None:
 class GoogleVideoClient:
     """Stylize images with Nano Banana and generate video clips with Veo."""
 
-    def __init__(self, api_key: str | None = None):
+    def __init__(self, api_key: str | None = None, vertex: bool = False,
+                 project: str | None = None, location: str = "us-central1"):
         try:
             from google import genai
             from google.genai import types
@@ -30,14 +31,26 @@ class GoogleVideoClient:
             )
 
         import os
-        key = api_key or os.environ.get("GOOGLE_API_KEY")
-        if not key:
-            raise ValueError(
-                "GOOGLE_API_KEY environment variable is required.\n"
-                "Get a key at: https://aistudio.google.com/apikey"
-            )
 
-        self.client = genai.Client(api_key=key)
+        if vertex:
+            # Vertex AI auth — uses ADC (gcloud auth) or service account
+            proj = project or os.environ.get("GOOGLE_CLOUD_PROJECT")
+            if not proj:
+                raise ValueError(
+                    "GOOGLE_CLOUD_PROJECT environment variable is required for --vertex.\n"
+                    "Set it with: export GOOGLE_CLOUD_PROJECT=your-project-id"
+                )
+            self.client = genai.Client(vertexai=True, project=proj, location=location)
+        else:
+            # AI Studio auth — API key
+            key = api_key or os.environ.get("GOOGLE_API_KEY")
+            if not key:
+                raise ValueError(
+                    "GOOGLE_API_KEY environment variable is required.\n"
+                    "Get a key at: https://aistudio.google.com/apikey"
+                )
+            self.client = genai.Client(api_key=key)
+
         self._genai = genai
         self._types = types
 

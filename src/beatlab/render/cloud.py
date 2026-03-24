@@ -22,10 +22,12 @@ class VastAIManager:
 
     def _vastai_cmd(self, *args: str) -> str:
         """Run a vastai CLI command and return stdout."""
-        cmd = ["vastai", "--api-key", self.api_key, *args]
+        cmd = ["vastai", *args]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             raise RuntimeError(f"vastai command failed: {result.stderr}")
+        if "failed with error" in result.stdout:
+            raise RuntimeError(f"vastai error: {result.stdout.strip()}")
         return result.stdout
 
     def find_instance(
@@ -71,10 +73,23 @@ class VastAIManager:
             "create", "instance", str(offer_id),
             "--image", image,
             "--disk", str(disk_gb),
-            "--raw",
         )
-        result = json.loads(output) if output.strip() else {}
-        instance_id = result.get("new_contract")
+        # Output may be JSON {"new_contract": id} or text "Started. new_contract: 12345"
+        stripped = output.strip()
+        try:
+            result = json.loads(stripped)
+            instance_id = result.get("new_contract")
+        except json.JSONDecodeError:
+            # Parse from text output
+            import re
+            match = re.search(r"new_contract:\s*(\d+)", stripped)
+            if match:
+                instance_id = match.group(1)
+            else:
+                # Try to find any number that looks like an instance ID
+                match = re.search(r"(\d{6,})", stripped)
+                instance_id = match.group(1) if match else None
+
         if not instance_id:
             raise RuntimeError(f"Failed to create instance: {output}")
         return str(instance_id)

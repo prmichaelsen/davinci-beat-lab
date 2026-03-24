@@ -143,10 +143,12 @@ def download_output(filename, subfolder, output_path):
 
 
 def check_vhs_available():
-    """Check if VHS (Video Helper Suite) nodes are available."""
+    """Check if VHS (Video Helper Suite) nodes are actually installed."""
     try:
-        urllib.request.urlopen(f"{COMFYUI_URL}/object_info/VHS_LoadVideo", timeout=10)
-        return True
+        with urllib.request.urlopen(f"{COMFYUI_URL}/object_info/VHS_LoadVideo", timeout=10) as resp:
+            data = json.loads(resp.read())
+            # If the node exists, the response will have the node info keyed by class name
+            return "VHS_LoadVideo" in data
     except Exception:
         return False
 
@@ -407,7 +409,16 @@ def main():
                 render_clip_frame_by_frame(input_clip, output_clip, style, negative_prompt, denoise, seed, model)
         except Exception as e:
             print(f"  [{idx+1}/{total}] {clip_name} FAILED: {e}", flush=True)
-            sys.exit(1)  # Fatal — no fallback
+            # Try frame-by-frame fallback if VHS failed
+            if use_vhs:
+                print(f"  [{idx+1}/{total}] Retrying with frame-by-frame fallback...", flush=True)
+                try:
+                    render_clip_frame_by_frame(input_clip, output_clip, style, negative_prompt, denoise, seed, model)
+                except Exception as e2:
+                    print(f"  [{idx+1}/{total}] Frame-by-frame also FAILED: {e2}", flush=True)
+                    sys.exit(1)
+            else:
+                sys.exit(1)
 
         elapsed = time.time() - start_time
         rate = (idx + 1) / elapsed if elapsed > 0 else 0

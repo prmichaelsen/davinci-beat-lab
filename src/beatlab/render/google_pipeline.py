@@ -143,6 +143,8 @@ def render_google_pipeline(
             if desc_b:
                 prompt_parts.append(f"And transitions into: {desc_b[:200]}")
 
+        # Mandate frame fidelity
+        prompt_parts.append("CRITICAL: The first frame of the video MUST be pixel-identical to the provided start image. The last frame MUST be pixel-identical to the provided end image. Do not alter, crop, zoom, or reinterpret the start and end frames in any way. Only generate motion and transformation for the frames in between.")
         prompt = " ".join(prompt_parts)
 
         _log(f"  [{i+1}/{num_segments}] Segment {i}→{i+1}: {label_a}→{label_b} (8s)...")

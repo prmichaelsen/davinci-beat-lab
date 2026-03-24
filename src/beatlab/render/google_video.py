@@ -36,6 +36,56 @@ def _retry_on_429(func, *args, max_retries: int = 5, **kwargs):
         time.sleep(60)
 
 
+def _retry_video_generation(generate_fn, client, output_path, max_retries: int = 5):
+    """Retry video generation with backoff on NoneType/rejected responses.
+
+    Handles: rate limits (429), prompt rejections (NoneType result),
+    and transient failures. After 5 backoffs, waits 60s and retries.
+    """
+    while True:
+        for attempt in range(max_retries):
+            try:
+                operation = generate_fn()
+
+                # Poll until done
+                while not operation.done:
+                    time.sleep(10)
+                    operation = client.operations.get(operation)
+
+                # Check for valid result
+                if operation.result is None:
+                    raise ValueError("Video generation returned None result (likely prompt rejection)")
+                if not operation.result.generated_videos:
+                    raise ValueError("Video generation returned empty generated_videos list")
+
+                generated = operation.result.generated_videos[0]
+                if generated is None:
+                    raise ValueError("First generated video is None")
+
+                return generated
+
+            except Exception as e:
+                err_str = str(e)
+                is_retryable = (
+                    "429" in err_str
+                    or "RESOURCE_EXHAUSTED" in err_str
+                    or "None" in err_str
+                    or "NoneType" in err_str
+                    or "prompt rejection" in err_str.lower()
+                    or "empty generated_videos" in err_str
+                )
+
+                if is_retryable:
+                    wait = 2 ** (attempt + 1)
+                    _log(f"  Generation failed: {err_str[:100]}. Retrying in {wait}s ({attempt + 1}/{max_retries})...")
+                    time.sleep(wait)
+                else:
+                    raise
+
+        _log(f"  Still failing after {max_retries} retries. Waiting 60s then resetting...")
+        time.sleep(60)
+
+
 class GoogleVideoClient:
     """Stylize images with Nano Banana and generate video clips with Veo."""
 
@@ -198,25 +248,21 @@ class GoogleVideoClient:
 
         img = types.Image(image_bytes=image_bytes, mime_type=mime)
 
-        operation = _retry_on_429(
-            self.client.models.generate_videos,
-            model=model,
-            prompt=prompt,
-            image=img,
-            config=types.GenerateVideosConfig(
-                aspect_ratio=aspect_ratio,
-                number_of_videos=1,
-                duration_seconds=duration_seconds,
-                person_generation="allow_adult",
-            ),
-        )
+        def _generate():
+            return _retry_on_429(
+                self.client.models.generate_videos,
+                model=model,
+                prompt=prompt,
+                image=img,
+                config=types.GenerateVideosConfig(
+                    aspect_ratio=aspect_ratio,
+                    number_of_videos=1,
+                    duration_seconds=duration_seconds,
+                    person_generation="allow_adult",
+                ),
+            )
 
-        # Poll until done
-        while not operation.done:
-            time.sleep(10)
-            operation = self.client.operations.get(operation)
-
-        generated = operation.result.generated_videos[0]
+        generated = _retry_video_generation(_generate, self.client, output_path)
         self._save_generated_video(generated, output_path)
         return output_path
 
@@ -258,40 +304,38 @@ class GoogleVideoClient:
         start_img = types.Image(image_bytes=start_bytes, mime_type=mime_map.get(ext_a, "image/png"))
 
         # Try veo-3.1 with last_frame, fall back to veo-3.0 without it
-        try:
-            end_img = types.Image(image_bytes=end_bytes, mime_type=mime_map.get(ext_b, "image/png"))
-            operation = _retry_on_429(
-                self.client.models.generate_videos,
-                model="veo-3.1-generate-preview",
-                prompt=prompt,
-                image=start_img,
-                config=types.GenerateVideosConfig(
-                    aspect_ratio="16:9",
-                    number_of_videos=1,
-                    duration_seconds=duration_seconds,
-                    person_generation="allow_adult",
-                    last_frame=end_img,
-                ),
-            )
-        except Exception:
-            # Fall back to start-frame-only on veo-3.0
-            operation = _retry_on_429(
-                self.client.models.generate_videos,
-                model=model,
-                prompt=prompt,
-                image=start_img,
-                config=types.GenerateVideosConfig(
-                    aspect_ratio="16:9",
-                    number_of_videos=1,
-                    duration_seconds=duration_seconds,
-                    person_generation="allow_adult",
-                ),
-            )
+        end_img = types.Image(image_bytes=end_bytes, mime_type=mime_map.get(ext_b, "image/png"))
 
-        while not operation.done:
-            time.sleep(10)
-            operation = self.client.operations.get(operation)
+        def _generate():
+            try:
+                return _retry_on_429(
+                    self.client.models.generate_videos,
+                    model="veo-3.1-generate-preview",
+                    prompt=prompt,
+                    image=start_img,
+                    config=types.GenerateVideosConfig(
+                        aspect_ratio="16:9",
+                        number_of_videos=1,
+                        duration_seconds=duration_seconds,
+                        person_generation="allow_adult",
+                        last_frame=end_img,
+                    ),
+                )
+            except Exception:
+                # Fall back to start-frame-only on veo-3.0
+                return _retry_on_429(
+                    self.client.models.generate_videos,
+                    model=model,
+                    prompt=prompt,
+                    image=start_img,
+                    config=types.GenerateVideosConfig(
+                        aspect_ratio="16:9",
+                        number_of_videos=1,
+                        duration_seconds=duration_seconds,
+                        person_generation="allow_adult",
+                    ),
+                )
 
-        generated = operation.result.generated_videos[0]
+        generated = _retry_video_generation(_generate, self.client, output_path)
         self._save_generated_video(generated, output_path)
         return output_path

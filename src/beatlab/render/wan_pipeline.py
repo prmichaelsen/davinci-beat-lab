@@ -240,13 +240,23 @@ def _run_remote(input_dir: str, output_dir: str, model: str,
             ssh_cmd, shell=True,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
+
+        # Stream output and sync styled clips after each completion
+        styled_local = Path(output_dir) / "styled_clips"
+        styled_local.mkdir(parents=True, exist_ok=True)
+        sync_cmd = f'rsync -az --ignore-existing -e "ssh {key_opt}-o StrictHostKeyChecking=no -p {port}" root@{host}:/workspace/wan_output/styled_clips/ {styled_local}/'
+
         for line in proc.stdout:
             _log(f"  [remote] {line.rstrip()}")
+            # When a clip finishes, sync it down immediately
+            if " done " in line or "(cached)" in line:
+                subprocess.Popen(sync_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
         proc.wait()
         if proc.returncode != 0:
             raise RuntimeError(f"Remote wan render failed with exit code {proc.returncode}")
 
-        # Download results
+        # Final sync to get everything (transitions, final output)
         _log("[wan] Downloading output...")
         vast.download_files(instance_id, "/workspace/wan_output", output_dir)
 

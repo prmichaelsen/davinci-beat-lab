@@ -167,23 +167,6 @@ def check_vhs_available():
 
 # ── Workflows ────────────────────────────────────────────────────────────────
 
-def build_img2img_workflow(image_name, prompt, negative_prompt, denoise, seed, model):
-    """SD img2img workflow (frame-by-frame fallback)."""
-    return {
-        "1": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": model}},
-        "2": {"class_type": "LoadImage", "inputs": {"image": image_name}},
-        "3": {"class_type": "VAEEncode", "inputs": {"pixels": ["2", 0], "vae": ["1", 2]}},
-        "4": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["1", 1]}},
-        "5": {"class_type": "CLIPTextEncode", "inputs": {"text": negative_prompt, "clip": ["1", 1]}},
-        "6": {"class_type": "KSampler", "inputs": {
-            "model": ["1", 0], "positive": ["4", 0], "negative": ["5", 0],
-            "latent_image": ["3", 0], "seed": seed, "steps": 20, "cfg": 7.0,
-            "sampler_name": "euler_ancestral", "scheduler": "normal", "denoise": denoise}},
-        "7": {"class_type": "VAEDecode", "inputs": {"samples": ["6", 0], "vae": ["1", 2]}},
-        "8": {"class_type": "SaveImage", "inputs": {"images": ["7", 0], "filename_prefix": "beatlab_wan_frame"}},
-    }
-
-
 def build_video_workflow(video_name, prompt, negative_prompt, denoise, seed, model):
     """VHS video-to-video workflow using SD img2img on video frames."""
     return {
@@ -226,63 +209,6 @@ def render_clip_vhs(clip_path, output_path, prompt, negative_prompt, denoise, se
                 download_output(items[0]["filename"], items[0].get("subfolder", ""), output_path)
                 return
     raise RuntimeError("No output from VHS workflow")
-
-
-def render_clip_frame_by_frame(clip_path, output_path, prompt, negative_prompt, denoise, seed, model):
-    """Fallback: extract frames, SD img2img each, reassemble."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        frames_dir = os.path.join(tmpdir, "frames")
-        styled_dir = os.path.join(tmpdir, "styled")
-        os.makedirs(frames_dir)
-        os.makedirs(styled_dir)
-
-        subprocess.run(
-            ["ffmpeg", "-y", "-i", clip_path, f"{frames_dir}/frame_%06d.png"],
-            capture_output=True, check=True,
-        )
-
-        frames = sorted(f for f in os.listdir(frames_dir) if f.endswith(".png"))
-        if not frames:
-            raise RuntimeError(f"No frames extracted from {clip_path}")
-
-        # Detect fps
-        fps = 24.0
-        try:
-            probe = subprocess.run(
-                ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", clip_path],
-                capture_output=True, text=True,
-            )
-            for s in json.loads(probe.stdout).get("streams", []):
-                if s.get("codec_type") == "video":
-                    num, den = s.get("r_frame_rate", "24/1").split("/")
-                    fps = float(num) / float(den)
-                    break
-        except Exception:
-            pass
-
-        for i, fname in enumerate(frames):
-            input_path = os.path.join(frames_dir, fname)
-            output_frame = os.path.join(styled_dir, fname)
-
-            uploaded = upload_file(input_path)
-            workflow = build_img2img_workflow(uploaded, prompt, negative_prompt, denoise, seed + i, model)
-            result = queue_and_wait(workflow, timeout=120)
-            for node_output in result.get("outputs", {}).values():
-                images = node_output.get("images", [])
-                if images:
-                    download_output(images[0]["filename"], images[0].get("subfolder", ""), output_frame)
-                    break
-
-            if (i + 1) % 5 == 0:
-                print(f"    frame {i+1}/{len(frames)}", flush=True)
-
-        subprocess.run(
-            ["ffmpeg", "-y", "-framerate", str(fps),
-             "-i", f"{styled_dir}/frame_%06d.png",
-             "-c:v", "libx264", "-pix_fmt", "yuv420p",
-             output_path],
-            capture_output=True, check=True,
-        )
 
 
 # ── FILM Transitions ─────────────────────────────────────────────────────────
@@ -394,8 +320,10 @@ def main():
     except Exception as e:
         print(f"Could not check models: {e}", flush=True)
 
-    use_vhs = check_vhs_available()
-    print(f"VHS nodes: {'available' if use_vhs else 'NOT available (frame-by-frame fallback)'}", flush=True)
+    if not check_vhs_available():
+        print("FATAL: VHS nodes not available. Install ComfyUI-VideoHelperSuite.", flush=True)
+        sys.exit(1)
+    print("VHS nodes: available", flush=True)
 
     styled_clips_dir = os.path.join(output_dir, "styled_clips")
     os.makedirs(styled_clips_dir, exist_ok=True)
@@ -421,10 +349,7 @@ def main():
             continue
 
         try:
-            if use_vhs:
-                render_clip_vhs(input_clip, output_clip, style, negative_prompt, denoise, seed, model)
-            else:
-                render_clip_frame_by_frame(input_clip, output_clip, style, negative_prompt, denoise, seed, model)
+            render_clip_vhs(input_clip, output_clip, style, negative_prompt, denoise, seed, model)
         except Exception as e:
             print(f"  [{idx+1}/{total}] {clip_name} FAILED: {e}", flush=True)
             sys.exit(1)

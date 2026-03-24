@@ -212,6 +212,7 @@ def render(
     sr: int, beats_out: str | None, dry_run: bool, destroy: bool,
 ):
     """Render AI-stylized video: extract frames → SD img2img → reassemble."""
+    import subprocess
     import tempfile
     from beatlab.render.frames import (
         detect_fps, extract_audio, extract_frames,
@@ -304,8 +305,9 @@ def render(
                         progress_callback=lambda done, total: bar.update(1),
                     )
             else:
-                # Cloud GPU render
+                # Cloud GPU render — SSH-based batch execution
                 from beatlab.render.cloud import VastAIManager
+                import importlib.resources
                 vast = VastAIManager()
 
                 click.echo("  Looking for GPU instance...", err=True)
@@ -318,26 +320,48 @@ def render(
                     vast.wait_until_ready(instance_id)
 
                 try:
-                    comfyui_url = vast.get_comfyui_url(instance_id)
-                    click.echo(f"  ComfyUI at: {comfyui_url}", err=True)
-
-                    # Save params for remote use
+                    # Save params alongside frames
                     params_path = f"{frames_dir}/frame_params.json"
                     save_frame_params(frame_params, params_path)
 
-                    click.echo("  Uploading frames...", err=True)
-                    vast.upload_files(instance_id, frames_dir, "/workspace/input")
-
-                    click.echo(f"  Rendering {frame_count} frames on cloud GPU...", err=True)
-                    host, port = comfyui_url.replace("http://", "").split(":")
-                    from beatlab.render.comfyui import ComfyUIClient
-                    client = ComfyUIClient(host=host, port=int(port))
-                    client.render_batch(
-                        frame_params, "/workspace/input", "/workspace/output",
-                        model=model,
+                    # Upload render script
+                    import beatlab.render.remote_script as rs
+                    script_path = rs.__file__
+                    click.echo("  Uploading render script...", err=True)
+                    vast.ssh_run(instance_id, "mkdir -p /workspace")
+                    host, port = vast.get_ssh_info(instance_id)
+                    ssh_opts = vast._ssh_opts(port)
+                    subprocess.run(
+                        f'scp {ssh_opts.replace("ssh ", "")} {script_path} root@{host}:/workspace/render.py',
+                        shell=True, check=True,
                     )
 
-                    click.echo("  Downloading results...", err=True)
+                    # Upload frames + params
+                    click.echo(f"  Uploading {frame_count} frames...", err=True)
+                    vast.upload_files(instance_id, frames_dir, "/workspace/input")
+
+                    # Run render script on remote
+                    click.echo(f"  Rendering {frame_count} frames on cloud GPU...", err=True)
+                    click.echo("  (streaming output from remote):", err=True)
+
+                    # Use SSH with streaming output so user sees progress
+                    ssh_cmd = (
+                        f'{ssh_opts} root@{host} '
+                        f'"python3 /workspace/render.py /workspace/input /workspace/output {model}"'
+                    )
+                    proc = subprocess.Popen(
+                        ssh_cmd, shell=True,
+                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                        text=True,
+                    )
+                    for line in proc.stdout:
+                        click.echo(f"    {line.rstrip()}", err=True)
+                    proc.wait()
+                    if proc.returncode != 0:
+                        raise RuntimeError(f"Remote render failed with exit code {proc.returncode}")
+
+                    # Download results
+                    click.echo("  Downloading styled frames...", err=True)
                     vast.download_files(instance_id, "/workspace/output", styled_dir)
 
                     if destroy:

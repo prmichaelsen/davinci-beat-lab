@@ -644,6 +644,80 @@ def make_patch(video_name: str, patch_file: str, work_dir: str, sections: str | 
     _log(f"Edit the file, then run: beatlab render <video> --plan-patch {patch_file}")
 
 
+@main.command(name="split-sections")
+@click.argument("video_name", type=str)
+@click.option("--max-duration", default=8.0, type=float, help="Max section duration in seconds (default: 8)")
+@click.option("--work-dir", default=".beatlab_work", type=str, help="Work directory")
+@click.option("--dry-run/--no-dry-run", default=False, help="Show what would be split without modifying anything")
+@click.option("--clean/--no-clean", default=False, help="Delete stale files for split sections")
+def split_sections(video_name: str, max_duration: float, work_dir: str, dry_run: bool, clean: bool):
+    """Analyze cached plan for long sections and generate splits.json.
+
+    Example: beatlab split-sections beyond_the_veil --max-duration 8
+    """
+    from beatlab.render.section_splitter import (
+        generate_splits, save_splits, find_long_sections, get_stale_files, get_keyframe_timestamps,
+    )
+
+    work = Path(work_dir) / video_name
+    plan_path = work / "plan.json"
+    beats_path = work / "beats.json"
+    splits_path = work / "splits.json"
+
+    if not plan_path.exists():
+        _log(f"No plan found at {plan_path}")
+        return
+    if not beats_path.exists():
+        _log(f"No beats found at {beats_path}")
+        return
+
+    with open(plan_path) as f:
+        plan = json.load(f)
+    with open(beats_path) as f:
+        beats = json.load(f)
+
+    sections = beats.get("sections", [])
+    long = find_long_sections(plan, sections, max_duration)
+
+    if not long:
+        _log(f"No sections exceed {max_duration}s — nothing to split.")
+        return
+
+    _log(f"Found {len(long)} sections exceeding {max_duration}s:")
+    total_new_clips = 0
+    for ls in long:
+        _log(f"  Section {ls['section_index']}: {ls['duration']:.1f}s → {ls['num_splits']} sub-sections")
+        total_new_clips += ls['num_splits'] - 1  # -1 because original segment covers 1
+
+    _log(f"  Total new clips needed: ~{total_new_clips}")
+
+    if dry_run:
+        _log("\nDry run — no changes made.")
+        return
+
+    # Generate splits
+    splits = generate_splits(plan, sections, max_duration)
+    save_splits(splits, str(splits_path))
+    _log(f"\nSaved splits to: {splits_path}")
+
+    # Show keyframe extraction needed
+    kf_timestamps = get_keyframe_timestamps(splits, beats.get("fps", 24))
+    _log(f"New keyframe images needed: {len(kf_timestamps)}")
+
+    if clean:
+        stale = get_stale_files(str(work), splits)
+        if stale:
+            _log(f"Deleting {len(stale)} stale files...")
+            for f in stale:
+                Path(f).unlink(missing_ok=True)
+                _log(f"  Deleted: {Path(f).name}")
+        else:
+            _log("No stale files to clean.")
+
+    _log(f"\nNext: re-run render to generate new styled images + transitions for split sections.")
+    _log(f"  beatlab render <video> --engine google --vertex -o output.mp4")
+
+
 @main.command(name="destroy-gpu")
 def destroy_gpu():
     """Destroy the kept-alive Vast.ai GPU instance."""

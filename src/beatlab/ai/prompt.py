@@ -59,13 +59,31 @@ Keep values subtle — small changes create visible looks:
 ## Creative Guidelines
 
 1. **Match effects to energy**: Use subtle effects (zoom_pulse, glow_swell) for low-energy sections, intense effects (flash, hard_cut, zoom_bounce) for high-energy sections.
-2. **Layer for impact**: High-energy sections like drops can combine multiple effects (e.g. flash + zoom_bounce).
+2. **Layer for impact**: High-energy sections like drops can combine multiple effects (e.g. flash + zoom_bounce + shake_x + shake_y).
 3. **Maintain coherence**: Similar sections should use similar effects for visual consistency.
 4. **Vary on repeats**: If a section type repeats (e.g. second chorus), introduce subtle variation — add an extra layered effect, adjust parameters slightly, or use a different curve.
 5. **Use spectral data**: High spectral centroid suggests bright/aggressive music, low centroid suggests mellow/warm. Use this to inform effect choices.
 6. **Intensity curves**: Use "exponential" for sections where you want beats to hit harder. Use "logarithmic" for sections where even quiet beats should be visible. Use "linear" as the default.
 7. **Color grading**: Use sustained_effects to set the mood per section. Different sections should have different color treatments. Transitions between sections are automatic and smooth.
 8. **Combine pulse + sustained**: Beat-pulse effects (presets) handle rhythm. Sustained effects (color grading) handle mood. Use both together for the best result.
+
+## Instrument-Aware Effect Selection
+
+When audio descriptions are provided, use them to match effects to what's actually playing:
+- **Bass drops / kick drums / sub-bass**: Use shake_x + shake_y — physical impact feel. The heavier the bass, the more shake.
+- **Hi-hats / cymbals / clicks**: Use flash with short attack (1f) and very short release (2f) — quick and crisp.
+- **Synth pads / ambient textures / strings**: Use glow_swell — soft, atmospheric, matches sustained tones.
+- **Vocals entering**: Pull back aggressive effects (no hard_cut or heavy shake). Use zoom_pulse or subtle color grading to keep focus on the singer.
+- **Guitar / piano / melodic instruments**: Use zoom_bounce or contrast_pop — musical and dynamic without overpowering.
+- **Distorted / aggressive sounds**: Layer hard_cut + shake_x + shake_y + contrast_pop for maximum impact.
+
+## Build/Drop Dynamics
+
+Read the audio descriptions for tension and energy flow:
+- **Buildups** (rising energy, tension, filter sweeps, snare rolls): Use "logarithmic" intensity curve so effects start subtle and grow. Gradually add more presets as the build progresses. Use rising color saturation in sustained_effects.
+- **Drops** (sudden energy release, bass hits, full arrangement): Hit with everything — flash + zoom_bounce + shake_x + shake_y + hard_cut. Use "exponential" intensity curve so strong beats dominate. Dramatic color grading (high contrast, high saturation).
+- **Breakdowns** (energy pull-back, sparse, atmospheric): Strip back to minimal effects — just glow_swell or zoom_pulse. Desaturated, darker color grading. Let the music breathe.
+- **Transitions between sections**: The contrast matters — a quiet section before a drop makes the drop hit harder visually. Plan your effects to maximize these contrasts.
 
 ## Output Format
 
@@ -91,13 +109,32 @@ Respond with ONLY a JSON object (no markdown, no explanation). The JSON must fol
       ],
       "intensity_curve": "linear",
       "attack_frames": 2,
-      "release_frames": 4
+      "release_frames": 4,
+      "style_prompt": "dark ethereal watercolor, muted tones, cinematic"
     }}
   ]
 }}
 ```
 
 Every section in the input must have a corresponding entry in your output. Include sustained_effects for sections where color grading would enhance the mood.
+
+## Video Stylization (style_prompt)
+
+ALWAYS include a `style_prompt` for every section. This is a Stable Diffusion prompt that controls how the video frames look when rendered through AI img2img. Each section should have a distinct visual style that matches the music's mood and energy.
+
+Guidelines for style_prompt:
+- Keep prompts concise (under 30 words)
+- Include artistic style, color palette, and mood
+- Match the music: dark music → dark visuals, energetic → vivid/neon
+- Vary between sections for visual interest
+- Use SD-friendly terms: "oil painting", "watercolor", "neon", "film grain", "psychedelic", "fractal", "ethereal", "dramatic lighting"
+
+Examples:
+- Low energy / verse: "soft watercolor, muted pastel tones, dreamy atmospheric haze"
+- High energy / chorus: "vivid neon explosion, psychedelic melting colors, high contrast"
+- Drop: "intense chromatic aberration, glitch art, saturated electric colors"
+- Breakdown: "desaturated film grain, dark moody noir, minimal"
+- Buildup: "swirling abstract patterns, gradually intensifying colors"
 
 IMPORTANT: If there are many sections (>20), you may group consecutive sections of the same type into one entry by listing multiple section indices. Use "section_indices": [0, 1, 2] instead of "section_index" for grouped entries. This keeps the output compact."""
 

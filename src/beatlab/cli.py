@@ -306,8 +306,10 @@ def render(
                     section_styles[sp.section_index] = sp.style_prompt
 
     if not section_styles:
+        # Use --prompt as SD style if provided, otherwise fall back to --style
+        fallback_style = prompt or style
         for i in range(len(beat_map.get("sections", []))):
-            section_styles[i] = style
+            section_styles[i] = fallback_style
 
     # ── Step 4: Extract frames ──
     frames_dir = work.ensure_frames_dir()

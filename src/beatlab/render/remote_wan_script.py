@@ -409,16 +409,7 @@ def main():
                 render_clip_frame_by_frame(input_clip, output_clip, style, negative_prompt, denoise, seed, model)
         except Exception as e:
             print(f"  [{idx+1}/{total}] {clip_name} FAILED: {e}", flush=True)
-            # Try frame-by-frame fallback if VHS failed
-            if use_vhs:
-                print(f"  [{idx+1}/{total}] Retrying with frame-by-frame fallback...", flush=True)
-                try:
-                    render_clip_frame_by_frame(input_clip, output_clip, style, negative_prompt, denoise, seed, model)
-                except Exception as e2:
-                    print(f"  [{idx+1}/{total}] Frame-by-frame also FAILED: {e2}", flush=True)
-                    sys.exit(1)
-            else:
-                sys.exit(1)
+            sys.exit(1)
 
         elapsed = time.time() - start_time
         rate = (idx + 1) / elapsed if elapsed > 0 else 0

@@ -39,6 +39,7 @@ def apply_effects(
         output_path
     """
     from moviepy import VideoFileClip
+    from PIL import Image, ImageFilter
 
     clip = VideoFileClip(video_path)
     video_fps = fps or clip.fps
@@ -147,7 +148,6 @@ def apply_effects(
             scale = 1.0 + zoom_amount
             new_h, new_w = int(h * scale), int(w * scale)
             # Crop center after scaling
-            from PIL import Image
             img = Image.fromarray(frame.astype(np.uint8))
             img = img.resize((new_w, new_h), Image.LANCZOS)
             left = (new_w - w) // 2
@@ -198,7 +198,6 @@ def apply_effects(
         # ── Glow ──
         if "glow_swell" in presets and intensity > 0.01:
             glow_strength = 0.3 * intensity
-            from PIL import ImageFilter, Image
             img = Image.fromarray(np.clip(frame, 0, 255).astype(np.uint8))
             blurred = img.filter(ImageFilter.GaussianBlur(radius=8))
             blurred_arr = np.array(blurred).astype(np.float32)

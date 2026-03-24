@@ -23,6 +23,10 @@ google = [
     "google-genai>=1.0.0",
     "Pillow>=10.0.0",
 ]
+kling = [
+    "replicate>=1.0.0",
+    "Pillow>=10.0.0",
+]
 describe = [
     "google-genai>=1.0.0",
 ]

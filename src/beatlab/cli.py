@@ -210,7 +210,7 @@ def run(
 @click.option("--destroy/--keep-alive", default=False, help="Destroy instance after render (default: keep alive)")
 @click.option("--fresh/--resume", default=False, help="Wipe work dir and start fresh (default: resume)")
 @click.option("--work-dir", default=".beatlab_work", type=str, help="Work directory for caching (default: .beatlab_work)")
-@click.option("--engine", default="ebsynth", type=click.Choice(["ebsynth", "wan", "google"]), help="Render engine: ebsynth (SD+EbSynth), wan (ComfyUI VHS), google (Nano Banana + Veo)")
+@click.option("--engine", default="ebsynth", type=click.Choice(["ebsynth", "wan", "google", "kling"]), help="Render engine: ebsynth, wan, google (Nano Banana+Veo), kling (Nano Banana+Kling 3.0)")
 @click.option("--preview/--no-preview", default=False, help="Render at 512x512 for fast preview (Wan2.1 only)")
 @click.option("--describe", default=None, is_flag=False, flag_value="generate", help="Describe sections with Gemini. Pass a .md file to reuse existing descriptions.")
 def render(
@@ -394,6 +394,30 @@ def render(
         import shutil
         shutil.move(result, output)
         work.save_status("complete", {"output": output, "engine": "google"})
+        _log(f"Done! Output: {output}")
+        return
+
+    # ── Kling engine branch (Nano Banana + Kling 3.0) ──
+    if engine == "kling":
+        from beatlab.render.kling_pipeline import render_kling_pipeline
+
+        def _kling_progress(stage, done, total):
+            _log(f"  [{stage}] {done}/{total}")
+
+        _log("  Kling engine: Nano Banana + Kling 3.0 (Replicate API)")
+        result = render_kling_pipeline(
+            video_file=video_file,
+            beat_map=beat_map,
+            effect_plan=plan if ai else None,
+            work_dir=str(work.root),
+            fps=actual_fps,
+            default_style=prompt or style,
+            progress_callback=_kling_progress,
+        )
+
+        import shutil
+        shutil.move(result, output)
+        work.save_status("complete", {"output": output, "engine": "kling"})
         _log(f"Done! Output: {output}")
         return
 

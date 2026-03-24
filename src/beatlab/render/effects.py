@@ -164,9 +164,20 @@ def apply_effects(
             shake_y = 0.01 * h * intensity * math.cos(t * 53.0)
 
         if abs(shake_x) > 0.5 or abs(shake_y) > 0.5:
-            M = np.float32([[1, 0, shake_x], [0, 1, shake_y]])
-            import cv2
-            frame = cv2.warpAffine(frame.astype(np.uint8), M, (w, h), borderMode=cv2.BORDER_REFLECT).astype(np.float32)
+            dx = int(round(shake_x))
+            dy = int(round(shake_y))
+            shifted = np.zeros_like(frame)
+            # Compute source and dest slices for the shift
+            src_x0 = max(0, -dx)
+            src_y0 = max(0, -dy)
+            src_x1 = min(w, w - dx)
+            src_y1 = min(h, h - dy)
+            dst_x0 = max(0, dx)
+            dst_y0 = max(0, dy)
+            dst_x1 = min(w, w + dx)
+            dst_y1 = min(h, h + dy)
+            shifted[dst_y0:dst_y1, dst_x0:dst_x1] = frame[src_y0:src_y1, src_x0:src_x1]
+            frame = shifted
 
         # ── Brightness / Flash (flash, hard_cut) ──
         brightness = 1.0

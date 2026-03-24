@@ -17,19 +17,23 @@ def _log(msg: str) -> None:
 
 
 def _retry_on_429(func, *args, max_retries: int = 5, **kwargs):
-    """Retry a function call with exponential backoff on 429 rate limit errors."""
-    for attempt in range(max_retries):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                wait = 2 ** (attempt + 1)  # 2, 4, 8, 16, 32 seconds
-                _log(f"  Rate limited, waiting {wait}s (attempt {attempt + 1}/{max_retries})...")
-                time.sleep(wait)
-            else:
-                raise
-    # Final attempt — let it raise
-    return func(*args, **kwargs)
+    """Retry a function call with exponential backoff on 429 rate limit errors.
+
+    After exhausting max_retries, waits 60s and resets the retry counter indefinitely.
+    """
+    while True:
+        for attempt in range(max_retries):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    wait = 2 ** (attempt + 1)  # 2, 4, 8, 16, 32 seconds
+                    _log(f"  Rate limited, waiting {wait}s (attempt {attempt + 1}/{max_retries})...")
+                    time.sleep(wait)
+                else:
+                    raise
+        _log(f"  Still rate limited after {max_retries} retries. Waiting 60s then resetting...")
+        time.sleep(60)
 
 
 class GoogleVideoClient:

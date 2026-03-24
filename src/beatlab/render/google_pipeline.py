@@ -323,23 +323,29 @@ def render_google_pipeline(
         remapped_paths = burn_section_labels(remapped_paths, section_indices, labeled_dir)
 
     # ── Phase 4: Concatenate with crossfade and mux audio ──
-    _log("Phase 4: Assembling with 8-frame crossfades...")
-
     concat_output = str(work / "google_concat.mp4")
-    from beatlab.render.crossfade import concat_with_crossfade
-    concat_with_crossfade(remapped_paths, concat_output, crossfade_frames=8, fps=video_fps)
+    if Path(concat_output).exists():
+        _log("Phase 4: Concat cached, skipping...")
+    else:
+        _log("Phase 4: Assembling with 8-frame crossfades...")
+        from beatlab.render.crossfade import concat_with_crossfade
+        concat_with_crossfade(remapped_paths, concat_output, crossfade_frames=8, fps=video_fps)
 
     # Mux audio from original video
     muxed_output = str(work / "google_muxed.mp4")
-    subprocess.run(
-        ["ffmpeg", "-y",
-         "-i", concat_output,
-         "-i", video_file,
-         "-map", "0:v", "-map", "1:a",
-         "-c:v", "copy", "-c:a", "aac", "-shortest",
-         muxed_output],
-        check=True, capture_output=True,
-    )
+    if Path(muxed_output).exists():
+        _log("Phase 4.5: Mux cached, skipping...")
+    else:
+        _log("Phase 4.5: Muxing audio...")
+        subprocess.run(
+            ["ffmpeg", "-y",
+             "-i", concat_output,
+             "-i", video_file,
+             "-map", "0:v", "-map", "1:a",
+             "-c:v", "copy", "-c:a", "aac", "-shortest",
+             muxed_output],
+            check=True, capture_output=True,
+        )
 
     # ── Phase 5: Apply beat-synced effects (single-pass ffmpeg) ──
     _log("Phase 5: Applying beat-synced effects (single-pass ffmpeg)...")

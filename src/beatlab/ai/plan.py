@@ -109,7 +109,7 @@ def validate_effect_plan(plan: EffectPlan) -> list[str]:
                 f"out of range (expected 0.0-1.0)"
             )
 
-        if sp.transition_frames is not None and not (1 <= sp.transition_frames <= 60):
+        if sp.transition_frames is not None and not (0 <= sp.transition_frames <= 60):
             warnings.append(
                 f"Section {sp.section_index}: transition_frames {sp.transition_frames} "
                 f"out of range (expected 1-60)"

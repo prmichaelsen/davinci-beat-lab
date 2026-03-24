@@ -294,10 +294,10 @@ def frames_to_clip(
     """
     import subprocess
 
-    # Create a temporary file list for ffmpeg concat
+    # Create a temporary file list for ffmpeg concat (absolute paths)
     frame_list = []
     for i in range(start_frame, end_frame):
-        p = Path(frames_dir) / f"frame_{i:06d}.png"
+        p = Path(frames_dir).resolve() / f"frame_{i:06d}.png"
         if p.exists():
             frame_list.append(str(p))
 
@@ -311,7 +311,7 @@ def frames_to_clip(
             f.write(f"file '{fp}'\n")
             f.write(f"duration {1.0/fps:.6f}\n")
 
-    subprocess.run(
+    result = subprocess.run(
         [
             "ffmpeg", "-y", "-f", "concat", "-safe", "0",
             "-i", concat_path,
@@ -319,9 +319,13 @@ def frames_to_clip(
             "-pix_fmt", "yuv420p",
             output_path,
         ],
-        check=True,
         capture_output=True,
+        text=True,
     )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg concat failed (exit {result.returncode}):\n{result.stderr[-500:]}"
+        )
 
     Path(concat_path).unlink(missing_ok=True)
     return output_path

@@ -90,13 +90,9 @@ def render_google_pipeline(
             styled_paths.append(styled_path)
             continue
 
-        full_style = style
-        if default_style and default_style != "artistic stylized":
-            full_style = f"{default_style}. {style}"
-
-        _log(f"  [{i+1}/{total_sections}] Section {i}: {full_style[:60]}...")
+        _log(f"  [{i+1}/{total_sections}] Section {i}: {style[:60]}...")
         try:
-            client.stylize_image(kf_path, full_style, styled_path)
+            client.stylize_image(kf_path, style, styled_path)
         except Exception as e:
             _log(f"  [{i+1}/{total_sections}] FAILED: {e}")
             raise

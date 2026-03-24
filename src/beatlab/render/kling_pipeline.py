@@ -88,13 +88,9 @@ def render_kling_pipeline(
             styled_paths.append(styled_path)
             continue
 
-        full_style = style
-        if default_style and default_style != "artistic stylized":
-            full_style = f"{default_style}. {style}"
-
-        _log(f"  [{i+1}/{total_sections}] Section {i}: {full_style[:60]}...")
+        _log(f"  [{i+1}/{total_sections}] Section {i}: {style[:60]}...")
         try:
-            google_client.stylize_image(kf_path, full_style, styled_path)
+            google_client.stylize_image(kf_path, style, styled_path)
         except Exception as e:
             _log(f"  [{i+1}/{total_sections}] FAILED: {e}")
             raise
@@ -127,12 +123,7 @@ def render_kling_pipeline(
         label_a = sec_a.get("label", "")
         label_b = sec_b.get("label", "")
 
-        prompt_parts = []
-        if default_style and default_style != "artistic stylized":
-            prompt_parts.append(f"{default_style}.")
-        prompt_parts.append(f"Cinematic video transitioning from {style_a} ({label_a}) into {style_b} ({label_b}).")
-        prompt_parts.append("Smooth, flowing motion. The visual style gradually transforms.")
-        prompt = " ".join(prompt_parts)
+        prompt = f"Cinematic video transitioning from {style_a} ({label_a}) into {style_b} ({label_b}). Smooth, flowing motion. The visual style gradually transforms."
 
         # Match duration to section length (Kling supports 5 or 10)
         sec_duration = sec_b.get("start_time", 0) - sec_a.get("start_time", 0)

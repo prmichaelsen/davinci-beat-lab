@@ -343,10 +343,14 @@ def render(
                             f"Run 'beatlab destroy-gpu' to stop it.",
                             err=True,
                         )
-                except Exception:
-                    if not reused:
-                        click.echo("  Error occurred. Destroying new instance...", err=True)
-                        vast.destroy_instance(instance_id)
+                except Exception as e:
+                    # Don't destroy on failure — instance is expensive to recreate
+                    click.echo(
+                        f"\n  Error: {e}\n"
+                        f"  Instance {instance_id} kept alive — fix the issue and retry.\n"
+                        f"  Run 'beatlab destroy-gpu' to stop it when done.",
+                        err=True,
+                    )
                     raise
 
             # 8. Reassemble

@@ -776,7 +776,7 @@ def split_sections(video_name: str, max_duration: float, work_dir: str, dry_run:
     Example: beatlab split-sections beyond_the_veil --max-duration 8
     """
     from beatlab.render.section_splitter import (
-        generate_splits, save_splits, find_long_sections, get_stale_files, get_keyframe_timestamps,
+        generate_splits, save_splits, load_splits, find_long_sections, get_stale_files, get_keyframe_timestamps,
     )
 
     work = Path(work_dir) / video_name
@@ -815,8 +815,14 @@ def split_sections(video_name: str, max_duration: float, work_dir: str, dry_run:
         _log("\nDry run — no changes made.")
         return
 
-    # Generate splits
-    splits = generate_splits(plan, sections, max_duration)
+    # Load existing splits if present (for re-splitting)
+    existing = None
+    if splits_path.exists():
+        existing = load_splits(str(splits_path))
+        _log(f"  Found existing splits — will merge and further split if needed")
+
+    # Generate splits (merges with existing if present)
+    splits = generate_splits(plan, sections, max_duration, existing_splits=existing)
     save_splits(splits, str(splits_path))
     _log(f"\nSaved splits to: {splits_path}")
 

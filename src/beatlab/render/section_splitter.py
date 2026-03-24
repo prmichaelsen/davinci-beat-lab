@@ -37,8 +37,12 @@ def generate_splits(
     plan: dict,
     sections: list[dict],
     max_duration: float = 8.0,
+    existing_splits: dict | None = None,
 ) -> dict:
     """Generate a splits.json that defines how to break long sections into sub-sections.
+
+    If existing_splits is provided, merges with it — further splitting any
+    existing sub-sections that still exceed max_duration.
 
     Returns a splits dict:
     {
@@ -48,13 +52,41 @@ def generate_splits(
                 "original": {start_time, end_time, duration},
                 "sub_sections": [
                     {"sub_index": 0, "start_time": 123.8, "end_time": 131.8, "duration": 8.0},
-                    {"sub_index": 1, "start_time": 131.8, "end_time": 139.8, "duration": 8.0},
                     ...
                 ]
             }
         }
     }
     """
+    # If we have existing splits, check if any sub-sections need further splitting
+    if existing_splits:
+        existing_map = existing_splits.get("splits", {})
+        # Build effective section list: expand already-split sections
+        effective_sections = []
+        for i, sec in enumerate(sections):
+            idx_str = str(i)
+            if idx_str in existing_map:
+                for sub in existing_map[idx_str]["sub_sections"]:
+                    effective_sections.append({
+                        "start_time": sub["start_time"],
+                        "end_time": sub["end_time"],
+                        "type": sec.get("type", ""),
+                        "label": sec.get("label", ""),
+                        "_parent_idx": i,
+                        "_sub_index": sub["sub_index"],
+                    })
+            else:
+                effective_sections.append(sec)
+
+        # Find long sections in the effective list
+        long_effective = find_long_sections(plan, effective_sections, max_duration)
+
+        if not long_effective:
+            return existing_splits  # Nothing more to split
+
+        # Re-split: regenerate the full splits dict from scratch using effective sections
+        sections = effective_sections
+
     long_sections = find_long_sections(plan, sections, max_duration)
 
     if not long_sections:

@@ -46,7 +46,7 @@ class GoogleVideoClient:
         image_path: str,
         style_prompt: str,
         output_path: str,
-        model: str = "gemini-2.5-flash-preview-image-generation",
+        model: str = "gemini-2.5-flash-image",
     ) -> str:
         """Stylize an image using Nano Banana (Gemini image generation).
 
@@ -96,7 +96,7 @@ class GoogleVideoClient:
         prompt: str,
         output_path: str,
         duration_seconds: int = 8,
-        model: str = "veo-3.0-generate-preview",
+        model: str = "veo-3.0-generate-001",
         aspect_ratio: str = "16:9",
     ) -> str:
         """Generate a video clip from a reference image using Veo.
@@ -146,7 +146,7 @@ class GoogleVideoClient:
         prompt: str,
         output_path: str,
         duration_seconds: int = 2,
-        model: str = "veo-3.0-generate-preview",
+        model: str = "veo-3.0-generate-001",
     ) -> str:
         """Generate a transition clip between two frames using Veo.
 

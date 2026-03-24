@@ -180,20 +180,35 @@ class GoogleVideoClient:
         mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
 
         start_img = types.Image(image_bytes=start_bytes, mime_type=mime_map.get(ext_a, "image/png"))
-        end_img = types.Image(image_bytes=end_bytes, mime_type=mime_map.get(ext_b, "image/png"))
 
-        operation = self.client.models.generate_videos(
-            model=model,
-            prompt=prompt,
-            image=start_img,
-            config=types.GenerateVideosConfig(
-                aspect_ratio="16:9",
-                number_of_videos=1,
-                duration_seconds=duration_seconds,
-                person_generation="allow_adult",
-                last_frame=end_img,
-            ),
-        )
+        # Try veo-3.1 with last_frame, fall back to veo-3.0 without it
+        try:
+            end_img = types.Image(image_bytes=end_bytes, mime_type=mime_map.get(ext_b, "image/png"))
+            operation = self.client.models.generate_videos(
+                model="veo-3.1-generate-preview",
+                prompt=prompt,
+                image=start_img,
+                config=types.GenerateVideosConfig(
+                    aspect_ratio="16:9",
+                    number_of_videos=1,
+                    duration_seconds=duration_seconds,
+                    person_generation="allow_adult",
+                    last_frame=end_img,
+                ),
+            )
+        except Exception:
+            # Fall back to start-frame-only on veo-3.0
+            operation = self.client.models.generate_videos(
+                model=model,
+                prompt=prompt,
+                image=start_img,
+                config=types.GenerateVideosConfig(
+                    aspect_ratio="16:9",
+                    number_of_videos=1,
+                    duration_seconds=duration_seconds,
+                    person_generation="allow_adult",
+                ),
+            )
 
         while not operation.done:
             time.sleep(10)

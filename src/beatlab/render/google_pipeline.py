@@ -376,7 +376,7 @@ def render_google_pipeline(
         prompt = " ".join(prompt_parts)
 
         intra_tag = " [smooth]" if is_intra_section else ""
-        _log(f"  [{i+1}/{num_segments}] Segment {expanded_keys[i]}→{expanded_keys[i+1]}: {label_a}→{label_b} (8s){intra_tag}")
+        _log(f"  [{i+1}/{num_segments}] Segment {i}→{i+1} ({expanded_keys[i]}→{expanded_keys[i+1]}): {label_a}→{label_b} (8s){intra_tag}")
         try:
             client.generate_video_transition(
                 expanded_styled[i], expanded_styled[i + 1], prompt, seg_path,

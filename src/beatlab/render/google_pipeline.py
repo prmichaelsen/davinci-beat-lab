@@ -105,6 +105,7 @@ def render_google_pipeline(
     audio_descriptions: list[str] | None = None,
     motion_prompt: str | None = None,
     labels: bool = False,
+    candidates: int = 0,
 ) -> str:
     """Run the full Nano Banana + Veo pipeline.
 
@@ -169,38 +170,95 @@ def render_google_pipeline(
             kf_path = str(frames_dir / f"frame_{start_frame:06d}.png")
         keyframe_paths.append(kf_path)
 
-    # ── Phase 2: Nano Banana stylization ──
-    _log(f"Phase 2: Stylizing {total_sections} keyframes with Nano Banana...")
+    # ── Phase 2: Nano Banana stylization (with optional candidates) ──
+    if candidates > 1:
+        _log(f"Phase 2: Generating {candidates} candidates per section ({total_sections} sections, {total_sections * candidates} total)...")
+    else:
+        _log(f"Phase 2: Stylizing {total_sections} keyframes with Nano Banana...")
+
+    from beatlab.render.candidates import generate_image_candidates, make_contact_sheet
+
     styled_paths: list[str] = []
+    needs_selection: list[int] = []  # sections that have candidates but no selection yet
+
     for i, (sec, kf_path) in enumerate(zip(sections, keyframe_paths)):
         sp = plan_map.get(i)
         style = (sp.style_prompt if sp and sp.style_prompt else default_style)
+        fk = file_keys[i]
 
-        styled_path = str(styled_dir / f"styled_{file_keys[i]}.png")
+        styled_path = str(styled_dir / f"styled_{fk}.png")
 
         if Path(styled_path).exists():
-            _log(f"  [{i+1}/{total_sections}] Section {i} (cached)")
+            _log(f"  [{i+1}/{total_sections}] Section {fk} (cached)")
             styled_paths.append(styled_path)
             continue
 
-        _log(f"  [{i+1}/{total_sections}] Section {i}: {style[:60]}...")
-        try:
-            client.stylize_image(kf_path, style, styled_path)
-        except Exception as e:
-            _log(f"  [{i+1}/{total_sections}] Content filter hit, retrying with safe prompt...")
-            # Strip violent/graphic language and retry with abstract version
-            safe_style = f"abstract artistic interpretation, {sec.get('label', 'cinematic')}, dramatic lighting, surreal dreamlike atmosphere"
-            try:
-                client.stylize_image(kf_path, safe_style, styled_path)
-                _log(f"  [{i+1}/{total_sections}] Retry succeeded with safe prompt")
-            except Exception as e2:
-                _log(f"  [{i+1}/{total_sections}] FAILED even with safe prompt: {e2}")
-                raise
+        if candidates > 1:
+            # Check if candidates already generated
+            cand_dir = work / "candidates" / f"section_{fk}"
+            grid_path = str(work / "candidates" / f"section_{fk}_grid.png")
 
-        styled_paths.append(styled_path)
+            if cand_dir.exists() and len(list(cand_dir.glob("v*.png"))) >= candidates:
+                _log(f"  [{i+1}/{total_sections}] Section {fk} candidates (cached, awaiting selection)")
+                needs_selection.append(i)
+                styled_paths.append(styled_path)  # placeholder — will be filled after selection
+                continue
+
+            _log(f"  [{i+1}/{total_sections}] Section {fk}: generating {candidates} candidates...")
+
+            def _stylize(source_path, style_prompt, output_path):
+                try:
+                    client.stylize_image(source_path, style_prompt, output_path)
+                except Exception:
+                    safe = f"abstract artistic interpretation, {sec.get('label', 'cinematic')}, dramatic lighting, surreal dreamlike atmosphere"
+                    client.stylize_image(source_path, safe, output_path)
+                return output_path
+
+            paths = generate_image_candidates(
+                section_idx=i,
+                source_image_path=kf_path,
+                style_prompt=style,
+                count=candidates,
+                work_dir=str(work),
+                stylize_fn=_stylize,
+            )
+            make_contact_sheet(paths, grid_path, i)
+            _log(f"    Contact sheet → candidates/section_{fk}_grid.png")
+            needs_selection.append(i)
+            styled_paths.append(styled_path)  # placeholder
+        else:
+            _log(f"  [{i+1}/{total_sections}] Section {fk}: {style[:60]}...")
+            try:
+                client.stylize_image(kf_path, style, styled_path)
+            except Exception as e:
+                _log(f"  [{i+1}/{total_sections}] Content filter hit, retrying with safe prompt...")
+                safe_style = f"abstract artistic interpretation, {sec.get('label', 'cinematic')}, dramatic lighting, surreal dreamlike atmosphere"
+                try:
+                    client.stylize_image(kf_path, safe_style, styled_path)
+                    _log(f"  [{i+1}/{total_sections}] Retry succeeded with safe prompt")
+                except Exception as e2:
+                    _log(f"  [{i+1}/{total_sections}] FAILED even with safe prompt: {e2}")
+                    raise
+
+            styled_paths.append(styled_path)
 
         if progress_callback:
             progress_callback("stylize", i + 1, total_sections)
+
+    # ── Phase 2.5: Selection gate — pause if candidates need selection ──
+    if needs_selection:
+        # Check which sections still need styled images (no selection applied yet)
+        unselected = [i for i in needs_selection if not Path(styled_paths[i]).exists()]
+        if unselected:
+            fk_list = [file_keys[i] for i in unselected]
+            _log(f"\n  ⏸  {len(unselected)} sections need candidate selection before Veo can proceed.")
+            _log(f"  Review contact sheets in: {work}/candidates/")
+            _log(f"  Sections: {fk_list}")
+            video_name = work.name
+            select_args = " ".join(f"{file_keys[i]}:v1" for i in unselected[:5])
+            _log(f"  Run: beatlab select {video_name} {select_args} ...")
+            _log(f"  Then re-run this render command to continue.\n")
+            return str(output_path)  # Exit early — user needs to select
 
     # ── Phase 3: Veo segments between consecutive styled keyframes ──
     num_segments = total_sections - 1

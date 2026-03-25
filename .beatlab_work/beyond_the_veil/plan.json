@@ -46,50 +46,6 @@
       "transition_action": "gentle breeze carries luminous petals across frame, crystallizing into new geometric forms"
     },
     {
-      "section_index": 3,
-      "presets": [
-        "zoom_pulse"
-      ],
-      "style_prompt": "prismatic glass garden, delicate crystal flowers refracting rainbow light through morning dew, intricate botanical structures with volumetric caustics, masterful detail",
-      "intensity_curve": "linear",
-      "sustained_effects": [
-        {
-          "node_type": "ColorCorrector",
-          "parameters": {
-            "MasterSaturation": 0.75,
-            "MasterContrast": 0.1,
-            "GainG": 1.05
-          },
-          "transition_frames": 8
-        }
-      ],
-      "wan_denoise": 0.35,
-      "transition_frames": 8,
-      "transition_action": "gentle breeze carries luminous petals across frame, crystallizing into new geometric forms"
-    },
-    {
-      "section_index": 5,
-      "presets": [
-        "zoom_pulse"
-      ],
-      "style_prompt": "prismatic glass garden, delicate crystal flowers refracting rainbow light through morning dew, intricate botanical structures with volumetric caustics, masterful detail",
-      "intensity_curve": "linear",
-      "sustained_effects": [
-        {
-          "node_type": "ColorCorrector",
-          "parameters": {
-            "MasterSaturation": 0.75,
-            "MasterContrast": 0.1,
-            "GainG": 1.05
-          },
-          "transition_frames": 8
-        }
-      ],
-      "wan_denoise": 0.35,
-      "transition_frames": 8,
-      "transition_action": "gentle breeze carries luminous petals across frame, crystallizing into new geometric forms"
-    },
-    {
       "section_index": 2,
       "presets": [
         "glow_swell"
@@ -111,6 +67,28 @@
       "wan_denoise": 0.32,
       "transition_frames": 10,
       "transition_action": "crystal garden dissolves into liquid light, camera dives through surface tension into aquatic wonderland"
+    },
+    {
+      "section_index": 3,
+      "presets": [
+        "zoom_pulse"
+      ],
+      "style_prompt": "prismatic glass garden, delicate crystal flowers refracting rainbow light through morning dew, intricate botanical structures with volumetric caustics, masterful detail",
+      "intensity_curve": "linear",
+      "sustained_effects": [
+        {
+          "node_type": "ColorCorrector",
+          "parameters": {
+            "MasterSaturation": 0.75,
+            "MasterContrast": 0.1,
+            "GainG": 1.05
+          },
+          "transition_frames": 8
+        }
+      ],
+      "wan_denoise": 0.35,
+      "transition_frames": 8,
+      "transition_action": "gentle breeze carries luminous petals across frame, crystallizing into new geometric forms"
     },
     {
       "section_index": 4,
@@ -136,59 +114,29 @@
       "transition_action": "crystal garden dissolves into liquid light, camera dives through surface tension into aquatic wonderland"
     },
     {
+      "section_index": 5,
+      "presets": [
+        "zoom_pulse"
+      ],
+      "style_prompt": "prismatic glass garden, delicate crystal flowers refracting rainbow light through morning dew, intricate botanical structures with volumetric caustics, masterful detail",
+      "intensity_curve": "linear",
+      "sustained_effects": [
+        {
+          "node_type": "ColorCorrector",
+          "parameters": {
+            "MasterSaturation": 0.75,
+            "MasterContrast": 0.1,
+            "GainG": 1.05
+          },
+          "transition_frames": 8
+        }
+      ],
+      "wan_denoise": 0.35,
+      "transition_frames": 8,
+      "transition_action": "gentle breeze carries luminous petals across frame, crystallizing into new geometric forms"
+    },
+    {
       "section_index": 6,
-      "presets": [
-        "flash",
-        "zoom_bounce",
-        "shake_x",
-        "shake_y"
-      ],
-      "style_prompt": "cyberpunk neon foundry, massive industrial machinery with glowing plasma conduits, sparks and electrical arcs illuminating chrome surfaces, cinematic volumetric fog",
-      "intensity_curve": "exponential",
-      "sustained_effects": [
-        {
-          "node_type": "ColorCorrector",
-          "parameters": {
-            "MasterSaturation": 1.3,
-            "MasterContrast": 0.25,
-            "MasterGain": 1.1,
-            "GainR": 1.1
-          },
-          "transition_frames": 3
-        }
-      ],
-      "wan_denoise": 0.55,
-      "transition_frames": 3,
-      "transition_action": "ocean floor erupts with volcanic force, magma becomes molten neon flowing through massive mechanical structures"
-    },
-    {
-      "section_index": 8,
-      "presets": [
-        "flash",
-        "zoom_bounce",
-        "shake_x",
-        "shake_y"
-      ],
-      "style_prompt": "cyberpunk neon foundry, massive industrial machinery with glowing plasma conduits, sparks and electrical arcs illuminating chrome surfaces, cinematic volumetric fog",
-      "intensity_curve": "exponential",
-      "sustained_effects": [
-        {
-          "node_type": "ColorCorrector",
-          "parameters": {
-            "MasterSaturation": 1.3,
-            "MasterContrast": 0.25,
-            "MasterGain": 1.1,
-            "GainR": 1.1
-          },
-          "transition_frames": 3
-        }
-      ],
-      "wan_denoise": 0.55,
-      "transition_frames": 3,
-      "transition_action": "ocean floor erupts with volcanic force, magma becomes molten neon flowing through massive mechanical structures"
-    },
-    {
-      "section_index": 10,
       "presets": [
         "flash",
         "zoom_bounce",
@@ -241,6 +189,32 @@
       "transition_action": "machinery overloads in blinding flash, energy cascades through quantum crystalline structures"
     },
     {
+      "section_index": 8,
+      "presets": [
+        "flash",
+        "zoom_bounce",
+        "shake_x",
+        "shake_y"
+      ],
+      "style_prompt": "cyberpunk neon foundry, massive industrial machinery with glowing plasma conduits, sparks and electrical arcs illuminating chrome surfaces, cinematic volumetric fog",
+      "intensity_curve": "exponential",
+      "sustained_effects": [
+        {
+          "node_type": "ColorCorrector",
+          "parameters": {
+            "MasterSaturation": 1.3,
+            "MasterContrast": 0.25,
+            "MasterGain": 1.1,
+            "GainR": 1.1
+          },
+          "transition_frames": 3
+        }
+      ],
+      "wan_denoise": 0.55,
+      "transition_frames": 3,
+      "transition_action": "ocean floor erupts with volcanic force, magma becomes molten neon flowing through massive mechanical structures"
+    },
+    {
       "section_index": 9,
       "presets": [
         "hard_cut",
@@ -266,6 +240,32 @@
       "wan_denoise": 0.6,
       "transition_frames": 2,
       "transition_action": "machinery overloads in blinding flash, energy cascades through quantum crystalline structures"
+    },
+    {
+      "section_index": 10,
+      "presets": [
+        "flash",
+        "zoom_bounce",
+        "shake_x",
+        "shake_y"
+      ],
+      "style_prompt": "cyberpunk neon foundry, massive industrial machinery with glowing plasma conduits, sparks and electrical arcs illuminating chrome surfaces, cinematic volumetric fog",
+      "intensity_curve": "exponential",
+      "sustained_effects": [
+        {
+          "node_type": "ColorCorrector",
+          "parameters": {
+            "MasterSaturation": 1.3,
+            "MasterContrast": 0.25,
+            "MasterGain": 1.1,
+            "GainR": 1.1
+          },
+          "transition_frames": 3
+        }
+      ],
+      "wan_denoise": 0.55,
+      "transition_frames": 3,
+      "transition_action": "ocean floor erupts with volcanic force, magma becomes molten neon flowing through massive mechanical structures"
     },
     {
       "section_index": 11,
@@ -318,30 +318,6 @@
       "transition_action": "data streams converge and solidify into massive technological structures, camera accelerates through particle beam corridors"
     },
     {
-      "section_index": 14,
-      "presets": [
-        "flash",
-        "zoom_bounce"
-      ],
-      "style_prompt": "quantum particle accelerator tunnel, spiraling energy conduits with intricate electromagnetic coils, photons streaking through crystalline chambers, masterful sci-fi architecture",
-      "intensity_curve": "linear",
-      "sustained_effects": [
-        {
-          "node_type": "ColorCorrector",
-          "parameters": {
-            "MasterSaturation": 1.1,
-            "MasterContrast": 0.15,
-            "GainG": 1.08,
-            "GainB": 1.1
-          },
-          "transition_frames": 8
-        }
-      ],
-      "wan_denoise": 0.45,
-      "transition_frames": 8,
-      "transition_action": "data streams converge and solidify into massive technological structures, camera accelerates through particle beam corridors"
-    },
-    {
       "section_index": 13,
       "presets": [
         "hard_cut",
@@ -367,32 +343,31 @@
       "transition_action": "accelerator chamber walls melt and flow, reforming as massive molten foundry with rivers of liquid metal"
     },
     {
-      "section_index": 15,
+      "section_index": 14,
       "presets": [
-        "hard_cut",
-        "shake_x",
-        "shake_y"
+        "flash",
+        "zoom_bounce"
       ],
-      "style_prompt": "molten metal forge dimension, liquid chrome flowing through massive industrial pipelines, sparks and flames illuminating intricate mechanical textures, cinematic heavy industry",
-      "intensity_curve": "exponential",
+      "style_prompt": "quantum particle accelerator tunnel, spiraling energy conduits with intricate electromagnetic coils, photons streaking through crystalline chambers, masterful sci-fi architecture",
+      "intensity_curve": "linear",
       "sustained_effects": [
         {
           "node_type": "ColorCorrector",
           "parameters": {
-            "MasterSaturation": 1.25,
-            "MasterContrast": 0.25,
-            "MasterGain": 1.08,
-            "GainR": 1.1
+            "MasterSaturation": 1.1,
+            "MasterContrast": 0.15,
+            "GainG": 1.08,
+            "GainB": 1.1
           },
-          "transition_frames": 4
+          "transition_frames": 8
         }
       ],
-      "wan_denoise": 0.52,
-      "transition_frames": 4,
-      "transition_action": "accelerator chamber walls melt and flow, reforming as massive molten foundry with rivers of liquid metal"
+      "wan_denoise": 0.45,
+      "transition_frames": 8,
+      "transition_action": "data streams converge and solidify into massive technological structures, camera accelerates through particle beam corridors"
     },
     {
-      "section_index": 17,
+      "section_index": 15,
       "presets": [
         "hard_cut",
         "shake_x",
@@ -439,7 +414,33 @@
       ],
       "wan_denoise": 0.35,
       "transition_frames": 15,
-      "transition_action": "molten forge flash-freezes in crystalline explosion, heat transforms to ice as camera dives through frozen wonderland"
+      "transition_action": "molten forge flash-freezes in crystalline explosion, heat transforms to ice as camera dives through frozen wonderland",
+      "candidates": 4
+    },
+    {
+      "section_index": 17,
+      "presets": [
+        "hard_cut",
+        "shake_x",
+        "shake_y"
+      ],
+      "style_prompt": "molten metal forge dimension, liquid chrome flowing through massive industrial pipelines, sparks and flames illuminating intricate mechanical textures, cinematic heavy industry",
+      "intensity_curve": "exponential",
+      "sustained_effects": [
+        {
+          "node_type": "ColorCorrector",
+          "parameters": {
+            "MasterSaturation": 1.25,
+            "MasterContrast": 0.25,
+            "MasterGain": 1.08,
+            "GainR": 1.1
+          },
+          "transition_frames": 4
+        }
+      ],
+      "wan_denoise": 0.52,
+      "transition_frames": 4,
+      "transition_action": "accelerator chamber walls melt and flow, reforming as massive molten foundry with rivers of liquid metal"
     },
     {
       "section_index": 18,
@@ -541,30 +542,6 @@
       "transition_action": "light cathedral shatters into infinite prismatic fragments, each shard becoming a portal to crystalline dimensions"
     },
     {
-      "section_index": 23,
-      "presets": [
-        "hard_cut",
-        "flash"
-      ],
-      "style_prompt": "prismatic diamond dimension, infinite faceted surfaces refracting rainbow light, crystalline structures forming impossible geometric labyrinths, masterful refraction and caustics",
-      "intensity_curve": "exponential",
-      "sustained_effects": [
-        {
-          "node_type": "ColorCorrector",
-          "parameters": {
-            "MasterSaturation": 1.2,
-            "MasterContrast": 0.22,
-            "MasterGain": 1.08,
-            "GainR": 1.08
-          },
-          "transition_frames": 3
-        }
-      ],
-      "wan_denoise": 0.55,
-      "transition_frames": 3,
-      "transition_action": "light cathedral shatters into infinite prismatic fragments, each shard becoming a portal to crystalline dimensions"
-    },
-    {
       "section_index": 22,
       "presets": [
         "flash",
@@ -588,7 +565,32 @@
       ],
       "wan_denoise": 0.46,
       "transition_frames": 10,
-      "transition_action": "diamond fragments melt into liquid mercury, cascading down as metallic waterfalls under dancing auroral lights"
+      "transition_action": "diamond fragments melt into liquid mercury, cascading down as metallic waterfalls under dancing auroral lights",
+      "candidates": 4
+    },
+    {
+      "section_index": 23,
+      "presets": [
+        "hard_cut",
+        "flash"
+      ],
+      "style_prompt": "prismatic diamond dimension, infinite faceted surfaces refracting rainbow light, crystalline structures forming impossible geometric labyrinths, masterful refraction and caustics",
+      "intensity_curve": "exponential",
+      "sustained_effects": [
+        {
+          "node_type": "ColorCorrector",
+          "parameters": {
+            "MasterSaturation": 1.2,
+            "MasterContrast": 0.22,
+            "MasterGain": 1.08,
+            "GainR": 1.08
+          },
+          "transition_frames": 3
+        }
+      ],
+      "wan_denoise": 0.55,
+      "transition_frames": 3,
+      "transition_action": "light cathedral shatters into infinite prismatic fragments, each shard becoming a portal to crystalline dimensions"
     },
     {
       "section_index": 24,
@@ -667,31 +669,6 @@
       "transition_action": "neon cityscape dissolves into flowing streams of liquid light, descending through digital ocean layers into glowing techno caverns"
     },
     {
-      "section_index": 28,
-      "presets": [
-        "zoom_pulse",
-        "glow_swell"
-      ],
-      "style_prompt": "deep ocean techno cave, bioluminescent circuit patterns flowing through crystalline walls, subsurface light scattering through liquid electronics, cinematic depth",
-      "intensity_curve": "linear",
-      "sustained_effects": [
-        {
-          "node_type": "ColorCorrector",
-          "parameters": {
-            "MasterSaturation": 0.9,
-            "MasterLift": -0.015,
-            "MasterGamma": 0.95,
-            "GainB": 1.08,
-            "LiftB": 0.01
-          },
-          "transition_frames": 15
-        }
-      ],
-      "wan_denoise": 0.4,
-      "transition_frames": 12,
-      "transition_action": "neon cityscape dissolves into flowing streams of liquid light, descending through digital ocean layers into glowing techno caverns"
-    },
-    {
       "section_index": 27,
       "presets": [
         "contrast_pop",
@@ -716,6 +693,32 @@
       "wan_denoise": 0.48,
       "transition_frames": 8,
       "transition_action": "techno caves collapse upward, revealing massive copper machinery rising from depths, gears spinning with cascading molten sparks"
+    },
+    {
+      "section_index": 28,
+      "presets": [
+        "zoom_pulse",
+        "glow_swell"
+      ],
+      "style_prompt": "deep ocean techno cave, bioluminescent circuit patterns flowing through crystalline walls, subsurface light scattering through liquid electronics, cinematic depth",
+      "intensity_curve": "linear",
+      "sustained_effects": [
+        {
+          "node_type": "ColorCorrector",
+          "parameters": {
+            "MasterSaturation": 0.9,
+            "MasterLift": -0.015,
+            "MasterGamma": 0.95,
+            "GainB": 1.08,
+            "LiftB": 0.01
+          },
+          "transition_frames": 15
+        }
+      ],
+      "wan_denoise": 0.4,
+      "transition_frames": 12,
+      "transition_action": "neon cityscape dissolves into flowing streams of liquid light, descending through digital ocean layers into glowing techno caverns",
+      "candidates": 4
     },
     {
       "section_index": 29,
@@ -766,7 +769,8 @@
       ],
       "wan_denoise": 0.35,
       "transition_frames": 10,
-      "transition_action": "molten copper instantly freezes into crystalline ice, steam becomes swirling frost patterns forming translucent palace walls"
+      "transition_action": "molten copper instantly freezes into crystalline ice, steam becomes swirling frost patterns forming translucent palace walls",
+      "candidates": 4
     },
     {
       "section_index": 31,
@@ -1172,7 +1176,7 @@
         "glow_swell",
         "zoom_pulse"
       ],
-      "style_prompt": "underwater recording studio, sound waves visualized as rippling water distortions, equipment encased in translucent bubbles, aquatic music production environment",
+      "style_prompt": "underwater recording studio, sound waves visualized as rippling water distortions, glowing gold sheet music glyphs, aquatic music production environment",
       "intensity_curve": "linear",
       "sustained_effects": [
         {
@@ -1321,7 +1325,8 @@
       ],
       "wan_denoise": 0.4,
       "transition_frames": 12,
-      "transition_action": "cathedral walls dissolve into translucent veils, whispered words Beyond the veil tear through dimensional fabric revealing layered mystical realms beyond"
+      "transition_action": "cathedral walls dissolve into translucent veils, whispered words Beyond the veil tear through dimensional fabric revealing layered mystical realms beyond",
+      "candidates": 4
     },
     {
       "section_index": 52,
@@ -1371,7 +1376,8 @@
       ],
       "wan_denoise": 0.4,
       "transition_frames": 12,
-      "transition_action": "cathedral walls dissolve into translucent veils, whispered words Beyond the veil tear through dimensional fabric revealing layered mystical realms beyond"
+      "transition_action": "cathedral walls dissolve into translucent veils, whispered words Beyond the veil tear through dimensional fabric revealing layered mystical realms beyond",
+      "candidates": 4
     },
     {
       "section_index": 54,
@@ -1396,7 +1402,8 @@
       ],
       "wan_denoise": 0.4,
       "transition_frames": 12,
-      "transition_action": "cathedral walls dissolve into translucent veils, whispered words Beyond the veil tear through dimensional fabric revealing layered mystical realms beyond"
+      "transition_action": "cathedral walls dissolve into translucent veils, whispered words Beyond the veil tear through dimensional fabric revealing layered mystical realms beyond",
+      "candidates": 4
     },
     {
       "section_index": 55,
@@ -1625,7 +1632,7 @@
       "presets": [
         "zoom_pulse"
       ],
-      "style_prompt": "intimate rock chamber with focused male vocals, clean arpeggiated guitar patterns as geometric light, sustained atmospheric foundation",
+      "style_prompt": "intimate rock chamber with focused resonant energy, clean arpeggiated guitar patterns as geometric light, sustained atmospheric foundation",
       "intensity_curve": "linear",
       "sustained_effects": [
         {
@@ -1802,7 +1809,7 @@
         "glow_swell",
         "zoom_pulse"
       ],
-      "style_prompt": "contemplative trance meditation space with male vocals as floating light words, atmospheric synth pads forming soft cloud architecture, gentle electronic pulses",
+      "style_prompt": "contemplative trance meditation space with ancient runes as floating light words, atmospheric synth pads forming soft cloud architecture, gentle electronic pulses",
       "intensity_curve": "linear",
       "sustained_effects": [
         {
@@ -1819,7 +1826,7 @@
       ],
       "wan_denoise": 0.4,
       "transition_frames": 12,
-      "transition_action": "ultimate cathedral softly dissolves into contemplative meditation space as transcendent energy becomes gentle floating words and cloud formations"
+      "transition_action": "ultimate cathedral softly dissolves into contemplative meditation space as transcendent energy becomes gentle floating runes and cloud formations"
     },
     {
       "section_index": 72,
@@ -1827,7 +1834,7 @@
         "glow_swell",
         "zoom_pulse"
       ],
-      "style_prompt": "contemplative trance meditation space with male vocals as floating light words, atmospheric synth pads forming soft cloud architecture, gentle electronic pulses",
+      "style_prompt": "contemplative trance meditation space with ancient runes as floating light words, atmospheric synth pads forming soft cloud architecture, gentle electronic pulses",
       "intensity_curve": "linear",
       "sustained_effects": [
         {
@@ -1844,7 +1851,7 @@
       ],
       "wan_denoise": 0.4,
       "transition_frames": 12,
-      "transition_action": "ultimate cathedral softly dissolves into contemplative meditation space as transcendent energy becomes gentle floating words and cloud formations"
+      "transition_action": "ultimate cathedral softly dissolves into contemplative meditation space as transcendent energy becomes gentle floating runes and cloud formations"
     },
     {
       "section_index": 73,
@@ -1852,7 +1859,7 @@
         "glow_swell",
         "zoom_pulse"
       ],
-      "style_prompt": "contemplative trance meditation space with male vocals as floating light words, atmospheric synth pads forming soft cloud architecture, gentle electronic pulses",
+      "style_prompt": "contemplative trance meditation space with ancient runes as floating light words, atmospheric synth pads forming soft cloud architecture, gentle electronic pulses",
       "intensity_curve": "linear",
       "sustained_effects": [
         {
@@ -1869,7 +1876,7 @@
       ],
       "wan_denoise": 0.4,
       "transition_frames": 12,
-      "transition_action": "ultimate cathedral softly dissolves into contemplative meditation space as transcendent energy becomes gentle floating words and cloud formations"
+      "transition_action": "ultimate cathedral softly dissolves into contemplative meditation space as transcendent energy becomes gentle floating runes and cloud formations"
     },
     {
       "section_index": 74,
@@ -2215,7 +2222,7 @@
         "zoom_bounce",
         "flash"
       ],
-      "style_prompt": "rapid-fire arpeggio energy vortex building to euphoric chipmunk vocal dimension, ascending spirals of bright copper light beams, frantic geometric acceleration",
+      "style_prompt": "rapid-fire arpeggio energy vortex building to euphoric prismatic dimension, ascending spirals of bright copper light beams, frantic geometric acceleration",
       "intensity_curve": "logarithmic",
       "sustained_effects": [
         {
@@ -2241,7 +2248,7 @@
         "shake_x",
         "shake_y"
       ],
-      "style_prompt": "euphoric chipmunk vocal playground with four-on-the-floor mechanical paradise, playful copper machinery dancing with high-pitched vocal spirits, maximum joy",
+      "style_prompt": "euphoric prismatic mechanical paradise, playful copper machinery dancing with high-frequency light spirits, maximum joy and kinetic energy",
       "intensity_curve": "exponential",
       "sustained_effects": [
         {
@@ -2257,7 +2264,7 @@
       ],
       "wan_denoise": 0.6,
       "transition_frames": 3,
-      "transition_action": "energy vortex explodes into euphoric vocal playground as arpeggio spirals become dancing chipmunk vocal spirits in mechanical paradise"
+      "transition_action": "energy vortex explodes into euphoric prismatic playground as arpeggio spirals become dancing high-frequency light spirits in mechanical paradise"
     },
     {
       "section_index": 90,
@@ -2267,7 +2274,7 @@
         "shake_x",
         "shake_y"
       ],
-      "style_prompt": "euphoric chipmunk vocal playground with four-on-the-floor mechanical paradise, playful copper machinery dancing with high-pitched vocal spirits, maximum joy",
+      "style_prompt": "euphoric prismatic mechanical paradise, playful copper machinery dancing with high-frequency light spirits, maximum joy and kinetic energy",
       "intensity_curve": "exponential",
       "sustained_effects": [
         {
@@ -2283,7 +2290,7 @@
       ],
       "wan_denoise": 0.6,
       "transition_frames": 3,
-      "transition_action": "energy vortex explodes into euphoric vocal playground as arpeggio spirals become dancing chipmunk vocal spirits in mechanical paradise"
+      "transition_action": "energy vortex explodes into euphoric prismatic playground as arpeggio spirals become dancing high-frequency light spirits in mechanical paradise"
     },
     {
       "section_index": 91,
@@ -2293,7 +2300,7 @@
         "shake_x",
         "shake_y"
       ],
-      "style_prompt": "euphoric chipmunk vocal playground with four-on-the-floor mechanical paradise, playful copper machinery dancing with high-pitched vocal spirits, maximum joy",
+      "style_prompt": "euphoric prismatic mechanical paradise, playful copper machinery dancing with high-frequency light spirits, maximum joy and kinetic energy",
       "intensity_curve": "exponential",
       "sustained_effects": [
         {
@@ -2309,7 +2316,7 @@
       ],
       "wan_denoise": 0.6,
       "transition_frames": 3,
-      "transition_action": "energy vortex explodes into euphoric vocal playground as arpeggio spirals become dancing chipmunk vocal spirits in mechanical paradise"
+      "transition_action": "energy vortex explodes into euphoric prismatic playground as arpeggio spirals become dancing high-frequency light spirits in mechanical paradise"
     },
     {
       "section_index": 92,
@@ -2319,7 +2326,7 @@
         "shake_x",
         "shake_y"
       ],
-      "style_prompt": "euphoric chipmunk vocal playground with four-on-the-floor mechanical paradise, playful copper machinery dancing with high-pitched vocal spirits, maximum joy",
+      "style_prompt": "euphoric prismatic mechanical paradise, playful copper machinery dancing with high-frequency light spirits, maximum joy and kinetic energy",
       "intensity_curve": "exponential",
       "sustained_effects": [
         {
@@ -2335,7 +2342,7 @@
       ],
       "wan_denoise": 0.6,
       "transition_frames": 3,
-      "transition_action": "energy vortex explodes into euphoric vocal playground as arpeggio spirals become dancing chipmunk vocal spirits in mechanical paradise"
+      "transition_action": "energy vortex explodes into euphoric prismatic playground as arpeggio spirals become dancing high-frequency light spirits in mechanical paradise"
     },
     {
       "section_index": 93,
@@ -2345,7 +2352,7 @@
         "shake_x",
         "shake_y"
       ],
-      "style_prompt": "euphoric chipmunk vocal playground with four-on-the-floor mechanical paradise, playful copper machinery dancing with high-pitched vocal spirits, maximum joy",
+      "style_prompt": "euphoric prismatic mechanical paradise, playful copper machinery dancing with high-frequency light spirits, maximum joy and kinetic energy",
       "intensity_curve": "exponential",
       "sustained_effects": [
         {
@@ -2361,7 +2368,7 @@
       ],
       "wan_denoise": 0.6,
       "transition_frames": 3,
-      "transition_action": "energy vortex explodes into euphoric vocal playground as arpeggio spirals become dancing chipmunk vocal spirits in mechanical paradise"
+      "transition_action": "energy vortex explodes into euphoric prismatic playground as arpeggio spirals become dancing high-frequency light spirits in mechanical paradise"
     },
     {
       "section_index": 94,
@@ -2371,7 +2378,7 @@
         "shake_x",
         "shake_y"
       ],
-      "style_prompt": "euphoric chipmunk vocal playground with four-on-the-floor mechanical paradise, playful copper machinery dancing with high-pitched vocal spirits, maximum joy",
+      "style_prompt": "euphoric prismatic mechanical paradise, playful copper machinery dancing with high-frequency light spirits, maximum joy and kinetic energy",
       "intensity_curve": "exponential",
       "sustained_effects": [
         {
@@ -2387,7 +2394,7 @@
       ],
       "wan_denoise": 0.6,
       "transition_frames": 3,
-      "transition_action": "energy vortex explodes into euphoric vocal playground as arpeggio spirals become dancing chipmunk vocal spirits in mechanical paradise"
+      "transition_action": "energy vortex explodes into euphoric prismatic playground as arpeggio spirals become dancing high-frequency light spirits in mechanical paradise"
     },
     {
       "section_index": 95,
@@ -3039,7 +3046,8 @@
       ],
       "wan_denoise": 0.52,
       "transition_frames": 12,
-      "transition_action": "electric crystal energy transforms into prismatic light beams as cavern opens into euphoric holographic cathedral space"
+      "transition_action": "electric crystal energy transforms into prismatic light beams as cavern opens into euphoric holographic cathedral space",
+      "candidates": 4
     },
     {
       "section_index": 121,
@@ -3970,7 +3978,7 @@
       "presets": [
         "glow_swell"
       ],
-      "style_prompt": "cathedral transitioning into deeper mystery realm, whispered vocal samples becoming visual text floating in atmospheric space",
+      "style_prompt": "cathedral transitioning into deeper mystery realm, ancient runic symbols emerging from dissolving architecture, floating through atmospheric space",
       "intensity_curve": "linear",
       "sustained_effects": [
         {
@@ -3986,7 +3994,7 @@
       ],
       "wan_denoise": 0.42,
       "transition_frames": 8,
-      "transition_action": "blazing cathedral architecture begins transforming as mysterious vocal whispers manifest as floating ethereal text in space"
+      "transition_action": "blazing cathedral architecture begins transforming as mysterious runic symbols emerge from fracturing walls, floating through ethereal space"
     },
     {
       "section_index": 159,
@@ -4016,7 +4024,7 @@
       "presets": [
         "glow_swell"
       ],
-      "style_prompt": "whispered realm condensing into transitional bridge, ethereal vocal energy streams connecting intimate and expansive spaces",
+      "style_prompt": "whispered realm condensing into transitional bridge, ethereal runic energy streams connecting intimate and expansive spaces",
       "intensity_curve": "linear",
       "sustained_effects": [
         {
@@ -4031,7 +4039,7 @@
       ],
       "wan_denoise": 0.4,
       "transition_frames": 8,
-      "transition_action": "ghostly vocal manifestations condense into streams of ethereal energy forming bridge between intimate and expansive realms"
+      "transition_action": "ghostly runic manifestations condense into streams of ethereal energy forming bridge between intimate and expansive realms"
     },
     {
       "section_index": 161,

@@ -227,3 +227,58 @@ def apply_selection(
             stale.append(str(p))
 
     return stale
+
+
+def apply_cross_selection(
+    target_idx: int | str,
+    source_idx: int | str,
+    variant: int,
+    work_dir: str,
+) -> list[str]:
+    """Apply a cross-section selection — use a candidate from one section for another.
+
+    Args:
+        target_idx: Target section index or file key (where the image will be used).
+        source_idx: Source section index or file key (where to get the candidate from).
+        variant: Variant number from the source section (1-indexed).
+        work_dir: Work directory path.
+
+    Returns:
+        List of stale files that were deleted.
+    """
+    work = Path(work_dir)
+    source_key = f"{source_idx:03d}" if isinstance(source_idx, int) else str(source_idx)
+    target_key = f"{target_idx:03d}" if isinstance(target_idx, int) else str(target_idx)
+
+    cand_path = work / "candidates" / f"section_{source_key}" / f"v{variant}.png"
+
+    if not cand_path.exists():
+        raise FileNotFoundError(
+            f"Candidate v{variant} not found in section {source_key}: {cand_path}"
+        )
+
+    # Copy to target's styled image location
+    styled_path = work / "google_styled" / f"styled_{target_key}.png"
+    shutil.copy2(str(cand_path), str(styled_path))
+
+    # Also copy into target's candidate dir as v1 for reference
+    target_cand_dir = work / "candidates" / f"section_{target_key}"
+    target_cand_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(str(cand_path), str(target_cand_dir / f"v1_from_{source_key}_v{variant}.png"))
+
+    # Delete stale downstream files for target section
+    stale = []
+    for pattern in [
+        f"google_segments/segment_*_{target_key}.mp4",
+        f"google_segments/segment_{target_key}_*.mp4",
+        f"google_remapped/remapped_{target_key}.mp4",
+        f"google_labeled/labeled_{target_key}.mp4",
+        "google_concat.mp4",
+        "google_muxed.mp4",
+        "google_output.mp4",
+    ]:
+        for p in work.glob(pattern):
+            p.unlink()
+            stale.append(str(p))
+
+    return stale

@@ -827,25 +827,45 @@ def candidates_cmd(video_name: str, sections: str, count: int, work_dir: str, ve
 def select_cmd(video_name: str, selections: tuple[str], work_dir: str):
     """Apply candidate selections — copies chosen variant to styled image.
 
-    Example: beatlab select beyond_the_veil 88:v2 92:v4
+    Examples:
+      beatlab select beyond_the_veil 88:v2 92:v4
+      beatlab select beyond_the_veil 016_001:v2
+      beatlab select beyond_the_veil 016_002:016_001/v3  (cross-section: use 016_001's v3 for 016_002)
     """
-    from beatlab.render.candidates import apply_selection
+    from beatlab.render.candidates import apply_selection, apply_cross_selection
 
     work = str(Path(work_dir) / video_name)
 
     for sel in selections:
         parts = sel.replace("v", "").split(":")
         if len(parts) != 2:
-            _log(f"  Invalid selection format: {sel} (expected idx:vN, e.g. 88:v2)")
+            _log(f"  Invalid selection format: {sel} (expected idx:vN or idx:source/vN)")
             continue
 
-        # Support both integer (88:v2) and file key (016_001:v3)
-        idx_str = parts[0]
+        target_str = parts[0]
         try:
-            idx = int(idx_str)
+            target = int(target_str)
         except ValueError:
-            idx = idx_str  # file key like "016_001"
-        variant = int(parts[1])
+            target = target_str
+
+        source_str = parts[1]
+
+        # Cross-section selection: 016_002:016_001/3
+        if "/" in source_str:
+            source_parts = source_str.split("/")
+            source_section = source_parts[0]
+            try:
+                source_section = int(source_section)
+            except ValueError:
+                pass
+            variant = int(source_parts[1])
+            _log(f"  Section {target}: applying v{variant} from section {source_section}")
+            stale = apply_cross_selection(target, source_section, variant, work)
+        else:
+            # Normal selection
+            variant = int(source_str)
+            _log(f"  Section {target}: applying variant v{variant}")
+            stale = apply_selection(target, variant, work)
 
         _log(f"  Section {idx}: applying variant v{variant}")
         stale = apply_selection(idx, variant, work)

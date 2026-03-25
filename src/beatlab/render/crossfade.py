@@ -196,23 +196,52 @@ def concat_with_crossfade(
         chunk_idx += 1
         i += step
 
-    # Now crossfade the chunks together — recursively if too many
-    if len(chunk_paths) <= chunk_size:
-        total_dur = sum(_get_duration(p) for p in chunk_paths)
-        _log(f"  Final merge: crossfading {len(chunk_paths)} chunks ({total_dur:.1f}s total)")
-        merge_start = _time.time()
-        ok, stderr = _xfade_group(chunk_paths, output_path, xfade_duration)
-        if not ok:
-            raise RuntimeError(
-                f"Final crossfade failed on {len(chunk_paths)} chunks.\n"
-                f"ffmpeg stderr: {stderr[-500:]}"
-            )
-        elapsed = _time.time() - merge_start
-        speed = total_dur / elapsed if elapsed > 0 else 0
-        _log(f"    Done in {elapsed:.1f}s ({speed:.1f}x realtime)")
-    else:
-        _log(f"  Final merge: {len(chunk_paths)} chunks too large for single pass, merging recursively...")
-        concat_with_crossfade(chunk_paths, output_path, crossfade_frames=crossfade_frames, fps=fps, chunk_size=chunk_size)
+    # Iteratively merge chunks until small enough for one pass
+    merge_level = 0
+    merge_paths = chunk_paths
+    while len(merge_paths) > chunk_size:
+        merge_level += 1
+        _log(f"  Merge level {merge_level}: {len(merge_paths)} chunks → groups of {chunk_size}")
+        level_dir = chunk_dir / f"merge_L{merge_level}"
+        level_dir.mkdir(parents=True, exist_ok=True)
+
+        next_paths = []
+        gi = 0
+        for start in range(0, len(merge_paths), chunk_size):
+            group = merge_paths[start:start + chunk_size]
+            group_path = str(level_dir / f"group_{gi:03d}.mp4")
+
+            if not Path(group_path).exists():
+                _log(f"    Group {gi + 1}: merging {len(group)} chunks")
+                grp_start = _time.time()
+                ok, stderr = _xfade_group(group, group_path, xfade_duration)
+                if not ok:
+                    raise RuntimeError(
+                        f"Merge level {merge_level} group {gi} failed.\n"
+                        f"ffmpeg stderr: {stderr[-500:]}"
+                    )
+                _log(f"      Done in {_time.time() - grp_start:.1f}s")
+            else:
+                _log(f"    Group {gi + 1}: cached")
+
+            next_paths.append(group_path)
+            gi += 1
+
+        merge_paths = next_paths
+
+    # Final pass — small enough for one ffmpeg call
+    total_dur = sum(_get_duration(p) for p in merge_paths)
+    _log(f"  Final merge: crossfading {len(merge_paths)} chunks ({total_dur:.1f}s total)")
+    merge_start = _time.time()
+    ok, stderr = _xfade_group(merge_paths, output_path, xfade_duration)
+    if not ok:
+        raise RuntimeError(
+            f"Final crossfade failed on {len(merge_paths)} chunks.\n"
+            f"ffmpeg stderr: {stderr[-500:]}"
+        )
+    elapsed = _time.time() - merge_start
+    speed = total_dur / elapsed if elapsed > 0 else 0
+    _log(f"    Done in {elapsed:.1f}s ({speed:.1f}x realtime)")
 
     # Keep chunks cached for reuse — only stale if source segments change
 

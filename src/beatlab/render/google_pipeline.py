@@ -315,23 +315,19 @@ def render_google_pipeline(
     # Use expanded lists for Veo generation
     num_segments = len(expanded_styled) - 1
     _log(f"Phase 3: Generating {num_segments} video segments with Veo (still→still)...")
-    segment_paths: list[str] = []
 
+    # Pre-compute all segment info: path, prompt, skip status
+    segment_jobs: list[dict] = []
     for i in range(num_segments):
         seg_path = str(segments_dir / f"segment_{expanded_keys[i]}_{expanded_keys[i+1]}.mp4")
 
         # Skip if segment_filter is set and this segment isn't in it
         if segment_filter is not None and i not in segment_filter:
-            if Path(seg_path).exists():
-                segment_paths.append(seg_path)
-            else:
-                _log(f"  [{i+1}/{num_segments}] {expanded_keys[i]}→{expanded_keys[i+1]} (skipped — not in filter)")
-                segment_paths.append(seg_path)  # placeholder
+            segment_jobs.append({"index": i, "path": seg_path, "skip": "filter"})
             continue
 
         if Path(seg_path).exists():
-            _log(f"  [{i+1}/{num_segments}] {expanded_keys[i]}→{expanded_keys[i+1]} (cached)")
-            segment_paths.append(seg_path)
+            segment_jobs.append({"index": i, "path": seg_path, "skip": "cached"})
             continue
 
         # Map expanded indices back to original section indices
@@ -348,7 +344,6 @@ def render_google_pipeline(
         label_a = sec_a.get("label", "")
         label_b = sec_b.get("label", "")
 
-        # Detect intra-section transition (both sides are sub-sections of same parent)
         is_intra_section = (
             sec_a.get("_original_index") is not None
             and sec_a.get("_original_index") == sec_b.get("_original_index")
@@ -369,7 +364,6 @@ def render_google_pipeline(
                     f"The camera drifts slowly through the environment, revealing new angles and details of the same space.",
                 ]
         else:
-            # Full transition between different sections
             action = (sp_b.transition_action if sp_b and sp_b.transition_action else None)
             if action:
                 prompt_parts = [f"Cinematic video: {action}"]
@@ -388,25 +382,71 @@ def render_google_pipeline(
             if desc_b:
                 prompt_parts.append(f"And transitions into: {desc_b[:200]}")
 
-        # Mandate frame fidelity
         prompt_parts.append("CRITICAL: The first frame of the video MUST be pixel-identical to the provided start image. The last frame MUST be pixel-identical to the provided end image. Do not alter, crop, zoom, or reinterpret the start and end frames in any way. Only generate motion and transformation for the frames in between.")
-        prompt = " ".join(prompt_parts)
 
-        intra_tag = " [smooth]" if is_intra_section else ""
-        _log(f"  [{i+1}/{num_segments}] Segment {i}→{i+1} ({expanded_keys[i]}→{expanded_keys[i+1]}): {label_a}→{label_b} (8s){intra_tag}")
+        segment_jobs.append({
+            "index": i,
+            "path": seg_path,
+            "skip": None,
+            "prompt": " ".join(prompt_parts),
+            "start_img": expanded_styled[i],
+            "end_img": expanded_styled[i + 1],
+            "label": f"{expanded_keys[i]}→{expanded_keys[i+1]}: {label_a}→{label_b}",
+            "intra": is_intra_section,
+        })
+
+    # Log skipped/cached segments
+    to_generate = [j for j in segment_jobs if j["skip"] is None]
+    cached = [j for j in segment_jobs if j["skip"] == "cached"]
+    filtered = [j for j in segment_jobs if j["skip"] == "filter"]
+    _log(f"  {len(to_generate)} to generate, {len(cached)} cached, {len(filtered)} filtered out")
+
+    # Generate segments in parallel
+    import concurrent.futures
+    import threading
+
+    max_workers = 4
+    completed = 0
+    lock = threading.Lock()
+
+    def _generate_segment(job):
+        nonlocal completed
+        i = job["index"]
+        intra_tag = " [smooth]" if job["intra"] else ""
+        _log(f"  [{i+1}/{num_segments}] Segment {i}→{i+1} ({job['label']}) (8s){intra_tag}")
         try:
             client.generate_video_transition(
-                expanded_styled[i], expanded_styled[i + 1], prompt, seg_path,
+                job["start_img"], job["end_img"], job["prompt"], job["path"],
                 duration_seconds=8,
             )
         except Exception as e:
             _log(f"  [{i+1}/{num_segments}] FAILED: {e}")
             raise
-
-        segment_paths.append(seg_path)
-
+        with lock:
+            completed += 1
+            _log(f"  [{i+1}/{num_segments}] Done ({completed}/{len(to_generate)} complete)")
         if progress_callback:
-            progress_callback("veo", i + 1, num_segments)
+            progress_callback("veo", completed, len(to_generate))
+
+    if to_generate:
+        if len(to_generate) == 1:
+            _generate_segment(to_generate[0])
+        else:
+            _log(f"  Parallelizing with {min(max_workers, len(to_generate))} workers...")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(_generate_segment, job): job for job in to_generate}
+                for future in concurrent.futures.as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        _log(f"  Segment generation failed: {e}")
+                        # Cancel remaining futures
+                        for f in futures:
+                            f.cancel()
+                        raise
+
+    # Build ordered segment_paths list
+    segment_paths: list[str] = [j["path"] for j in segment_jobs]
 
     # ── Phase 3.5: Time-remap segments to match actual section durations ──
     _log("Phase 3.5: Time-remapping segments to match section durations...")

@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>beatlab — Hit Marker Editor</title>
+<script src="https://unpkg.com/wavesurfer.js@7"></script>
+<script src="https://unpkg.com/wavesurfer.js@7/dist/plugins/regions.min.js"></script>
+<script src="https://unpkg.com/wavesurfer.js@7/dist/plugins/minimap.min.js"></script>
+<script src="https://unpkg.com/wavesurfer.js@7/dist/plugins/timeline.min.js"></script>
+<style>
+  :root {
+    --bg: #0f0f0f;
+    --surface: #1a1a1a;
+    --border: #333;
+    --text: #e0e0e0;
+    --text-dim: #888;
+    --accent: #4ecdc4;
+    --accent-dim: #2a7a74;
+    --marker: #ff6b6b;
+    --beat: rgba(255, 255, 255, 0.15);
+    --danger: #e74c3c;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .header h1 { font-size: 14px; font-weight: 600; }
+  .header h1 span { color: var(--accent); }
+  .header .info { font-size: 11px; color: var(--text-dim); }
+
+  /* Toolbar */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .toolbar button {
+    background: var(--border);
+    border: 1px solid #444;
+    color: var(--text);
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+  }
+  .toolbar button:hover { background: #444; }
+  .toolbar button.active { background: var(--accent-dim); border-color: var(--accent); }
+  .toolbar .sep { width: 1px; height: 20px; background: var(--border); }
+  .toolbar .time { font-size: 13px; font-variant-numeric: tabular-nums; min-width: 80px; }
+  .toolbar .marker-count { font-size: 11px; color: var(--text-dim); }
+
+  /* Waveform area */
+  .waveform-container {
+    flex: 1;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  #waveform {
+    flex: 1;
+    min-height: 120px;
+  }
+  #minimap {
+    height: 30px;
+    margin-top: 8px;
+  }
+  #timeline {
+    height: 20px;
+  }
+
+  /* Marker editor panel */
+  .editor-panel {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 12px 16px;
+    display: none;
+    flex-shrink: 0;
+  }
+  .editor-panel.visible { display: flex; gap: 16px; align-items: center; }
+  .editor-panel label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+  .editor-panel .field { display: flex; flex-direction: column; gap: 4px; }
+  .editor-panel select, .editor-panel input[type=range] {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 12px;
+  }
+  .editor-panel select { min-width: 140px; }
+  .editor-panel input[type=range] { width: 140px; }
+  .editor-panel .intensity-val { font-size: 12px; min-width: 30px; text-align: right; }
+  .editor-panel .time-display { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--accent); }
+  .editor-panel .delete-btn {
+    background: transparent;
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    margin-left: auto;
+  }
+  .editor-panel .delete-btn:hover { background: var(--danger); color: white; }
+
+  /* Marker list sidebar */
+  .marker-list {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    max-height: 150px;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  .marker-list table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .marker-list th {
+    text-align: left;
+    padding: 4px 12px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: var(--bg);
+    position: sticky;
+    top: 0;
+  }
+  .marker-list td { padding: 4px 12px; border-top: 1px solid var(--border); cursor: pointer; }
+  .marker-list tr:hover td { background: #222; }
+  .marker-list tr.selected td { background: var(--accent-dim); }
+  .marker-list .sensation-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+  }
+
+  /* Status bar */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 16px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+  .status-bar kbd {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 1px 4px;
+    border-radius: 2px;
+    font-size: 10px;
+  }
+
+  /* Sensation colors */
+  .s-hit { background: #e74c3c; color: white; }
+  .s-drop { background: #9b59b6; color: white; }
+  .s-swell { background: #3498db; color: white; }
+  .s-punch { background: #e67e22; color: white; }
+  .s-freeze { background: #1abc9c; color: white; }
+  .s-bloom { background: #f1c40f; color: #333; }
+  .s-shake { background: #95a5a6; color: white; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>beatlab</span> — Hit Marker Editor</h1>
+  <div class="info" id="audio-info">Loading...</div>
+</div>
+
+<div class="toolbar">
+  <button id="btn-play" title="Space">&#9654; Play</button>
+  <button id="btn-stop" title="Stop">&#9632; Stop</button>
+  <div class="sep"></div>
+  <span class="time" id="current-time">0:00.000</span>
+  <div class="sep"></div>
+  <button id="btn-zoom-in" title="Zoom In (+)">+</button>
+  <button id="btn-zoom-out" title="Zoom Out (-)">-</button>
+  <div class="sep"></div>
+  <span class="marker-count" id="marker-count">0 markers</span>
+  <div style="flex:1"></div>
+  <button id="btn-save" title="Ctrl+S">Save hits.json</button>
+  <button id="btn-undo" title="Ctrl+Z">Undo</button>
+  <button id="btn-redo" title="Ctrl+Shift+Z">Redo</button>
+</div>
+
+<div class="waveform-container">
+  <div id="timeline"></div>
+  <div id="waveform"></div>
+  <div id="minimap"></div>
+</div>
+
+<div class="editor-panel" id="editor-panel">
+  <div class="field">
+    <label>Time</label>
+    <span class="time-display" id="edit-time">0:00.000</span>
+  </div>
+  <div class="field">
+    <label>Frame</label>
+    <span class="time-display" id="edit-frame">0</span>
+  </div>
+  <div class="field">
+    <label>Sensation</label>
+    <select id="edit-sensation">
+      <option value="hit">hit</option>
+      <option value="drop">drop</option>
+      <option value="swell">swell</option>
+      <option value="punch">punch</option>
+      <option value="freeze">freeze</option>
+      <option value="bloom">bloom</option>
+      <option value="shake">shake</option>
+    </select>
+  </div>
+  <div class="field">
+    <label>Intensity</label>
+    <div style="display:flex;align-items:center;gap:6px;">
+      <input type="range" id="edit-intensity" min="0" max="1" step="0.05" value="1.0">
+      <span class="intensity-val" id="intensity-val">1.0</span>
+    </div>
+  </div>
+  <button class="delete-btn" id="btn-delete-marker">Delete</button>
+</div>
+
+<div class="marker-list" id="marker-list">
+  <table>
+    <thead><tr><th>#</th><th>Time</th><th>Frame</th><th>Sensation</th><th>Intensity</th></tr></thead>
+    <tbody id="marker-tbody"></tbody>
+  </table>
+</div>
+
+<div class="status-bar">
+  <span><kbd>Space</kbd> Play/Pause &nbsp; <kbd>M</kbd> Place Marker &nbsp; <kbd>Del</kbd> Delete &nbsp; <kbd>Ctrl+S</kbd> Save &nbsp; <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Shift+Z</kbd> Undo/Redo</span>
+  <span id="status-msg">Ready</span>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ── State ──
+  let config = { fps: 30, audio_name: '' };
+  let markers = [];        // {id, time, frame, sensation, intensity, regionId}
+  let selectedId = null;
+  let undoStack = [];
+  let redoStack = [];
+  let nextId = 1;
+  let beatTimes = [];
+  let sectionData = [];
+
+  const SENSATIONS = ['hit', 'drop', 'swell', 'punch', 'freeze', 'bloom', 'shake'];
+  const SENSATION_COLORS = {
+    hit: 'rgba(231,76,60,0.7)',
+    drop: 'rgba(155,89,182,0.7)',
+    swell: 'rgba(52,152,219,0.7)',
+    punch: 'rgba(230,126,34,0.7)',
+    freeze: 'rgba(26,188,156,0.7)',
+    bloom: 'rgba(241,196,15,0.7)',
+    shake: 'rgba(149,165,166,0.7)',
+  };
+
+  // ── Init wavesurfer ──
+  const ws = WaveSurfer.create({
+    container: '#waveform',
+    waveColor: '#555',
+    progressColor: '#4ecdc4',
+    cursorColor: '#fff',
+    cursorWidth: 1,
+    height: 'auto',
+    minPxPerSec: 100,
+    autoScroll: true,
+    autoCenter: true,
+    plugins: [
+      WaveSurfer.Timeline.create({ container: '#timeline', timeInterval: 1, primaryLabelInterval: 5 }),
+      WaveSurfer.Minimap.create({ container: '#minimap', waveColor: '#333', progressColor: '#2a7a74', height: 30 }),
+    ],
+  });
+
+  const regions = ws.registerPlugin(WaveSurfer.Regions.create());
+
+  // ── Load config then audio ──
+  fetch('/config').then(r => r.json()).then(c => {
+    config = c;
+    document.getElementById('audio-info').textContent = `${c.audio_name} | ${c.fps} fps`;
+    ws.load('/audio');
+  });
+
+  ws.on('ready', () => {
+    // Load beats overlay
+    fetch('/beats').then(r => r.json()).then(data => {
+      if (data.beats) {
+        beatTimes = data.beats.map(b => b.time || b.timestamp || 0);
+        beatTimes.forEach(t => {
+          regions.addRegion({
+            start: t, end: t + 0.01,
+            color: 'rgba(255,255,255,0.12)',
+            drag: false, resize: false,
+          });
+        });
+      }
+      if (data.sections) sectionData = data.sections;
+    });
+
+    // Load existing hits
+    fetch('/hits').then(r => r.json()).then(data => {
+      if (data.hits && data.hits.length) {
+        data.hits.forEach(h => {
+          addMarker(h.time, h.sensation || 'hit', h.intensity || 1.0, false);
+        });
+        renderList();
+        updateCount();
+      }
+    });
+  });
+
+  // ── Time display ──
+  ws.on('timeupdate', t => {
+    document.getElementById('current-time').textContent = fmtTime(t);
+  });
+
+  // ── Helpers ──
+  function fmtTime(s) {
+    const m = Math.floor(s / 60);
+    const sec = s - m * 60;
+    return `${m}:${sec.toFixed(3).padStart(6, '0')}`;
+  }
+
+  function timeToFrame(t) {
+    return Math.round(t * config.fps);
+  }
+
+  function frameToTime(f) {
+    return f / config.fps;
+  }
+
+  function snapToFrame(t) {
+    return frameToTime(timeToFrame(t));
+  }
+
+  // ── Marker management ──
+  function pushUndo() {
+    undoStack.push(JSON.parse(JSON.stringify(markers)));
+    redoStack = [];
+    if (undoStack.length > 100) undoStack.shift();
+  }
+
+  function addMarker(time, sensation, intensity, withUndo = true) {
+    if (withUndo) pushUndo();
+    const snapped = snapToFrame(time);
+    const id = nextId++;
+    const color = SENSATION_COLORS[sensation] || SENSATION_COLORS.hit;
+    const region = regions.addRegion({
+      start: snapped,
+      end: snapped + 0.02,
+      color: color,
+      drag: true,
+      resize: false,
+      id: `marker-${id}`,
+    });
+
+    const marker = { id, time: snapped, frame: timeToFrame(snapped), sensation, intensity, regionId: region.id };
+    markers.push(marker);
+    markers.sort((a, b) => a.time - b.time);
+
+    // Region events
+    region.on('click', (e) => {
+      e.stopPropagation();
+      selectMarker(id);
+      // Preview: play 2s before to 2s after
+      const start = Math.max(0, snapped - 2);
+      ws.setTime(start);
+      ws.play();
+      setTimeout(() => { if (ws.isPlaying()) ws.pause(); }, 4000);
+    });
+
+    region.on('update-end', () => {
+      pushUndo();
+      const m = markers.find(x => x.id === id);
+      if (m) {
+        m.time = snapToFrame(region.start);
+        m.frame = timeToFrame(m.time);
+        region.start = m.time;
+        region.end = m.time + 0.02;
+        markers.sort((a, b) => a.time - b.time);
+        renderList();
+        if (selectedId === id) showEditor(m);
+      }
+    });
+
+    return marker;
+  }
+
+  function removeMarker(id) {
+    pushUndo();
+    const idx = markers.findIndex(m => m.id === id);
+    if (idx === -1) return;
+    const m = markers[idx];
+    // Remove region
+    const allRegions = regions.getRegions();
+    const reg = allRegions.find(r => r.id === `marker-${id}`);
+    if (reg) reg.remove();
+    markers.splice(idx, 1);
+    if (selectedId === id) {
+      selectedId = null;
+      hideEditor();
+    }
+    renderList();
+    updateCount();
+  }
+
+  function selectMarker(id) {
+    selectedId = id;
+    const m = markers.find(x => x.id === id);
+    if (m) showEditor(m);
+    renderList();
+  }
+
+  function showEditor(m) {
+    const panel = document.getElementById('editor-panel');
+    panel.classList.add('visible');
+    document.getElementById('edit-time').textContent = fmtTime(m.time);
+    document.getElementById('edit-frame').textContent = m.frame;
+    document.getElementById('edit-sensation').value = m.sensation;
+    document.getElementById('edit-intensity').value = m.intensity;
+    document.getElementById('intensity-val').textContent = m.intensity.toFixed(2);
+  }
+
+  function hideEditor() {
+    document.getElementById('editor-panel').classList.remove('visible');
+  }
+
+  function updateCount() {
+    document.getElementById('marker-count').textContent = `${markers.length} marker${markers.length !== 1 ? 's' : ''}`;
+  }
+
+  // ── Marker list ──
+  function renderList() {
+    const tbody = document.getElementById('marker-tbody');
+    tbody.innerHTML = '';
+    markers.forEach((m, i) => {
+      const tr = document.createElement('tr');
+      if (m.id === selectedId) tr.classList.add('selected');
+      tr.innerHTML = `
+        <td>${i + 1}</td>
+        <td>${fmtTime(m.time)}</td>
+        <td>${m.frame}</td>
+        <td><span class="sensation-badge s-${m.sensation}">${m.sensation}</span></td>
+        <td>${m.intensity.toFixed(2)}</td>
+      `;
+      tr.addEventListener('click', () => {
+        selectMarker(m.id);
+        ws.setTime(Math.max(0, m.time - 0.5));
+      });
+      tbody.appendChild(tr);
+    });
+    updateCount();
+  }
+
+  // ── Editor panel events ──
+  document.getElementById('edit-sensation').addEventListener('change', (e) => {
+    if (selectedId == null) return;
+    pushUndo();
+    const m = markers.find(x => x.id === selectedId);
+    if (!m) return;
+    m.sensation = e.target.value;
+    // Update region color
+    const allRegions = regions.getRegions();
+    const reg = allRegions.find(r => r.id === `marker-${m.id}`);
+    if (reg) {
+      reg.setOptions({ color: SENSATION_COLORS[m.sensation] });
+    }
+    renderList();
+  });
+
+  document.getElementById('edit-intensity').addEventListener('input', (e) => {
+    const val = parseFloat(e.target.value);
+    document.getElementById('intensity-val').textContent = val.toFixed(2);
+    if (selectedId == null) return;
+    const m = markers.find(x => x.id === selectedId);
+    if (m) m.intensity = val;
+  });
+
+  document.getElementById('edit-intensity').addEventListener('change', (e) => {
+    pushUndo();
+    renderList();
+  });
+
+  document.getElementById('btn-delete-marker').addEventListener('click', () => {
+    if (selectedId != null) removeMarker(selectedId);
+  });
+
+  // ── Toolbar buttons ──
+  document.getElementById('btn-play').addEventListener('click', () => ws.playPause());
+  document.getElementById('btn-stop').addEventListener('click', () => { ws.stop(); });
+
+  ws.on('play', () => document.getElementById('btn-play').innerHTML = '&#9646;&#9646; Pause');
+  ws.on('pause', () => document.getElementById('btn-play').innerHTML = '&#9654; Play');
+
+  document.getElementById('btn-zoom-in').addEventListener('click', () => {
+    ws.zoom(ws.options.minPxPerSec * 1.5);
+  });
+  document.getElementById('btn-zoom-out').addEventListener('click', () => {
+    ws.zoom(Math.max(10, ws.options.minPxPerSec / 1.5));
+  });
+
+  // ── Save ──
+  function saveHits() {
+    const data = {
+      fps: config.fps,
+      hits: markers.map(m => ({
+        time: Math.round(m.time * 1000) / 1000,
+        frame: m.frame,
+        sensation: m.sensation,
+        intensity: Math.round(m.intensity * 100) / 100,
+      })),
+    };
+    fetch('/hits', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }).then(r => r.json()).then(() => {
+      setStatus('Saved ' + markers.length + ' markers to hits.json');
+    }).catch(e => {
+      setStatus('Save failed: ' + e.message);
+    });
+  }
+
+  document.getElementById('btn-save').addEventListener('click', saveHits);
+
+  // ── Undo / Redo ──
+  function undo() {
+    if (!undoStack.length) return;
+    redoStack.push(JSON.parse(JSON.stringify(markers)));
+    const prev = undoStack.pop();
+    restoreMarkers(prev);
+    setStatus('Undo');
+  }
+
+  function redo() {
+    if (!redoStack.length) return;
+    undoStack.push(JSON.parse(JSON.stringify(markers)));
+    const next = redoStack.pop();
+    restoreMarkers(next);
+    setStatus('Redo');
+  }
+
+  function restoreMarkers(saved) {
+    // Clear all marker regions
+    const allRegions = regions.getRegions();
+    allRegions.forEach(r => {
+      if (r.id && r.id.startsWith('marker-')) r.remove();
+    });
+    markers = [];
+    selectedId = null;
+    hideEditor();
+
+    saved.forEach(m => {
+      addMarker(m.time, m.sensation, m.intensity, false);
+    });
+    renderList();
+  }
+
+  document.getElementById('btn-undo').addEventListener('click', undo);
+  document.getElementById('btn-redo').addEventListener('click', redo);
+
+  // ── Keyboard shortcuts ──
+  document.addEventListener('keydown', (e) => {
+    // Don't capture when typing in inputs
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+
+    if (e.key === ' ') {
+      e.preventDefault();
+      ws.playPause();
+    } else if (e.key === 'm' || e.key === 'M') {
+      e.preventDefault();
+      const t = ws.getCurrentTime();
+      const m = addMarker(t, 'hit', 1.0);
+      selectMarker(m.id);
+      renderList();
+      setStatus(`Marker placed at ${fmtTime(m.time)} (frame ${m.frame})`);
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (selectedId != null) {
+        e.preventDefault();
+        removeMarker(selectedId);
+      }
+    } else if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      saveHits();
+    } else if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+      e.preventDefault();
+      undo();
+    } else if ((e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey) || (e.key === 'y' && (e.ctrlKey || e.metaKey))) {
+      e.preventDefault();
+      redo();
+    } else if (e.key === '=' || e.key === '+') {
+      ws.zoom(ws.options.minPxPerSec * 1.5);
+    } else if (e.key === '-') {
+      ws.zoom(Math.max(10, ws.options.minPxPerSec / 1.5));
+    }
+  });
+
+  // ── Status messages ──
+  function setStatus(msg) {
+    const el = document.getElementById('status-msg');
+    el.textContent = msg;
+    setTimeout(() => { if (el.textContent === msg) el.textContent = 'Ready'; }, 3000);
+  }
+
+})();
+</script>
+</body>
+</html>

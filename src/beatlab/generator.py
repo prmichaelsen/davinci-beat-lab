@@ -6,6 +6,7 @@ from beatlab.beat_map import load_beat_map
 from beatlab.fusion.keyframes import KeyframeTrack
 from beatlab.fusion.nodes import (
     make_brightness_contrast,
+    make_camera_shake,
     make_color_corrector,
     make_glow,
     make_media_in,
@@ -14,7 +15,7 @@ from beatlab.fusion.nodes import (
     FusionNode,
 )
 from beatlab.fusion.setting_writer import FusionComp
-from beatlab.presets import PRESETS, EffectPreset, apply_intensity, presets_for_section
+from beatlab.presets import PRESETS, EffectPreset, apply_intensity, presets_for_section, presets_for_sensation
 
 
 NODE_MAKERS = {
@@ -22,6 +23,7 @@ NODE_MAKERS = {
     "BrightnessContrast": make_brightness_contrast,
     "Glow": make_glow,
     "ColorCorrector": make_color_corrector,
+    "CameraShake": make_camera_shake,
 }
 
 
@@ -132,6 +134,8 @@ def generate_comp(
             track = KeyframeTrack()
             for beat in beats:
                 intensity = beat.get("intensity", 1.0)
+                if intensity <= 0:
+                    continue  # Skip gated beats with no onset
                 peak = apply_intensity(preset, intensity, curve=intensity_curve)
                 track.add_pulse(
                     beat["frame"], base_value=preset.base_value, peak_value=peak,
@@ -217,6 +221,8 @@ def _generate_from_plan(
             rel = sp.release_frames if sp and sp.release_frames else preset.release_frames
 
             intensity = beat.get("intensity", 1.0)
+            if intensity <= 0:
+                continue
             peak = apply_intensity(preset, intensity, curve=curve)
             track.add_pulse(
                 beat["frame"], base_value=preset.base_value, peak_value=peak,
@@ -375,6 +381,8 @@ def _generate_section_aware(
                     break
 
             intensity = beat.get("intensity", 1.0)
+            if intensity <= 0:
+                continue
             peak = apply_intensity(preset, intensity, curve=intensity_curve)
             atk = attack_frames if attack_frames is not None else preset.attack_frames
             rel = release_frames if release_frames is not None else preset.release_frames
@@ -419,6 +427,82 @@ def _add_overshoot(
         i += 1
 
 
+def _apply_hits(comp: FusionComp, hits: list[dict], prev_node_name: str | None, start_pos_x: float) -> str | None:
+    """Generate accent keyframes from manual hits (hits.json).
+
+    Each hit has: time, frame, sensation, intensity.
+    Sensations map to preset combos via SENSATION_MAP.
+    Effects are additive — layered on top of existing nodes.
+
+    Returns the last node name added (or prev_node_name if no hits).
+    """
+    if not hits:
+        return prev_node_name
+
+    # Collect all unique (node_type, parameter) from all sensations used
+    all_presets_needed: dict[str, EffectPreset] = {}
+    for hit in hits:
+        for p in presets_for_sensation(hit.get("sensation", "hit")):
+            all_presets_needed[p.name] = p
+
+    # Group by (node_type, parameter)
+    grouped: dict[tuple[str, str], list[str]] = {}
+    for pname, p in all_presets_needed.items():
+        key = (p.node_type, p.parameter)
+        if key not in grouped:
+            grouped[key] = []
+        grouped[key].append(pname)
+
+    pos_x = start_pos_x
+
+    for (node_type, parameter), preset_names_group in grouped.items():
+        base_preset = all_presets_needed[preset_names_group[0]]
+        node_name = f"Hit{parameter}"
+        node = _make_node_for_preset(base_preset, node_name, prev_node_name, pos_x)
+
+        track = KeyframeTrack()
+        for hit in hits:
+            hit_presets = presets_for_sensation(hit.get("sensation", "hit"))
+            # Find preset matching this parameter
+            preset = None
+            for hp in hit_presets:
+                if hp.parameter == parameter:
+                    preset = hp
+                    break
+            if preset is None:
+                continue
+
+            intensity = hit.get("intensity", 1.0)
+            peak = apply_intensity(preset, intensity, curve="linear")
+            track.add_pulse(
+                hit["frame"],
+                base_value=preset.base_value,
+                peak_value=peak,
+                attack_frames=preset.attack_frames,
+                release_frames=preset.release_frames,
+                interpolation=preset.curve,
+            )
+
+        node.animated[parameter] = track
+        comp.add_node(node)
+        prev_node_name = node.name
+        pos_x += 110
+
+    return prev_node_name
+
+
+def load_hits(hits_path: str) -> list[dict]:
+    """Load a hits.json file and return the hits list."""
+    import json
+    from pathlib import Path
+
+    path = Path(hits_path)
+    if not path.exists():
+        return []
+    data = json.loads(path.read_text())
+    return data.get("hits", [])
+
+
 def generate_from_file(
     beat_map_path: str,
     output_path: str,
@@ -430,8 +514,12 @@ def generate_from_file(
     section_mode: bool = False,
     overshoot: bool = False,
     effect_plan: object | None = None,
+    hits_path: str | None = None,
 ) -> None:
-    """Load a beat map JSON and generate a .setting file."""
+    """Load a beat map JSON and generate a .setting file.
+
+    If hits_path is provided, manual hit accents are layered on top.
+    """
     beat_map = load_beat_map(beat_map_path)
     comp = generate_comp(
         beat_map, effect=effect, preset_names=preset_names,
@@ -439,4 +527,20 @@ def generate_from_file(
         intensity_curve=intensity_curve, section_mode=section_mode,
         overshoot=overshoot, effect_plan=effect_plan,
     )
+
+    # Layer manual hits on top if provided
+    if hits_path:
+        hits = load_hits(hits_path)
+        if hits:
+            # Insert hits before MediaOut (last node)
+            media_out = comp.nodes.pop()
+            last_node = comp.nodes[-1].name if comp.nodes else None
+            pos_x = comp.nodes[-1].pos_x + 110 if comp.nodes else 0
+            last_name = _apply_hits(comp, hits, last_node, pos_x)
+            # Re-attach MediaOut
+            media_out.inputs["MainInput"] = last_name
+            media_out.pos_x = (comp.nodes[-1].pos_x + 110) if comp.nodes else 110
+            comp.add_node(media_out)
+            comp.active_tool = last_name
+
     comp.save(output_path)

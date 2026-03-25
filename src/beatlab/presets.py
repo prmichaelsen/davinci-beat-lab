@@ -79,6 +79,22 @@ _register(EffectPreset(
     attack_frames=1, release_frames=4, curve="smooth",
 ))
 
+_register(EffectPreset(
+    name="shake_x",
+    description="Horizontal camera shake on beat — great for bass hits and impacts. Always pair with shake_y.",
+    node_type="CameraShake", parameter="XOffset",
+    base_value=0.0, peak_value=0.015,
+    attack_frames=1, release_frames=3, curve="linear",
+))
+
+_register(EffectPreset(
+    name="shake_y",
+    description="Vertical camera shake on beat — always pair with shake_x for full impact",
+    node_type="CameraShake", parameter="YOffset",
+    base_value=0.0, peak_value=0.01,
+    attack_frames=1, release_frames=2, curve="linear",
+))
+
 
 # ── Intensity Mapping ────────────────────────────────────────────────────────
 
@@ -113,7 +129,7 @@ def apply_intensity(
 SECTION_PRESET_MAP: dict[str, list[str]] = {
     "low_energy": ["zoom_pulse", "glow_swell"],
     "mid_energy": ["flash", "zoom_bounce"],
-    "high_energy": ["hard_cut", "flash", "zoom_bounce"],
+    "high_energy": ["hard_cut", "flash", "zoom_bounce", "shake_x", "shake_y"],
 }
 
 
@@ -134,3 +150,22 @@ def list_presets() -> list[dict]:
         }
         for p in PRESETS.values()
     ]
+
+
+# ── Sensation → Preset Mapping ─────────────────────────────────────────────
+
+SENSATION_MAP: dict[str, list[str]] = {
+    "hit": ["flash", "shake_x", "shake_y"],
+    "drop": ["hard_cut", "zoom_bounce", "shake_x", "shake_y"],
+    "swell": ["glow_swell", "zoom_pulse"],
+    "punch": ["contrast_pop", "zoom_pulse"],
+    "freeze": ["hard_cut"],
+    "bloom": ["glow_swell"],
+    "shake": ["shake_x", "shake_y"],
+}
+
+
+def presets_for_sensation(sensation: str) -> list[EffectPreset]:
+    """Return preset objects for a sensation label."""
+    names = SENSATION_MAP.get(sensation, ["zoom_pulse"])
+    return [PRESETS[n] for n in names if n in PRESETS]

@@ -71,6 +71,25 @@ def list_presets():
         click.echo()
 
 
+@main.command(name="marker-ui")
+@click.argument("audio_file", type=click.Path(exists=True))
+@click.option("--beats", default=None, type=click.Path(exists=True), help="Path to beats.json from analysis")
+@click.option("--hits", default="hits.json", type=click.Path(), help="Path to save/load hits.json (default: hits.json)")
+@click.option("--fps", default=30.0, type=float, help="Timeline frame rate (default: 30)")
+@click.option("--port", default=8080, type=int, help="Server port (default: 8080)")
+def marker_ui(audio_file: str, beats: str | None, hits: str, fps: float, port: int):
+    """Launch the hit marker web UI for manual effect placement."""
+    from beatlab.marker_server import start_server
+
+    start_server(
+        audio_path=audio_file,
+        beats_path=beats,
+        hits_path=hits,
+        fps=fps,
+        port=port,
+    )
+
+
 @main.command()
 @click.argument("beats_json", type=click.Path(exists=True))
 @click.option("--output", "-o", default="output.setting", type=click.Path(), help="Output .setting file")
@@ -83,14 +102,17 @@ def list_presets():
 @click.option("--overshoot/--no-overshoot", default=False, help="Add overshoot bounce to zoom effects")
 @click.option("--ai/--no-ai", default=False, help="Use AI to select effects per section (requires ANTHROPIC_API_KEY)")
 @click.option("--prompt", default=None, type=str, help="Creative direction for AI mode (e.g. 'cinematic with hard drops')")
+@click.option("--hits", default=None, type=click.Path(exists=True), help="Path to hits.json for manual accent effects")
 def generate(
     beats_json: str, output: str, effect: str | None, preset: str | None,
     attack: int | None, release: int | None, intensity_curve: str,
     section_mode: bool, overshoot: bool, ai: bool, prompt: str | None,
+    hits: str | None,
 ):
     """Generate a Fusion .setting file from a beat map JSON."""
     from beatlab.beat_map import load_beat_map
-    from beatlab.generator import generate_comp
+    from beatlab.generator import generate_comp, load_hits, _apply_hits
+    from beatlab.fusion.nodes import make_media_out
 
     beat_map = load_beat_map(beats_json)
     plan = None
@@ -111,6 +133,20 @@ def generate(
             intensity_curve=intensity_curve,
             section_mode=section_mode, overshoot=overshoot,
         )
+
+    # Layer manual hit accents on top
+    if hits:
+        hit_data = load_hits(hits)
+        if hit_data:
+            _log(f"  Layering {len(hit_data)} manual hit accents from {hits}")
+            media_out = comp.nodes.pop()
+            last_node = comp.nodes[-1].name if comp.nodes else None
+            pos_x = comp.nodes[-1].pos_x + 110 if comp.nodes else 0
+            last_name = _apply_hits(comp, hit_data, last_node, pos_x)
+            media_out.inputs["MainInput"] = last_name
+            media_out.pos_x = (comp.nodes[-1].pos_x + 110) if comp.nodes else 110
+            comp.add_node(media_out)
+            comp.active_tool = last_name
 
     comp.save(output)
     _log(f"  Written to: {output}")

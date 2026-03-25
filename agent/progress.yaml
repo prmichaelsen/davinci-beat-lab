@@ -393,31 +393,56 @@ milestones:
           - task-27
           - task-28
 
+  - id: M10
+    title: Hit Marker Web UI
+    file: agent/milestones/milestone-10-hit-marker-web-ui.md
+    status: completed
+    started: 2026-03-25
+    completed: 2026-03-25
+    estimated_weeks: 1
+    tasks_total: 1
+    tasks_completed: 1
+    tasks:
+      - id: task-30
+        title: Hit Marker Web UI MVP
+        file: null
+        status: completed
+        estimated_hours: 4
+        started: 2026-03-25T00:00:00Z
+        completed_date: 2026-03-25T00:30:00Z
+        actual_hours: 0.5
+        dependencies:
+          - task-15
+
 documentation:
-  design_documents: 4
-  milestone_documents: 9
+  design_documents: 5
+  milestone_documents: 10
   pattern_documents: 0
-  task_documents: 29
+  task_documents: 30
 
 progress:
   planning: 100
-  implementation: 76
-  overall: 76
+  implementation: 80
+  overall: 80
 
 recent_work:
+  - date: 2026-03-25
+    description: "M10 complete — Hit Marker Web UI MVP. marker_server.py, marker_ui.html (wavesurfer.js), SENSATION_MAP, --hits flag on generate, beatlab marker-ui CLI command."
   - date: 2026-03-24
     description: "M9 complete — Wan2.1 + FILM pipeline. wan.py, film.py, wan_pipeline.py, --engine wan/--preview flags, AI plan wan_denoise/transition_frames."
 
 next_steps:
+  - "Test marker UI with a real audio file"
   - "Test Wan2.1 pipeline on sample clip with cloud GPU"
   - "Compare EbSynth vs Wan2.1 output quality"
 
 notes:
-  - "Total estimated: ~83 hours across 29 tasks"
-  - "M1-M3, M5-M9 complete (27/29 tasks)"
+  - "Total estimated: ~87 hours across 30 tasks"
+  - "M1-M3, M5-M10 complete (28/30 tasks)"
   - "M4 (Resolve integration) deferred"
   - "Wan2.1 requires 24GB+ VRAM (cloud GPU)"
   - "FILM runs between ALL clip boundaries (intra-section smoothing + inter-section style morphing)"
   - "FILM falls back to ffmpeg minterpolate if torch not available"
+  - "Hit marker UI uses stdlib http.server (no FastAPI dependency needed)"
 
 current_blockers: []

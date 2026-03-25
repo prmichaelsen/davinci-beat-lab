@@ -62,7 +62,7 @@ The command:
 ## Marker Interaction
 
 ### Tap Phase
-- **Spacebar** during playback places a marker at the current position
+- **M key** during playback places a marker at the current position (spacebar reserved for play/pause)
 - Markers snap to the nearest frame boundary (based on `--fps`)
 - Unlimited markers allowed
 
@@ -187,7 +187,7 @@ The marker UI is standalone — the user runs it whenever they want:
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Tap key | Spacebar only, then categorize | Simpler than multi-key bindings, avoids memorization |
+| Tap key | M key, then categorize (spacebar = play/pause) | Spacebar is universal play/pause; M for "marker" is intuitive |
 | Frame snapping | Always snap to frame boundary | Ensures frame-accurate effect placement |
 | Effect model | Sensation labels, not raw presets | User thinks in "hit/drop/swell", not "shake_x + flash" |
 | Intensity | Per-marker slider, visualized by height | Gives fine control without complexity |

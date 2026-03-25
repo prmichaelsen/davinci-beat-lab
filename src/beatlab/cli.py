@@ -255,6 +255,7 @@ def run(
 @click.option("--plan-patch", default=None, type=click.Path(exists=True), help="Patch JSON to merge into cached plan — only re-renders changed sections")
 @click.option("--labels/--no-labels", default=False, help="Burn section numbers into bottom-right of video for review")
 @click.option("--candidates", default=4, type=int, help="Number of styled image candidates per section (default: 4, 0 or 1 to disable)")
+@click.option("--backfill-candidates/--no-backfill-candidates", default=False, help="Generate candidates for sections that already have styled images (promotes existing to v1)")
 def render(
     video_file: str, beats: str | None, fps: float | None, style: str,
     ai: bool, prompt: str | None, output: str, base_denoise: float,
@@ -262,7 +263,7 @@ def render(
     sr: int, dry_run: bool, destroy: bool, fresh: bool, work_dir: str,
     engine: str, preview: bool, describe: str | None, vertex: bool,
     audio_prompt: bool, motion: str | None, plan_patch: str | None,
-    labels: bool, candidates: int,
+    labels: bool, candidates: int, backfill_candidates: bool,
 ):
     """Render AI-stylized video: extract frames → SD img2img → reassemble.
 
@@ -537,6 +538,7 @@ def render(
             motion_prompt=motion,
             labels=labels,
             candidates=candidates,
+            backfill_candidates=backfill_candidates,
         )
 
         import shutil

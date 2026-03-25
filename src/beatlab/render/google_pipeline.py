@@ -106,6 +106,7 @@ def render_google_pipeline(
     motion_prompt: str | None = None,
     labels: bool = False,
     candidates: int = 0,
+    backfill_candidates: bool = False,
 ) -> str:
     """Run the full Nano Banana + Veo pipeline.
 
@@ -208,11 +209,18 @@ def render_google_pipeline(
                 styled_paths.append(styled_path)
                 continue
 
-            # Styled image exists, no candidates — already good from a previous run, skip
-            if Path(styled_path).exists():
+            # Styled image exists, no candidates
+            if Path(styled_path).exists() and not backfill_candidates:
                 _log(f"  [{i+1}/{total_sections}] Section {fk} (cached)")
                 styled_paths.append(styled_path)
                 continue
+
+            # Backfill: promote existing styled to v1, generate v2-v4
+            if Path(styled_path).exists() and backfill_candidates and not cand_dir.exists():
+                import shutil as _shutil2
+                cand_dir.mkdir(parents=True, exist_ok=True)
+                _shutil2.copy2(styled_path, str(cand_dir / "v1.png"))
+                _log(f"  [{i+1}/{total_sections}] Section {fk}: backfilling — existing → v1, generating v2-v{candidates}...")
 
             # Candidates generated but not yet selected
             if cand_dir.exists() and len(list(cand_dir.glob("v*.png"))) >= candidates:

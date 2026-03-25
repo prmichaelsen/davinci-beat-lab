@@ -319,7 +319,7 @@ def render_google_pipeline(
         seg_path = str(segments_dir / f"segment_{expanded_keys[i]}_{expanded_keys[i+1]}.mp4")
 
         if Path(seg_path).exists():
-            _log(f"  [{i+1}/{num_segments}] Segment {expanded_keys[i]}→{expanded_keys[i+1]} (cached)")
+            _log(f"  [{i+1}/{num_segments}] {expanded_keys[i]}→{expanded_keys[i+1]} (cached)")
             segment_paths.append(seg_path)
             continue
 
@@ -375,7 +375,8 @@ def render_google_pipeline(
         prompt_parts.append("CRITICAL: The first frame of the video MUST be pixel-identical to the provided start image. The last frame MUST be pixel-identical to the provided end image. Do not alter, crop, zoom, or reinterpret the start and end frames in any way. Only generate motion and transformation for the frames in between.")
         prompt = " ".join(prompt_parts)
 
-        _log(f"  [{i+1}/{num_segments}] Segment {i}→{i+1}: {label_a}→{label_b} (8s)...")
+        intra_tag = " [smooth]" if is_intra_section else ""
+        _log(f"  [{i+1}/{num_segments}] Segment {expanded_keys[i]}→{expanded_keys[i+1]}: {label_a}→{label_b} (8s){intra_tag}")
         try:
             client.generate_video_transition(
                 expanded_styled[i], expanded_styled[i + 1], prompt, seg_path,

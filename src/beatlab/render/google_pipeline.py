@@ -198,8 +198,11 @@ def render_google_pipeline(
                 styled_paths.append(styled_path)
                 continue
 
-            # Styled image exists but no candidates yet — still needs candidate generation
-            # (This section was from a pre-candidate run)
+            # Styled image exists, no candidates — already good from a previous run, skip
+            if Path(styled_path).exists():
+                _log(f"  [{i+1}/{total_sections}] Section {fk} (cached)")
+                styled_paths.append(styled_path)
+                continue
 
             # Candidates generated but not yet selected
             if cand_dir.exists() and len(list(cand_dir.glob("v*.png"))) >= candidates:

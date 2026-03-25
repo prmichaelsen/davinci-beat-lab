@@ -109,6 +109,7 @@ def render_google_pipeline(
     backfill_candidates: bool = False,
     segment_filter: set[int] | None = None,
     intra_transition_prompt: str | None = None,
+    ai_transitions: bool = False,
 ) -> str:
     """Run the full Nano Banana + Veo pipeline.
 
@@ -312,6 +313,50 @@ def render_google_pipeline(
             expanded_keys.append(file_keys[i])
             expanded_section_idx.append(i)
 
+    # ── Phase 2.75: AI transition descriptions for intra-section pairs ──
+    ai_intra_prompts: dict[int, str] = {}  # segment index → claude-generated prompt
+    if ai_transitions and not intra_transition_prompt:
+        _log("Phase 2.75: Claude describing intra-section transitions...")
+        from beatlab.render.transition_describer import describe_transitions_batch
+
+        # Collect intra-section pairs that need generation
+        intra_pairs = []
+        intra_indices = []
+        num_segs = len(expanded_styled) - 1
+        for i in range(num_segs):
+            seg_path = str(segments_dir / f"segment_{expanded_keys[i]}_{expanded_keys[i+1]}.mp4")
+            if segment_filter is not None and i not in segment_filter:
+                continue
+            if Path(seg_path).exists():
+                continue
+
+            orig_a = expanded_section_idx[i]
+            orig_b = expanded_section_idx[i + 1]
+            sec_a = sections[min(orig_a, len(sections) - 1)]
+            sec_b = sections[min(orig_b, len(sections) - 1)]
+            is_intra = (
+                sec_a.get("_original_index") is not None
+                and sec_a.get("_original_index") == sec_b.get("_original_index")
+            )
+            if is_intra:
+                intra_pairs.append((expanded_styled[i], expanded_styled[i + 1]))
+                intra_indices.append(i)
+
+        if intra_pairs:
+            _log(f"  {len(intra_pairs)} intra-section transitions to describe...")
+            sp_styles = []
+            for idx in intra_indices:
+                orig = expanded_section_idx[idx]
+                sp = plan_map.get(orig)
+                sp_styles.append(sp.style_prompt if sp and sp.style_prompt else default_style)
+
+            descriptions = describe_transitions_batch(
+                intra_pairs, style_contexts=sp_styles, motion_prompt=motion_prompt or "",
+            )
+            for idx, desc in zip(intra_indices, descriptions):
+                ai_intra_prompts[idx] = desc
+            _log(f"  {len(ai_intra_prompts)} transitions described by Claude")
+
     # Use expanded lists for Veo generation
     num_segments = len(expanded_styled) - 1
     _log(f"Phase 3: Generating {num_segments} video segments with Veo (still→still)...")
@@ -350,7 +395,10 @@ def render_google_pipeline(
         )
 
         if is_intra_section:
-            if intra_transition_prompt:
+            if i in ai_intra_prompts:
+                # Claude-generated transition based on actual image content
+                prompt_parts = [ai_intra_prompts[i]]
+            elif intra_transition_prompt:
                 prompt_parts = [
                     f"Smooth continuous cinematic video. Same visual world and atmosphere throughout.",
                     f"Visual style: {style_a}.",

@@ -188,20 +188,24 @@ def render_google_pipeline(
 
         styled_path = str(styled_dir / f"styled_{fk}.png")
 
-        if Path(styled_path).exists():
-            _log(f"  [{i+1}/{total_sections}] Section {fk} (cached)")
-            styled_paths.append(styled_path)
-            continue
-
         if candidates > 1:
-            # Check if candidates already generated
             cand_dir = work / "candidates" / f"section_{fk}"
             grid_path = str(work / "candidates" / f"section_{fk}_grid.png")
 
+            # Already selected (styled image exists + candidates exist)
+            if Path(styled_path).exists() and cand_dir.exists():
+                _log(f"  [{i+1}/{total_sections}] Section {fk} (selected)")
+                styled_paths.append(styled_path)
+                continue
+
+            # Styled image exists but no candidates yet — still needs candidate generation
+            # (This section was from a pre-candidate run)
+
+            # Candidates generated but not yet selected
             if cand_dir.exists() and len(list(cand_dir.glob("v*.png"))) >= candidates:
                 _log(f"  [{i+1}/{total_sections}] Section {fk} candidates (cached, awaiting selection)")
                 needs_selection.append(i)
-                styled_paths.append(styled_path)  # placeholder — will be filled after selection
+                styled_paths.append(styled_path)  # placeholder
                 continue
 
             _log(f"  [{i+1}/{total_sections}] Section {fk}: generating {candidates} candidates...")
@@ -227,6 +231,12 @@ def render_google_pipeline(
             needs_selection.append(i)
             styled_paths.append(styled_path)  # placeholder
         else:
+            # No candidates — single stylization
+            if Path(styled_path).exists():
+                _log(f"  [{i+1}/{total_sections}] Section {fk} (cached)")
+                styled_paths.append(styled_path)
+                continue
+
             _log(f"  [{i+1}/{total_sections}] Section {fk}: {style[:60]}...")
             try:
                 client.stylize_image(kf_path, style, styled_path)

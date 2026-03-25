@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -28,18 +29,43 @@ def main():
 
 
 @main.command()
-@click.argument("audio_file", type=click.Path(exists=True))
-@click.option("--fps", default=30.0, type=float, help="Timeline frame rate (default: 30)")
-@click.option("--output", "-o", default=None, type=click.Path(), help="Output JSON file (default: stdout)")
+@click.argument("video_file", type=click.Path(exists=True))
+@click.option("--fps", default=None, type=float, help="Timeline frame rate (default: auto-detect from video)")
+@click.option("--output", "-o", default=None, type=click.Path(), help="Output JSON file (default: work dir beats.json)")
 @click.option("--sr", default=22050, type=int, help="Sample rate for analysis (default: 22050)")
-@click.option("--sections/--no-sections", default=False, help="Detect musical sections (verse/chorus/drop)")
-def analyze(audio_file: str, fps: float, output: str | None, sr: int, sections: bool):
-    """Analyze an audio file and produce a beat map JSON."""
+@click.option("--sections/--no-sections", default=True, help="Detect musical sections (default: on)")
+@click.option("--stems/--no-stems", default=False, help="Separate audio into stems via Demucs on Vast.ai for per-instrument analysis")
+@click.option("--stems-local/--no-stems-local", default=False, help="Run Demucs locally on CPU instead of Vast.ai (slow)")
+@click.option("--work-dir", default=".beatlab_work", type=str, help="Work directory for caching (default: .beatlab_work)")
+@click.option("--fresh/--resume", default=False, help="Re-analyze from scratch (default: resume/use cache)")
+def analyze(video_file: str, fps: float | None, output: str | None, sr: int, sections: bool,
+            stems: bool, stems_local: bool, work_dir: str, fresh: bool):
+    """Analyze audio from a video file — beat detection, sections, and optional stem separation.
+
+    Caches audio, stems, and beats.json in .beatlab_work/<video_name>/.
+    """
+    from beatlab.render.frames import detect_fps, extract_audio
+    from beatlab.render.workdir import WorkDir
     from beatlab.analyzer import analyze_audio
     from beatlab.beat_map import create_beat_map, save_beat_map
 
-    _log(f"Analyzing: {audio_file}")
-    analysis = analyze_audio(audio_file, sr=sr, detect_sections_flag=sections)
+    work = WorkDir(video_file, base_dir=work_dir)
+
+    # FPS
+    video_fps = fps or detect_fps(video_file)
+    _log(f"Analyzing: {video_file} ({video_fps:.2f} fps)")
+
+    # Extract audio if needed
+    if work.has_audio() and not fresh:
+        _log("  Audio: using cached")
+        audio_path = str(work.audio_path)
+    else:
+        _log("  Extracting audio...")
+        extract_audio(video_file, str(work.audio_path), sr=sr)
+        audio_path = str(work.audio_path)
+
+    # Beat analysis
+    analysis = analyze_audio(audio_path, sr=sr, detect_sections_flag=sections)
     _log(
         f"  Tempo: {analysis['tempo']:.1f} BPM | "
         f"Beats: {len(analysis['beats'])} | "
@@ -49,14 +75,33 @@ def analyze(audio_file: str, fps: float, output: str | None, sr: int, sections: 
     if sections and "sections" in analysis:
         _log(f"  Sections: {len(analysis['sections'])} detected")
 
-    beat_map = create_beat_map(analysis, fps=fps, source_file=audio_file)
+    # Stem separation + per-stem analysis
+    stem_analyses = None
+    if stems:
+        from beatlab.stems import separate_stems_remote, separate_stems_local, analyze_all_stems
+
+        if work.has_stems() and not fresh:
+            _log("  Stems: using cached")
+            stem_paths = work.stem_paths()
+        elif stems_local:
+            stem_paths = separate_stems_local(audio_path, str(work.stems_dir))
+        else:
+            from beatlab.render.cloud import VastAIManager
+            vast = VastAIManager()
+            stem_paths = separate_stems_remote(audio_path, str(work.stems_dir), vast)
+
+        _log("  Analyzing stems locally...")
+        stem_analyses = analyze_all_stems(stem_paths, sr=sr)
+
+    beat_map = create_beat_map(analysis, fps=video_fps, source_file=video_file, stem_analyses=stem_analyses)
+
+    # Save to work dir (and optionally to custom output)
+    work.save_beats(beat_map)
+    _log(f"  Beat map written to: {work.beats_path}")
 
     if output:
         save_beat_map(beat_map, output)
-        _log(f"  Beat map written to: {output}")
-    else:
-        json.dump(beat_map, sys.stdout, indent=2)
-        sys.stdout.write("\n")
+        _log(f"  Also written to: {output}")
 
 
 @main.command(name="presets")
@@ -438,6 +483,7 @@ def _parse_segment_filter(spec: str) -> set[int]:
 @click.option("--ai-transitions/--no-ai-transitions", default=True, help="Use Claude to describe intra-section transitions based on actual images (default: on)")
 @click.option("--candidates", default=4, type=int, help="Number of styled image candidates per section (default: 4, 0 or 1 to disable)")
 @click.option("--backfill-candidates/--no-backfill-candidates", default=False, help="Generate candidates for sections that already have styled images (promotes existing to v1)")
+@click.option("--stems/--no-stems", default=False, help="Separate audio into stems (drums/bass/vocals/other) via Demucs on Vast.ai for per-instrument beat analysis")
 def render(
     video_file: str, beats: str | None, fps: float | None, style: str,
     ai: bool, prompt: str | None, output: str, base_denoise: float,
@@ -446,7 +492,7 @@ def render(
     engine: str, preview: bool, describe: str | None, vertex: bool,
     audio_prompt: bool, motion: str | None, plan_patch: str | None,
     labels: bool, candidates: int, backfill_candidates: bool, segments: str | None,
-    intra_transition_prompt: str | None, ai_transitions: bool,
+    intra_transition_prompt: str | None, ai_transitions: bool, stems: bool,
 ):
     """Render AI-stylized video: extract frames → SD img2img → reassemble.
 
@@ -499,7 +545,22 @@ def render(
         from beatlab.beat_map import create_beat_map
         _log("  Analyzing beats and sections...")
         analysis = analyze_audio(audio_path, sr=sr, detect_sections_flag=True)
-        beat_map = create_beat_map(analysis, fps=video_fps, source_file=video_file)
+
+        # Stem separation (optional)
+        stem_analyses = None
+        if stems:
+            from beatlab.stems import separate_stems_remote, analyze_all_stems
+            if work.has_stems():
+                _log("  Stems: using cached")
+                stem_paths = work.stem_paths()
+            else:
+                from beatlab.render.cloud import VastAIManager
+                vast = VastAIManager()
+                stem_paths = separate_stems_remote(audio_path, str(work.stems_dir), vast)
+            _log("  Analyzing stems locally...")
+            stem_analyses = analyze_all_stems(stem_paths, sr=sr)
+
+        beat_map = create_beat_map(analysis, fps=video_fps, source_file=video_file, stem_analyses=stem_analyses)
         work.save_beats(beat_map)
 
     _log(
@@ -1168,25 +1229,34 @@ def split_sections(video_name: str, max_duration: float, work_dir: str, dry_run:
 
 
 @main.command(name="destroy-gpu")
-def destroy_gpu():
+@click.option("--all", "destroy_all", is_flag=True, default=False, help="Destroy all instances (default + stems)")
+def destroy_gpu(destroy_all: bool):
     """Destroy the kept-alive Vast.ai GPU instance."""
-    from beatlab.render.cloud import _load_instance_state, VastAIManager
+    from beatlab.render.cloud import _load_instance_state, _clear_instance_state, VastAIManager
 
-    state = _load_instance_state()
-    if not state:
-        _log("No kept-alive instance found.")
-        return
+    keys = ["default", "stems"] if destroy_all else ["default", "stems"]
+    destroyed_any = False
 
-    instance_id = state["instance_id"]
-    _log(f"Destroying instance {instance_id} ({state.get('gpu_name', '?')})...")
-    try:
-        vast = VastAIManager()
-        vast.destroy_instance(instance_id)
-        _log("  Instance destroyed.")
-    except Exception as e:
-        _log(f"  Failed: {e}")
-        from beatlab.render.cloud import _clear_instance_state
-        _clear_instance_state()
+    for key in keys:
+        state = _load_instance_state(key)
+        if not state:
+            continue
+
+        instance_id = state["instance_id"]
+        label = f" ({key})" if key != "default" else ""
+        _log(f"Destroying instance {instance_id}{label} ({state.get('gpu_name', '?')})...")
+        try:
+            vast = VastAIManager()
+            vast.destroy_instance(instance_id, instance_key=key)
+            _log("  Instance destroyed.")
+            destroyed_any = True
+        except Exception as e:
+            _log(f"  Failed: {e}")
+            _clear_instance_state(key)
+            destroyed_any = True
+
+    if not destroyed_any:
+        _log("No kept-alive instances found.")
 
 
 @main.command()
@@ -1422,3 +1492,153 @@ def _get_ai_plan(beat_map: dict, user_prompt: str | None, audio_descriptions: li
         return plan
     except Exception as e:
         raise click.ClickException(f"AI effect plan failed: {e}")
+
+
+# ── Narrative Keyframe Pipeline ────────────────────────────────────
+
+
+@main.group()
+def narrative():
+    """Narrative keyframe pipeline — YAML-driven keyframe + Veo transition generation."""
+    pass
+
+
+@narrative.command()
+@click.argument("yaml_path", type=click.Path(exists=True))
+@click.option("--vertex/--no-vertex", default=False, help="Use Vertex AI vs AI Studio")
+@click.option("--segments", default=None, help="Filter keyframes: kf_001,kf_005-kf_010")
+@click.option("--candidates", "n_candidates", default=None, type=int, help="Override candidates per slot")
+@click.option("--dry-run", is_flag=True, help="Validate YAML and print stats only")
+@click.option("--replicate", "use_replicate", is_flag=True, help="Use Replicate API instead of Google AI Studio/Vertex")
+def keyframes(yaml_path, vertex, segments, n_candidates, dry_run, use_replicate):
+    """Generate keyframe candidates from narrative YAML."""
+    from beatlab.render.narrative import load_narrative, narrative_stats, generate_keyframe_candidates
+
+    data = load_narrative(yaml_path)
+    stats = narrative_stats(data)
+    click.echo(f"Narrative: {data['meta']['title']}")
+    click.echo(f"  Keyframes: {stats['keyframes']} ({stats['keyframes_with_candidates']} with candidates, {stats['keyframes_selected']} selected)")
+    click.echo(f"  Transitions: {stats['transitions']} ({stats['total_slots']} total slots)")
+    click.echo(f"  Multi-slot transitions: {stats['multi_slot_transitions']} ({stats['intermediate_keyframes_needed']} intermediate keyframes needed)")
+
+    if dry_run:
+        return
+
+    seg_filter = _parse_kf_filter(segments) if segments else None
+    generate_keyframe_candidates(yaml_path, vertex=vertex, candidates_per_slot=n_candidates, segment_filter=seg_filter, use_replicate=use_replicate)
+
+
+@narrative.command(name="select-keyframes")
+@click.argument("yaml_path", type=click.Path(exists=True))
+@click.argument("selections", nargs=-1, required=True)
+def select_keyframes_cmd(yaml_path, selections):
+    """Apply keyframe selections. E.g.: kf_001:v2 kf_005:v3"""
+    from beatlab.render.narrative import apply_keyframe_selection
+
+    parsed = {}
+    for sel in selections:
+        parts = sel.split(":")
+        if len(parts) != 2:
+            raise click.ClickException(f"Invalid selection format: {sel} (expected kf_id:vN)")
+        kf_id = parts[0]
+        variant = int(parts[1].lstrip("v"))
+        parsed[kf_id] = variant
+
+    apply_keyframe_selection(yaml_path, parsed)
+
+
+@narrative.command()
+@click.argument("yaml_path", type=click.Path(exists=True))
+def actions(yaml_path):
+    """Generate LLM transition actions for empty transitions."""
+    from beatlab.render.narrative import generate_transition_actions
+    generate_transition_actions(yaml_path)
+
+
+@narrative.command(name="slot-keyframes")
+@click.argument("yaml_path", type=click.Path(exists=True))
+@click.option("--vertex/--no-vertex", default=False)
+@click.option("--candidates", "n_candidates", default=None, type=int)
+def slot_keyframes_cmd(yaml_path, vertex, n_candidates):
+    """Generate intermediate keyframe candidates for multi-slot transitions."""
+    from beatlab.render.narrative import generate_slot_keyframe_candidates
+    generate_slot_keyframe_candidates(yaml_path, vertex=vertex, candidates_per_slot=n_candidates)
+
+
+@narrative.command(name="select-slot-keyframes")
+@click.argument("yaml_path", type=click.Path(exists=True))
+@click.argument("selections", nargs=-1, required=True)
+def select_slot_keyframes_cmd(yaml_path, selections):
+    """Apply slot keyframe selections. E.g.: tr_041_slot_0:v2"""
+    from beatlab.render.narrative import apply_slot_keyframe_selection
+
+    parsed = {}
+    for sel in selections:
+        parts = sel.split(":")
+        if len(parts) != 2:
+            raise click.ClickException(f"Invalid selection format: {sel}")
+        slot_key = parts[0]
+        variant = int(parts[1].lstrip("v"))
+        parsed[slot_key] = variant
+
+    apply_slot_keyframe_selection(yaml_path, parsed)
+
+
+@narrative.command()
+@click.argument("yaml_path", type=click.Path(exists=True))
+@click.option("--vertex/--no-vertex", default=False)
+@click.option("--segments", default=None, help="Filter transitions: tr_001,tr_005-tr_010")
+@click.option("--candidates", "n_candidates", default=None, type=int)
+def transitions(yaml_path, vertex, segments, n_candidates):
+    """Generate Veo transition video candidates."""
+    from beatlab.render.narrative import generate_transition_candidates
+
+    seg_filter = _parse_kf_filter(segments) if segments else None
+    generate_transition_candidates(yaml_path, vertex=vertex, candidates_per_slot=n_candidates, segment_filter=seg_filter)
+
+
+@narrative.command(name="select-transitions")
+@click.argument("yaml_path", type=click.Path(exists=True))
+@click.argument("selections", nargs=-1, required=True)
+def select_transitions_cmd(yaml_path, selections):
+    """Apply transition selections. E.g.: tr_001:v2 tr_005_slot_0:v3"""
+    from beatlab.render.narrative import apply_transition_selection
+
+    parsed = {}
+    for sel in selections:
+        parts = sel.split(":")
+        if len(parts) != 2:
+            raise click.ClickException(f"Invalid selection format: {sel}")
+        key = parts[0]
+        variant = int(parts[1].lstrip("v"))
+        parsed[key] = variant
+
+    apply_transition_selection(yaml_path, parsed)
+
+
+@narrative.command()
+@click.argument("yaml_path", type=click.Path(exists=True))
+@click.option("--output", "-o", default="narrative_output.mp4", help="Output video path")
+def assemble(yaml_path, output):
+    """Time-remap, concatenate, and mux audio into final video."""
+    from beatlab.render.narrative import assemble_final
+    assemble_final(yaml_path, output)
+
+
+def _parse_kf_filter(spec: str) -> set[str]:
+    """Parse a segment filter spec like 'kf_001,kf_005-kf_010' into a set of IDs."""
+    result = set()
+    for part in spec.split(","):
+        part = part.strip()
+        if "-" in part and not part.startswith("-"):
+            # Range: kf_005-kf_010
+            start, end = part.split("-", 1)
+            # Extract numeric suffix
+            start_num = int(re.search(r"\d+$", start).group())
+            end_num = int(re.search(r"\d+$", end).group())
+            prefix = re.sub(r"\d+$", "", start)
+            for i in range(start_num, end_num + 1):
+                result.add(f"{prefix}{i:03d}")
+        else:
+            result.add(part)
+    return result

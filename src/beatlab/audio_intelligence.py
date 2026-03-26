@@ -802,7 +802,8 @@ def _build_rms_lookup(rms_envelope: list[dict]) -> callable:
 
 
 def apply_rules(layer1_data: dict, rules: list[dict],
-                vocal_bleed_threshold: float = 0.15) -> list[dict]:
+                vocal_bleed_threshold: float = 0.15,
+                reverb_dedup: bool = False) -> list[dict]:
     """Apply effect rules to all DSP onsets, producing frame-accurate events.
 
     This is the deterministic step — every onset that matches a rule gets an effect.
@@ -926,37 +927,37 @@ def apply_rules(layer1_data: dict, rules: list[dict],
     # Sort by time
     events.sort(key=lambda e: e["time"])
 
-    # Reverb deduplication: for percussion stems only, if two events from the same
-    # stem_source are within 200ms, keep only the stronger one. Percussion can't
-    # physically repeat that fast — the second onset is a reverb tail ghost.
-    # Non-percussion stems (bass, other, vocals) are NOT deduped — fast synth
-    # arpeggios and lead runs legitimately have onsets every 100-150ms.
-    PERCUSSION_DEDUP_STEMS = {"kick", "snare", "hh", "toms", "ride", "crash", "drums"}
-    before_dedup = len(events)
-    deduped = []
-    last_by_source = {}  # stem_source → (time, intensity, index_in_deduped)
+    # Reverb deduplication (optional): for percussion stems only, if two events
+    # from the same stem_source are within 200ms, keep only the stronger one.
+    if reverb_dedup:
+        PERCUSSION_DEDUP_STEMS = {"kick", "snare", "hh", "toms", "ride", "crash", "drums"}
+        before_dedup = len(events)
+        deduped = []
+        last_by_source = {}
 
-    for event in events:
-        src = event["stem_source"]
-        stem_name = src.split("/")[0] if "/" in src else src
-        t = event["time"]
-        intensity = event["intensity"]
+        for event in events:
+            src = event["stem_source"]
+            stem_name = src.split("/")[0] if "/" in src else src
+            t = event["time"]
+            intensity = event["intensity"]
 
-        if stem_name in PERCUSSION_DEDUP_STEMS and src in last_by_source:
-            prev_t, prev_int, prev_idx = last_by_source[src]
-            if t - prev_t < 0.2:  # within 200ms
-                # Keep the stronger one
-                if intensity > prev_int:
-                    deduped[prev_idx] = event
-                    last_by_source[src] = (t, intensity, prev_idx)
-                continue
+            if stem_name in PERCUSSION_DEDUP_STEMS and src in last_by_source:
+                prev_t, prev_int, prev_idx = last_by_source[src]
+                if t - prev_t < 0.2:
+                    if intensity > prev_int:
+                        deduped[prev_idx] = event
+                        last_by_source[src] = (t, intensity, prev_idx)
+                    continue
 
-        last_by_source[src] = (t, intensity, len(deduped))
-        deduped.append(event)
+            last_by_source[src] = (t, intensity, len(deduped))
+            deduped.append(event)
 
-    reverb_removed = before_dedup - len(deduped)
-    _log(f"  Total effect events: {len(deduped)} ({suppressed_total} bleed suppressed, {reverb_removed} reverb ghosts removed)")
-    return deduped
+        reverb_removed = before_dedup - len(deduped)
+        _log(f"  Total effect events: {len(deduped)} ({suppressed_total} bleed suppressed, {reverb_removed} reverb ghosts removed)")
+        return deduped
+
+    _log(f"  Total effect events: {len(events)} ({suppressed_total} bleed suppressed)")
+    return events
 
 
 def apply_rules_in_range(layer1_data: dict, rules: list[dict],

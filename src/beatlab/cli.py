@@ -1382,17 +1382,20 @@ def audio_intelligence(video_file: str, work_dir: str, output: str | None,
 @click.option("--fps", default=None, type=float, help="Override frame rate")
 @click.option("--plan", default=None, type=click.Path(exists=True), help="AI effect plan JSON (optional)")
 @click.option("--time-offset", default=0.0, type=float, help="Time offset for AI events (e.g. if video is trimmed from a longer source)")
+@click.option("--remote/--local", default=False, help="Run effects on Vast.ai GPU (NVENC encoding, much faster)")
 def effects(video_file: str, beats: str | None, ai_events: str | None, output: str | None,
-            glow: bool, fps: float | None, plan: str | None, time_offset: float):
+            glow: bool, fps: float | None, plan: str | None, time_offset: float, remote: bool):
     """Apply beat-synced OpenCV effects to a video.
 
     Two modes:
       --beats: Classic stem-routed effects from beat map
       --ai-events: AI-directed effects from audio-intelligence pipeline (Layer 3)
 
+    Add --remote to run on Vast.ai GPU for ~10x faster encoding.
+
     Examples:
+        beatlab effects video.mp4 --ai-events ai.json --remote
         beatlab effects video.mp4 --beats beats.json
-        beatlab effects video.mp4 --ai-events audio_intelligence.json
     """
     if not beats and not ai_events:
         raise click.ClickException("Either --beats or --ai-events is required")
@@ -1402,7 +1405,12 @@ def effects(video_file: str, beats: str | None, ai_events: str | None, output: s
         p = P(video_file)
         output = str(p.with_stem(p.stem + "_effects"))
 
-    # AI-directed mode
+    if remote:
+        _run_effects_remote(video_file, output, beats=beats, ai_events=ai_events,
+                            glow=glow, fps=fps, plan=plan, time_offset=time_offset)
+        return
+
+    # AI-directed mode (local)
     if ai_events:
         from beatlab.render.effects_opencv import apply_effects_ai
 
@@ -1413,7 +1421,7 @@ def effects(video_file: str, beats: str | None, ai_events: str | None, output: s
         apply_effects_ai(video_file, output, events, fps=fps, time_offset=time_offset)
         return
 
-    # Classic beat map mode
+    # Classic beat map mode (local)
     from beatlab.beat_map import load_beat_map
     from beatlab.render.effects_opencv import apply_effects
 
@@ -1432,13 +1440,302 @@ def effects(video_file: str, beats: str | None, ai_events: str | None, output: s
         effect_plan = parse_effect_plan(json.dumps(plan_data))
         _log(f"  Plan: {len(effect_plan.sections)} sections")
 
-    if not output:
-        from pathlib import Path
-        p = Path(video_file)
-        output = str(p.with_stem(p.stem + "_effects"))
-
     result = apply_effects(video_file, output, beat_map, effect_plan=effect_plan, fps=fps, glow=glow)
     _log(f"Output: {result}")
+
+
+def _run_effects_remote(video_file: str, output: str, beats: str | None = None,
+                         ai_events: str | None = None, glow: bool = False,
+                         fps: float | None = None, plan: str | None = None,
+                         time_offset: float = 0.0):
+    """Run the effects pass on a Vast.ai GPU instance."""
+    import shutil
+    import tempfile
+    from pathlib import Path
+    from beatlab.render.cloud import VastAIManager
+
+    vast = VastAIManager()
+
+    # Get or create GPU instance (reuse stems instance if available)
+    _log("Effects (remote): provisioning GPU...")
+    instance_id, reused = vast.get_or_create_instance(
+        instance_key="effects",
+        image="pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime",
+        min_vram_gb=8,
+        max_price_hr=2.0,
+        disk_gb=50,
+    )
+
+    if not reused:
+        _log(f"  Waiting for instance {instance_id}...")
+        vast.wait_until_ready(instance_id)
+
+    # Wait for SSH
+    import time as _time
+    for attempt in range(12):
+        try:
+            vast.ssh_run(instance_id, "echo ok", timeout=15)
+            break
+        except Exception:
+            _log(f"  Waiting for SSH... (attempt {attempt + 1}/12)")
+            _time.sleep(10)
+    else:
+        raise RuntimeError(f"SSH not reachable on instance {instance_id}")
+
+    _log(f"  Instance {instance_id} ready (reused={reused})")
+
+    # Install deps on remote
+    _log("  Installing dependencies...")
+    vast.ssh_run(
+        instance_id,
+        "apt-get update -qq && apt-get install -y -qq ffmpeg > /dev/null 2>&1;"
+        " pip install -q opencv-python-headless numpy 2>/dev/null || pip install opencv-python-headless numpy",
+        timeout=300,
+    )
+
+    # Stage files for upload
+    remote_work = "/workspace/effects_work"
+    with tempfile.TemporaryDirectory() as staging:
+        staging_path = Path(staging)
+
+        # Copy video
+        shutil.copy2(video_file, staging_path / Path(video_file).name)
+
+        # Copy events/beats/plan
+        if ai_events:
+            shutil.copy2(ai_events, staging_path / "events.json")
+        if beats:
+            shutil.copy2(beats, staging_path / "beats.json")
+        if plan:
+            shutil.copy2(plan, staging_path / "plan.json")
+
+        # Copy the effects module and a runner script
+        _write_remote_effects_script(staging_path, video_file, ai_events, beats, plan, glow, fps, time_offset)
+
+        _log(f"  Uploading files...")
+        vast.upload_files(instance_id, staging, remote_work)
+
+    # Run effects on remote
+    video_name = Path(video_file).name
+    _log("  Running effects on GPU...")
+    result = vast.ssh_run(
+        instance_id,
+        f"cd {remote_work} && python run_effects.py 2>&1",
+        timeout=3600,
+    )
+    _log(f"  Remote output: {result[-500:] if result else '(empty)'}")
+
+    # Download result
+    _log("  Downloading result...")
+    output_name = Path(video_file).stem + "_effects.mp4"
+    vast.download_files(instance_id, f"{remote_work}/output", str(Path(output).parent))
+
+    # Move to final location
+    downloaded = Path(output).parent / output_name
+    if downloaded.exists() and str(downloaded) != output:
+        shutil.move(str(downloaded), output)
+
+    _log(f"  Done: {output}")
+
+
+def _write_remote_effects_script(staging_path, video_file: str, ai_events: str | None,
+                                   beats: str | None, plan: str | None, glow: bool,
+                                   fps: float | None, time_offset: float):
+    """Write a self-contained Python script that runs effects on the remote GPU."""
+    from pathlib import Path
+
+    video_name = Path(video_file).name
+    output_name = Path(video_file).stem + "_effects.mp4"
+
+    script = f'''#!/usr/bin/env python3
+"""Remote effects runner — self-contained, no beatlab install needed."""
+import cv2
+import math
+import json
+import os
+import sys
+import subprocess
+import time
+import numpy as np
+from pathlib import Path
+
+def _log(msg):
+    print(f"[{{time.strftime('%H:%M:%S')}}] {{msg}}", file=sys.stderr, flush=True)
+
+video_path = "{video_name}"
+output_dir = "output"
+os.makedirs(output_dir, exist_ok=True)
+output_path = f"{{output_dir}}/{output_name}"
+tmp_path = output_path + ".tmp.mp4"
+time_offset = {time_offset}
+
+# Load events
+'''
+    if ai_events:
+        script += '''
+with open("events.json") as f:
+    ai_data = json.load(f)
+events = ai_data.get("layer3_events", ai_data if isinstance(ai_data, list) else [])
+_log(f"Loaded {len(events)} effect events")
+'''
+    else:
+        script += '''
+events = []
+_log("No AI events — using beat map mode")
+'''
+
+    script += f'''
+# Process video
+cap = cv2.VideoCapture(video_path)
+video_fps = {fps} if {fps is not None} else cap.get(cv2.CAP_PROP_FPS)
+w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+_log(f"Processing: {{total_frames}} frames, {{w}}x{{h}} @ {{video_fps}}fps")
+
+events = sorted(events, key=lambda e: e["time"])
+
+def get_event_intensity(t, event):
+    event_time = event["time"] - time_offset
+    duration = event.get("duration", 0.2)
+    sustain = event.get("sustain") or 0.0
+    intensity = event.get("intensity", 0.5)
+    dt = t - event_time
+    if dt < 0:
+        return 0.0
+    attack = min(0.04, duration * 0.2)
+    release = duration - attack
+    if sustain > 0:
+        if dt < attack:
+            return intensity * (dt / attack)
+        elif dt < attack + sustain:
+            return intensity
+        elif dt < attack + sustain + release:
+            return intensity * (1.0 - (dt - attack - sustain) / release)
+        return 0.0
+    else:
+        if dt < attack:
+            return intensity * (dt / attack)
+        elif dt < attack + release:
+            return intensity * (1.0 - (dt - attack) / release)
+        return 0.0
+
+out = cv2.VideoWriter(tmp_path, cv2.VideoWriter_fourcc(*"mp4v"), video_fps, (w, h))
+start_time = time.time()
+frame_num = 0
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    t = frame_num / video_fps
+    zoom_amount = 0.0
+    shake_x_val = 0
+    shake_y_val = 0
+    bright_alpha = 1.0
+    bright_beta = 0
+    contrast_amount = 0.0
+    glow_amount = 0.0
+
+    for event in events:
+        event_time = event["time"] - time_offset
+        max_dur = event.get("duration", 0.2) + (event.get("sustain") or 0.0) + 0.5
+        if event_time > t + 0.1:
+            break
+        if event_time + max_dur < t:
+            continue
+        ei = get_event_intensity(t, event)
+        if ei < 0.01:
+            continue
+        effect = event["effect"]
+        if effect == "zoom_pulse":
+            zoom_amount = max(zoom_amount, 0.12 * ei)
+        elif effect == "zoom_bounce":
+            zoom_amount = max(zoom_amount, 0.20 * ei)
+        elif effect == "shake_x":
+            shake_x_val += int(8 * ei * math.sin(t * 47))
+        elif effect == "shake_y":
+            shake_y_val += int(5 * ei * math.cos(t * 53))
+        elif effect == "flash":
+            bright_alpha = max(bright_alpha, 1.0 + 0.3 * ei)
+            bright_beta = max(bright_beta, int(30 * ei))
+        elif effect == "hard_cut":
+            bright_alpha = max(bright_alpha, 1.0 + 0.8 * ei)
+            bright_beta = max(bright_beta, int(50 * ei))
+        elif effect == "contrast_pop":
+            contrast_amount = max(contrast_amount, 0.4 * ei)
+        elif effect == "glow_swell":
+            glow_amount = max(glow_amount, 0.3 * ei)
+
+    if zoom_amount > 0.001:
+        zoom = 1.0 + zoom_amount
+        new_h, new_w = int(h * zoom), int(w * zoom)
+        zoomed = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+        top = (new_h - h) // 2
+        left = (new_w - w) // 2
+        frame = zoomed[top:top+h, left:left+w]
+
+    if abs(shake_x_val) > 0 or abs(shake_y_val) > 0:
+        M = np.float32([[1, 0, shake_x_val], [0, 1, shake_y_val]])
+        frame = cv2.warpAffine(frame, M, (w, h), borderMode=cv2.BORDER_REFLECT)
+
+    if bright_alpha != 1.0 or bright_beta != 0:
+        frame = cv2.convertScaleAbs(frame, alpha=bright_alpha, beta=bright_beta)
+
+    if contrast_amount > 0.01:
+        contrast = 1.0 + contrast_amount
+        mean = np.mean(frame)
+        frame = cv2.convertScaleAbs(frame, alpha=contrast, beta=int(mean * (1 - contrast)))
+
+    if glow_amount > 0.01:
+        blurred = cv2.GaussianBlur(frame, (0, 0), 8)
+        frame = cv2.addWeighted(frame, 1.0 - glow_amount, blurred, glow_amount, 0)
+
+    out.write(frame)
+    frame_num += 1
+    if frame_num % 1000 == 0:
+        elapsed = time.time() - start_time
+        fps_actual = frame_num / elapsed
+        eta = (total_frames - frame_num) / fps_actual / 60
+        _log(f"  [{{frame_num}}/{{total_frames}}] {{fps_actual:.0f}} fps, ETA {{eta:.1f}}m")
+
+cap.release()
+out.release()
+elapsed = time.time() - start_time
+_log(f"Effects applied in {{elapsed:.0f}}s ({{frame_num / elapsed:.0f}} fps)")
+
+# Re-encode with NVENC if available, otherwise libx264
+def has_nvenc():
+    try:
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True, timeout=10)
+        return "h264_nvenc" in r.stdout
+    except:
+        return False
+
+nvenc = has_nvenc()
+encoder = "h264_nvenc" if nvenc else "libx264"
+enc_opts = ["-preset", "p4", "-rc", "vbr", "-cq", "18"] if nvenc else ["-preset", "ultrafast", "-crf", "18"]
+_log(f"Re-encoding with {{encoder}}...")
+
+cmd = [
+    "ffmpeg", "-y",
+    "-i", tmp_path,
+    "-i", video_path,
+    "-map", "0:v", "-map", "1:a?",
+    "-c:v", encoder, "-pix_fmt", "yuv420p", *enc_opts,
+    "-c:a", "copy",
+    "-shortest",
+    output_path,
+]
+subprocess.run(cmd, check=True)
+os.unlink(tmp_path)
+_log(f"Done: {{output_path}}")
+'''
+
+    with open(staging_path / "run_effects.py", "w") as f:
+        f.write(script)
 
 
 @main.command()

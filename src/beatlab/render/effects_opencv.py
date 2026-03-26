@@ -261,15 +261,31 @@ def apply_effects(
     elapsed = time.time() - start_time
     _log(f"  Effects applied in {elapsed:.0f}s ({frame_num / elapsed:.0f} fps)")
 
-    # Re-encode with ffmpeg for proper H.264 + mux audio from original
-    _log(f"  Re-encoding with H.264...")
+    # Re-encode with ffmpeg — prefer NVENC (GPU) with libx264 fallback
     import subprocess
+
+    def _try_nvenc():
+        """Check if NVENC is available."""
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-encoders"],
+                capture_output=True, text=True, timeout=10,
+            )
+            return "h264_nvenc" in result.stdout
+        except Exception:
+            return False
+
+    has_nvenc = _try_nvenc()
+    encoder = "h264_nvenc" if has_nvenc else "libx264"
+    encode_opts = ["-preset", "p4", "-rc", "vbr", "-cq", "18"] if has_nvenc else ["-preset", "fast", "-crf", "18"]
+
+    _log(f"  Re-encoding with {encoder}...")
     cmd = [
         "ffmpeg", "-y",
         "-i", tmp_path,
         "-i", video_path,
         "-map", "0:v", "-map", "1:a?",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18",
+        "-c:v", encoder, "-pix_fmt", "yuv420p", *encode_opts,
         "-c:a", "copy",
         "-shortest",
         output_path,
@@ -443,15 +459,31 @@ def apply_effects_ai(
     elapsed = time.time() - start_time
     _log(f"  Effects applied in {elapsed:.0f}s ({frame_num / elapsed:.0f} fps)")
 
-    # Re-encode with ffmpeg for proper H.264 + mux audio from original
-    _log(f"  Re-encoding with H.264...")
+    # Re-encode with ffmpeg — prefer NVENC (GPU) with libx264 fallback
     import subprocess
+
+    def _try_nvenc():
+        """Check if NVENC is available."""
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-encoders"],
+                capture_output=True, text=True, timeout=10,
+            )
+            return "h264_nvenc" in result.stdout
+        except Exception:
+            return False
+
+    has_nvenc = _try_nvenc()
+    encoder = "h264_nvenc" if has_nvenc else "libx264"
+    encode_opts = ["-preset", "p4", "-rc", "vbr", "-cq", "18"] if has_nvenc else ["-preset", "fast", "-crf", "18"]
+
+    _log(f"  Re-encoding with {encoder}...")
     cmd = [
         "ffmpeg", "-y",
         "-i", tmp_path,
         "-i", video_path,
         "-map", "0:v", "-map", "1:a?",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18",
+        "-c:v", encoder, "-pix_fmt", "yuv420p", *encode_opts,
         "-c:a", "copy",
         "-shortest",
         output_path,

@@ -501,13 +501,13 @@ Your job: synthesize both sources to produce **frame-accurate effect assignments
 
 ## Available Effects
 
-- **zoom_pulse**: Gentle zoom in/out. Good for melodic hits, subtle rhythmic elements.
-- **zoom_bounce**: Aggressive zoom. Good for bass drops, heavy kicks, impacts.
+- **zoom_pulse**: Gentle zoom in/out. The workhorse effect — good for melodic hits, bass notes, rhythmic elements.
+- **zoom_bounce**: Aggressive zoom punch. THE go-to effect for bass drops, heavy kicks, big impacts. Drops should BOUNCE the visuals, not blind the viewer.
 - **shake_x**: Horizontal camera shake. Good for snare hits, percussive impacts.
 - **shake_y**: Vertical camera shake. Good for kick drums, sub-bass hits.
-- **flash**: Brightness flash. Good for hi-hats, cymbals, crisp transients.
-- **hard_cut**: Extreme brightness spike. Good for massive drops, climactic moments.
-- **contrast_pop**: Contrast boost. Good for synth stabs, melodic accents.
+- **flash**: Brightness flash. Use SPARINGLY — only for the crispest hi-hat accents or cymbal crashes. Too much flash is blinding and cheap-looking. Prefer zoom_pulse or contrast_pop for most rhythmic elements.
+- **hard_cut**: Extreme brightness spike. AVOID for drops — use zoom_bounce + shake instead. Only use hard_cut for rare, singular climactic moments (1-2 per minute MAX). Drops should bounce, not blind.
+- **contrast_pop**: Contrast boost. Good for synth stabs, melodic accents. A subtler alternative to flash.
 - **glow_swell**: Soft glow bloom. Good for sustained pads, ambient textures, vocal sections.
 
 ## Effect Properties
@@ -675,14 +675,14 @@ Your rules will be applied programmatically to EVERY onset in the DSP data. This
 
 ## Available Effects
 
-- **zoom_pulse**: Gentle zoom in/out. Good for melodic hits, bass notes.
-- **zoom_bounce**: Aggressive zoom. Good for bass drops, heavy kicks.
+- **zoom_pulse**: Gentle zoom in/out. The workhorse effect — good for melodic hits, bass notes, rhythmic elements.
+- **zoom_bounce**: Aggressive zoom punch. THE go-to effect for bass drops, heavy kicks, big impacts. Drops should BOUNCE the visuals, not blind the viewer.
 - **shake_x**: Horizontal camera shake. Good for snare hits.
 - **shake_y**: Vertical camera shake. Good for kick drums, sub-bass.
-- **flash**: Brightness flash. Good for hi-hats, cymbals.
-- **hard_cut**: Extreme brightness spike. Good for massive drops, climactic moments.
-- **contrast_pop**: Contrast boost. Good for synth stabs, melodic accents.
-- **glow_swell**: Soft glow bloom. Good for sustained pads, ambient textures.
+- **flash**: Brightness flash. Use SPARINGLY — only for the crispest hi-hat accents or cymbal crashes. Too much flash is blinding and cheap-looking. Prefer zoom_pulse or contrast_pop for most rhythmic elements.
+- **hard_cut**: Extreme brightness spike. AVOID for drops — use zoom_bounce + shake instead. Only use hard_cut for rare, singular climactic moments (1-2 per minute MAX). Drops should bounce, not blind.
+- **contrast_pop**: Contrast boost. Good for synth stabs, melodic accents. A subtler alternative to flash.
+- **glow_swell**: Soft glow bloom. Good for sustained pads, ambient textures, vocal sections.
 
 ## Rule Schema
 
@@ -856,6 +856,197 @@ def apply_rules(layer1_data: dict, rules: list[dict]) -> list[dict]:
     return events
 
 
+def apply_rules_in_range(layer1_data: dict, rules: list[dict],
+                          start_time: float, end_time: float) -> list[dict]:
+    """Apply effect rules only to onsets within a time range."""
+    events = []
+
+    for rule in rules:
+        stem = rule.get("stem", "drums")
+        band = rule.get("band", "full")
+        min_str = rule.get("min_strength", 0.0)
+        max_str = rule.get("max_strength", 1.0)
+        effect = rule.get("effect", "shake_y")
+        intensity_scale = rule.get("intensity_scale", 1.0)
+        duration = rule.get("duration", 0.2)
+        sustain_from_rms = rule.get("sustain_from_rms", False)
+        layer_with = rule.get("layer_with", [])
+        layer_threshold = rule.get("layer_threshold", 0.7)
+
+        stem_data = layer1_data.get(stem, {})
+        band_data = stem_data.get(band, {})
+        onsets = band_data.get("onsets", [])
+        sustained_regions = band_data.get("sustained_regions", [])
+
+        for onset in onsets:
+            t = onset["time"]
+            if t < start_time or t >= end_time:
+                continue
+            strength = onset.get("strength", 0)
+            if strength < min_str or strength > max_str:
+                continue
+
+            intensity = min(1.0, strength * intensity_scale)
+            evt_duration = duration
+            sustain = None
+
+            if sustain_from_rms:
+                for region in sustained_regions:
+                    if region["start_time"] <= t <= region["end_time"]:
+                        sustain = region["duration"]
+                        evt_duration = max(duration, region["duration"])
+                        break
+
+            events.append({
+                "time": t,
+                "duration": evt_duration,
+                "effect": effect,
+                "intensity": intensity,
+                "sustain": sustain,
+                "stem_source": f"{stem}/{band}",
+                "rationale": rule.get("rationale", ""),
+            })
+
+            if layer_with and strength >= layer_threshold:
+                for layer_effect in layer_with:
+                    events.append({
+                        "time": t,
+                        "duration": evt_duration,
+                        "effect": layer_effect,
+                        "intensity": min(1.0, intensity * 0.8),
+                        "sustain": sustain,
+                        "stem_source": f"{stem}/{band}",
+                        "rationale": f"layered with {effect} on strong hit",
+                    })
+
+    return events
+
+
+def _group_sections_into_chunks(layer2_data: list[dict], max_gap: float = 30.0) -> list[dict]:
+    """Group Layer 2 description sections into energy-coherent chunks.
+
+    Adjacent sections with the same energy classification get merged.
+    Returns [{start_time, end_time, energy, description_summary}].
+    """
+    import re
+
+    chunks = []
+    current = None
+
+    for section in sorted(layer2_data, key=lambda s: s["start_time"]):
+        # Extract energy from section header in description (e.g., "high-energy", "low energy")
+        desc = section.get("description", "")
+        header_match = re.search(r"(low|mid|high)[_\s-]?energy", desc, re.IGNORECASE)
+        energy = header_match.group(0).lower().replace(" ", "_").replace("-", "_") if header_match else "mid_energy"
+
+        # Simplify to low/mid/high
+        if "low" in energy:
+            energy = "low"
+        elif "high" in energy:
+            energy = "high"
+        else:
+            energy = "mid"
+
+        if current is None:
+            current = {
+                "start_time": section["start_time"],
+                "end_time": section["end_time"],
+                "energy": energy,
+                "descriptions": [desc],
+            }
+        elif energy == current["energy"] and section["start_time"] - current["end_time"] < max_gap:
+            current["end_time"] = section["end_time"]
+            current["descriptions"].append(desc)
+        else:
+            current["description_summary"] = current["descriptions"][0][:200] + (
+                f" ... (+{len(current['descriptions'])-1} more sections)" if len(current["descriptions"]) > 1 else ""
+            )
+            del current["descriptions"]
+            chunks.append(current)
+            current = {
+                "start_time": section["start_time"],
+                "end_time": section["end_time"],
+                "energy": energy,
+                "descriptions": [desc],
+            }
+
+    if current:
+        current["description_summary"] = current["descriptions"][0][:200] + (
+            f" ... (+{len(current['descriptions'])-1} more sections)" if len(current["descriptions"]) > 1 else ""
+        )
+        del current["descriptions"]
+        chunks.append(current)
+
+    return chunks
+
+
+def extract_layer3_rules_chunked(
+    layer1_data: dict,
+    layer2_data: list[dict],
+    creative_direction: str | None = None,
+    sensitivity: dict[str, float] | None = None,
+) -> tuple[list[dict], list[dict]]:
+    """Generate per-section rules by chunking the track into energy-coherent regions.
+
+    Each chunk gets its own Claude call for tailored rules. Returns (all_rules_with_ranges, all_events).
+    """
+    chunks = _group_sections_into_chunks(layer2_data)
+    _log(f"  Layer 3 (chunked rules mode): {len(chunks)} energy chunks")
+    for c in chunks:
+        _log(f"    {c['start_time']:.0f}s - {c['end_time']:.0f}s: {c['energy']}")
+
+    all_rules = []
+    all_events = []
+
+    for i, chunk in enumerate(chunks):
+        energy = chunk["energy"]
+        start = chunk["start_time"]
+        end = chunk["end_time"]
+        dur = end - start
+
+        # Build chunk-specific creative direction
+        energy_guidance = {
+            "low": "This is a LOW energy section — ambient, dreamy, meditative. Use gentle effects: glow_swell, subtle zoom_pulse. Minimize shake and flash. Let the music breathe.",
+            "mid": "This is a MID energy section — building tension, melodic, driving but not peak. Use moderate zoom_pulse, contrast_pop, some shake on strong beats. Hold back on aggressive effects.",
+            "high": "This is a HIGH energy section — peak intensity, drops, aggressive beats. Use zoom_bounce, shake_x, shake_y aggressively. Layer effects on strong hits. This should feel powerful and punchy.",
+        }
+
+        chunk_direction = energy_guidance.get(energy, energy_guidance["mid"])
+        if creative_direction:
+            chunk_direction = f"{creative_direction}\n\n{chunk_direction}"
+
+        chunk_direction += f"\n\nThis chunk covers {start:.0f}s to {end:.0f}s ({dur:.0f}s)."
+        chunk_direction += f"\n\nAudio context: {chunk['description_summary']}"
+
+        _log(f"  Chunk {i+1}/{len(chunks)}: {start:.0f}s-{end:.0f}s ({energy}, {dur:.0f}s)")
+
+        # Get rules for this chunk
+        rules = extract_layer3_rules(
+            layer1_data, layer2_data,
+            time_offset=start,
+            time_limit=dur,
+            creative_direction=chunk_direction,
+            sensitivity=sensitivity,
+        )
+
+        # Tag rules with their time range
+        for rule in rules:
+            rule["_chunk_start"] = start
+            rule["_chunk_end"] = end
+            rule["_chunk_energy"] = energy
+
+        # Apply rules only to onsets in this time range
+        chunk_events = apply_rules_in_range(layer1_data, rules, start, end)
+        _log(f"    → {len(rules)} rules, {len(chunk_events)} events")
+
+        all_rules.extend(rules)
+        all_events.extend(chunk_events)
+
+    all_events.sort(key=lambda e: e["time"])
+    _log(f"  Total: {len(all_rules)} rules, {len(all_events)} events across {len(chunks)} chunks")
+    return all_rules, all_events
+
+
 # ─── Full Pipeline ──────────────────────────────────────────────────────────
 
 def run_audio_intelligence(
@@ -869,6 +1060,7 @@ def run_audio_intelligence(
     descriptions_md: str | None = None,
     sensitivity: dict[str, float] | None = None,
     rules_mode: bool = False,
+    chunked: bool = False,
 ) -> dict:
     """Run the full 3-layer audio intelligence pipeline.
 
@@ -896,7 +1088,13 @@ def run_audio_intelligence(
     # Layer 3: Claude
     duration = librosa.get_duration(path=audio_path, sr=sr)
 
-    if rules_mode:
+    if rules_mode and chunked:
+        rules, layer3 = extract_layer3_rules_chunked(
+            layer1, layer2,
+            creative_direction=creative_direction,
+            sensitivity=sensitivity,
+        )
+    elif rules_mode:
         rules = extract_layer3_rules(
             layer1, layer2,
             time_offset=0.0,

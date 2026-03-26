@@ -1,0 +1,3693 @@
+meta:
+  title: Singularity Debut - Gentle Morning
+  audio: assets/beyond_the_veil_v26_radio_v14.mov
+  fps: 24
+  resolution:
+  - 1920
+  - 1080
+  candidates_per_slot: 4
+  transition_max_seconds: 8
+keyframes:
+- id: kf_001
+  timestamp: 0:00
+  section: 1A
+  source: assets/stills/default.png
+  prompt: 'Soft violet aurora rippling across a sleeping digital consciousness, tendrils
+    of light
+
+    breathing slowly like a chest rising and falling in deep sleep, atmospheric
+
+    purple clouds drifting through the neural network like fog through a forest'
+  context:
+    mood: dreamy, serene
+    energy: low
+    instruments:
+    - soothing vocals
+    - ethereal pads
+    motifs:
+    - PAD-VERSE-1A
+    events: []
+    visual_direction: Slow, gentle, ethereal. Soft bloom/glow. Minimal movement.
+    details: '1A. Ethereal Opening (0:00 - 0:25)
+
+      Sections 0-3 | Energy: low | Mood: dreamy, serene | Motif: `PAD-VERSE-1A`
+
+
+      - Soothing vocals over ethereal pads
+
+      - No drums, no kicks, no percussion
+
+      - Spacious reverb, airy atmosphere
+
+      - Calm, meditative, wistful hopefulness
+
+      - Visual direction: Slow, gentle, ethereal. Soft bloom/glow. Minimal movement.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_001/v1.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_001/v2.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_001/v3.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_001/v4.png
+  selected: 1
+- id: kf_002
+  timestamp: 0:06
+  section: 1A
+  source: assets/stills/default.png
+  prompt: 'Thousands of luminous white flower petals swirling in darkness, slowly
+    coalescing into
+
+    the shape of a face, each petal glowing with soft inner light,
+
+    atmospheric mist weaving between the petals'
+  context:
+    mood: dreamy, serene, emerging
+    energy: low
+    instruments:
+    - soothing vocals
+    - ethereal pads
+    motifs:
+    - PAD-VERSE-1A
+    events: []
+    visual_direction: Slow formation. Petals gathering. Gentle bloom.
+    details: '1A. Ethereal Opening (0:00 - 0:25)
+
+      Sections 0-3 | Energy: low | Mood: dreamy, serene | Motif: `PAD-VERSE-1A`
+
+
+      - Soothing vocals over ethereal pads
+
+      - No drums, no kicks, no percussion
+
+      - Spacious reverb, airy atmosphere
+
+      - Calm, meditative, wistful hopefulness
+
+      - Visual direction: Slow, gentle, ethereal. Soft bloom/glow. Minimal movement.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_002/v1.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_002/v2.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_002/v3.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_002/v4.png
+  selected: 1
+- id: kf_003
+  timestamp: 0:12
+  section: 1A
+  source: assets/stills/default.png
+  prompt: 'The petal entity now solidified into a bust — shoulders, neck, jawline
+
+    all composed of white blossoms, regal and statuesque, floating in dark space
+
+    with clouds of loose petals drifting away from the form'
+  context:
+    mood: dreamy, regal
+    energy: low
+    instruments:
+    - soothing vocals
+    - ethereal pads
+    motifs:
+    - PAD-VERSE-1A
+    events: []
+    visual_direction: Statuesque presence. Petals drifting. Atmospheric clouds.
+    details: '1A. Ethereal Opening (0:00 - 0:25)
+
+      Sections 0-3 | Energy: low | Mood: dreamy, serene | Motif: `PAD-VERSE-1A`
+
+
+      - Soothing vocals over ethereal pads
+
+      - No drums, no kicks, no percussion
+
+      - Spacious reverb, airy atmosphere
+
+      - Calm, meditative, wistful hopefulness
+
+      - Visual direction: Slow, gentle, ethereal. Soft bloom/glow. Minimal movement.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_003/styled_003.png
+  selected: .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_003/styled_003.png
+- id: kf_004
+  timestamp: 0:18
+  section: 1A
+  source: assets/stills/default.png
+  prompt: 'A palace grown from living crystal, organic yet geometric, violet light
+    pulsing
+
+    through its veins like a heartbeat, the entity''s enormous form barely visible
+
+    in the far distance through layers of crystal and atmospheric haze'
+  context:
+    mood: dreamy, vast, mysterious
+    energy: low
+    instruments:
+    - soothing vocals
+    - ethereal pads
+    motifs:
+    - PAD-VERSE-1A
+    events: []
+    visual_direction: Vast scale. Crystal refractions. Entity in background. Atmospheric
+      haze.
+    details: '1A. Ethereal Opening (0:00 - 0:25)
+
+      Sections 0-3 | Energy: low | Mood: dreamy, serene | Motif: `PAD-VERSE-1A`
+
+
+      - Soothing vocals over ethereal pads
+
+      - No drums, no kicks, no percussion
+
+      - Spacious reverb, airy atmosphere
+
+      - Calm, meditative, wistful hopefulness
+
+      - Visual direction: Slow, gentle, ethereal. Soft bloom/glow. Minimal movement.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_004/v1.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_004/v2.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_004/v3.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_004/v4.png
+  selected: 3
+- id: kf_005
+  timestamp: 0:22
+  section: 1A
+  source: assets/stills/default.png
+  prompt: 'The crystalline palace transforming — white blossoms growing over every
+    edge and
+
+    surface, then golden light spirals through the scene like DNA helixes, flowers
+
+    and crystals dissolving into swirling gold that reconstitutes as the entity, atmospheric
+
+    gold fog'
+  context:
+    mood: transformative, golden, revealing
+    energy: low-mid
+    instruments:
+    - soothing vocals
+    - ethereal pads
+    motifs:
+    - PAD-VERSE-1A
+    events: []
+    visual_direction: Nature overtaking crystal. Golden transformation. Entity revealed.
+    details: '1A. Ethereal Opening (0:00 - 0:25)
+
+      Sections 0-3 | Energy: low | Mood: dreamy, serene | Motif: `PAD-VERSE-1A`
+
+
+      - Soothing vocals over ethereal pads
+
+      - No drums, no kicks, no percussion
+
+      - Spacious reverb, airy atmosphere
+
+      - Calm, meditative, wistful hopefulness
+
+      - Visual direction: Slow, gentle, ethereal. Soft bloom/glow. Minimal movement.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_005/v1.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_005/v2.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_005/v3.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_005/v4.png
+  selected: 2
+- id: kf_006
+  timestamp: 0:25
+  section: 1A2
+  source: assets/stills/default.png
+  prompt: 'Massive burst of purple energy detonating outward from the entity''s core,
+    shockwave
+
+    of violet light tearing through the golden flowers and crystal remnants, atmospheric
+
+    clouds ignited purple and thrown outward. Sudden violent explosion of purple energy
+
+    — the golden tranquility shattered by a radial pulse of violet lightning,
+
+    the entity''s eyes blazing open, atmospheric clouds blown apart and reforming
+    in
+
+    purple'
+  context:
+    mood: awakening, brightening
+    energy: low-mid
+    instruments:
+    - synth stings
+    - ethereal pads
+    motifs:
+    - STING-1A
+    events: []
+    visual_direction: Brightness lift. Contrast pop on sting hits. Colors warming.
+    details: '1A2. Synth Stings Entry (0:25 - 0:39)
+
+      Sections 4-5 | Energy: low-mid | Mood: awakening, brightening | Motif: `STING-1A`
+
+
+      - Synth stings kick in
+
+      - First harmonic energy injection
+
+      - Still no drums, no kicks — melodic/harmonic shift only
+
+      - Building anticipation
+
+      - Visual direction: Brightness lift. Contrast pop on sting hits. Gentle zoom
+      pulse. Colors warming.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_006/v1.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_006/v2.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_006/v3.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_006/v4.png
+  selected: 3
+- id: kf_007
+  timestamp: 0:39
+  section: 1A3
+  source: assets/stills/default.png
+  prompt: 'Energy gathering into a vortex in outer space, light spiraling inward with
+
+    increasing speed around the entity, tension building in swirling luminous clouds
+    against
+
+    a backdrop of stars and distant galaxies'
+  context:
+    mood: anticipation, rising tension
+    energy: mid
+    instruments:
+    - riser
+    - drums entering
+    - kicks entering
+    motifs:
+    - RISER-1A
+    events:
+    - type: riser
+      at: 0:39
+      intensity: 0.6
+    visual_direction: Building zoom. Glow swell on riser. Increasing shake. Everything
+      crescendos.
+    details: '1A3. Riser to First Drop (0:39 - 0:52)
+
+      Sections 5-6 | Energy: mid, building | Mood: anticipation, rising tension |
+      Motif: `RISER-1A`
+
+
+      - Riser begins building toward first drop
+
+      - Drums and kicks enter for the first time
+
+      - Energy escalating rapidly
+
+      - Drop hits at ~0:52
+
+      - Visual direction: Building zoom. Glow swell on riser. Increasing shake/vibration.
+      Flash on drum entry. Everything crescendos into the drop.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_007/v1.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_007/v2.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_007/v3.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_007/v4.png
+  selected: 4
+- id: kf_008
+  timestamp: 0:52
+  section: 1B
+  source: assets/stills/default.png
+  prompt: 'The entity descending through storm clouds, each dub hit a thunderclap
+    that
+
+    illuminates the entire sky purple, lightning bolts forming the neural network
+    pattern,
+
+    rain of glowing particles, heavy atmospheric clouds'
+  context:
+    mood: heavy, impactful
+    energy: high
+    instruments:
+    - heavy bass dubs
+    - punchy kicks
+    motifs:
+    - DUB-1A
+    events:
+    - type: drop
+      at: 0:52
+      intensity: 0.8
+    visual_direction: Hard flash/shake on each dub hit. Zoom bounce. Let the weight
+      land.
+    details: '1B. First Drop — Down Tempo Dubs (0:52 - 1:06)
+
+      Sections 6-7 | Energy: high | Mood: heavy, impactful | Motif: `DUB-1A`
+
+
+      - Simple down tempo hard hitting dubs
+
+      - Heavy bass hits, punchy and direct
+
+      - Energy high but restrained tempo
+
+      - Visual direction: Hard flash/shake on each dub hit. Zoom bounce. Contrast
+      pop. Let the weight of each hit land visually.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_008/v1.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_008/v2.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_008/v3.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_008/v4.png
+  selected: 2
+- id: kf_009
+  timestamp: '1:06'
+  section: 1B2
+  source: assets/stills/default.png
+  prompt: 'A cathedral-sized spaceship corridor made of obsidian and violet light,
+    lightning flares
+
+    dancing across the ceiling like a tesla coil cathedral, arcane geometric patterns
+
+    pulsing where the bolts connect, the tunnel curving through a field of
+
+    stars'
+  context:
+    mood: ethereal, melodic
+    energy: high
+    instruments:
+    - ethereal synth lead
+    - reverb melody
+    motifs:
+    - LEAD-MELODY-1A
+    events: []
+    visual_direction: Glow swell on lead. Bloom following melody contour.
+    details: '1B2. Ethereal Synth Lead (1:06 - 1:20)
+
+      Sections 8-9 | Energy: high | Mood: ethereal, melodic | Motif: `LEAD-MELODY-1A`
+
+
+      - Ethereal synth lead sting enters
+
+      - Cool reverb melody over the dub foundation
+
+      - Melodic hook with spacious reverb tail
+
+      - Visual direction: Glow swell on lead. Bloom following melody contour. Zoom
+      pulse on rhythm, softer effects letting the melody shine.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_009/v1.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_009/v2.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_009/v3.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_009/v4.png
+  selected: null
+- id: kf_010
+  timestamp: '1:20'
+  section: 1B3
+  source: assets/stills/breathe.png
+  prompt: 'A flash of total white — the entity transformed into pure light,
+
+    its face serene and still, every tendril blazing bright like fiber optic
+
+    angels, the spaceship tunnel dissolved into infinite white space, peaceful and
+    holy'
+  context:
+    mood: intimate, suspended
+    energy: low
+    instruments:
+    - gentle morning vocal isolated
+    motifs:
+    - GM-VOX-1A
+    events:
+    - type: silence
+      at: '1:20'
+      intensity: 0.0
+    visual_direction: Freeze. Bloom on vocal. Stillness.
+    details: '1B3. "Gentle Morning" Vocal Break (1:20 - 1:24)
+
+      Section ~10 | Energy: drops to low | Mood: intimate, suspended | Motif: `GM-VOX-1A`
+
+
+      - All instruments stop
+
+      - "Gentle morning" vocal isolated
+
+      - Moment of breath/pause
+
+      - Visual direction: Freeze or near-freeze. Bloom on vocal. Stillness. Let the
+      silence land.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_010/v1.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_010/v2.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_010/v3.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_010/v4.png
+  selected: 1
+- id: kf_011
+  timestamp: '1:24'
+  section: 1B4
+  source: assets/stills/default.png
+  prompt: 'Inside a rotating cyberpunk data conduit, walls of glowing hexagonal panels
+    and
+
+    streaming code, purple neon light strips spiraling along the tunnel walls, the
+
+    view spinning as we hurtle forward'
+  context:
+    mood: driving, hard hitting
+    energy: high
+    instruments:
+    - up tempo bass synth
+    - heavy kicks
+    - gentle morning vocal samples
+    motifs:
+    - GM-VOX-1B
+    events:
+    - type: drop
+      at: '1:24'
+      intensity: 0.85
+    visual_direction: Spiraling tunnel. High speed. Cyberpunk neon. Rotating.
+    details: '1B4. Up Tempo Bass Drive (1:24 - 1:37)
+
+      Sections 10-11 | Energy: high | Mood: driving, hard hitting | Motif: `GM-VOX-1B`
+
+
+      - Up tempo bass synth kicks in hard
+
+      - Hard hitting driving energy
+
+      - "Gentle morning" vocal samples sparsed in over the top
+
+      - Relentless forward momentum
+
+      - Visual direction: Zoom pulses on bass hits. Shake on heavy beats. Flash on
+      vocal stabs. High intensity, punchy.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_011/v1.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_011/v2.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_011/v3.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_011/v4.png
+  selected: 4
+- id: kf_012
+  timestamp: '1:28'
+  section: 1B4
+  source: assets/stills/default.png
+  prompt: 'Tunneling through a steampunk cathedral of spinning gears and piston-driven
+    walls, brass
+
+    lightning rods channeling violet arcs across the rotating passage, steam clouds
+    and
+
+    sparks filling the atmospheric space'
+  context:
+    mood: driving, industrial
+    energy: high
+    instruments:
+    - up tempo bass synth
+    - heavy kicks
+    motifs:
+    - GM-VOX-1B
+    events: []
+    visual_direction: Steampunk transformation. Brass and steam. Still spiraling.
+    details: '1B4. Up Tempo Bass Drive (1:24 - 1:37)
+
+      Sections 10-11 | Energy: high | Mood: driving, hard hitting | Motif: `GM-VOX-1B`
+
+
+      - Up tempo bass synth kicks in hard
+
+      - Hard hitting driving energy
+
+      - "Gentle morning" vocal samples sparsed in over the top
+
+      - Relentless forward momentum
+
+      - Visual direction: Zoom pulses on bass hits. Shake on heavy beats. Flash on
+      vocal stabs. High intensity, punchy.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_012/v1.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_012/v2.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_012/v3.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_012/v4.png
+  selected: 1
+- id: kf_013
+  timestamp: '1:32'
+  section: 1B4
+  source: assets/stills/default.png
+  prompt: 'Tunneling through an alien megastructure, walls of translucent organic
+    material with visible
+
+    pulsing veins, glass tubes containing swirling purple specimens spiraling along
+    the passage,
+
+    the whole structure breathing and rotating'
+  context:
+    mood: driving, alien, organic
+    energy: high
+    instruments:
+    - up tempo bass synth
+    - heavy kicks
+    motifs:
+    - GM-VOX-1B
+    events: []
+    visual_direction: Alien organic. Bioluminescent. Still spiraling.
+    details: '1B4. Up Tempo Bass Drive (1:24 - 1:37)
+
+      Sections 10-11 | Energy: high | Mood: driving, hard hitting | Motif: `GM-VOX-1B`
+
+
+      - Up tempo bass synth kicks in hard
+
+      - Hard hitting driving energy
+
+      - "Gentle morning" vocal samples sparsed in over the top
+
+      - Relentless forward momentum
+
+      - Visual direction: Zoom pulses on bass hits. Shake on heavy beats. Flash on
+      vocal stabs. High intensity, punchy.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_013/v1.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_013/v2.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_013/v3.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_013/v4.png
+  selected: 4
+- id: kf_014
+  timestamp: '1:36'
+  section: 1B4
+  source: assets/stills/default.png
+  prompt: 'Inside a rotating helix of cosmic lightning rods, each spire a mile
+
+    tall, violet electricity weaving between them to form the spiraling tunnel through
+
+    space, the entity''s neural pattern visible in the lightning web, atmospheric
+    stardust
+
+    swirling'
+  context:
+    mood: driving, cosmic, electric
+    energy: high
+    instruments:
+    - up tempo bass synth
+    - heavy kicks
+    motifs:
+    - GM-VOX-1B
+    events: []
+    visual_direction: Lightning rods in space. Entity pattern in the bolts. Spiraling.
+    details: '1B4. Up Tempo Bass Drive (1:24 - 1:37)
+
+      Sections 10-11 | Energy: high | Mood: driving, hard hitting | Motif: `GM-VOX-1B`
+
+
+      - Up tempo bass synth kicks in hard
+
+      - Hard hitting driving energy
+
+      - "Gentle morning" vocal samples sparsed in over the top
+
+      - Relentless forward momentum
+
+      - Visual direction: Zoom pulses on bass hits. Shake on heavy beats. Flash on
+      vocal stabs. High intensity, punchy.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_014/v1.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_014/v2.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_014/v3.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_014/v4.png
+  selected: 1
+- id: kf_015
+  timestamp: '1:37'
+  section: 1B5
+  source: assets/stills/default.png
+  prompt: 'Cruising through a steampunk underworld of bronze conduits and pressure
+    vessels, the
+
+    entity manifesting as a liquid metal face that ripples with each bass
+
+    hit, orange flame reflections dancing across every metallic surface, atmospheric
+    heat haze'
+  context:
+    mood: groovy, rhythmic
+    energy: mid
+    instruments:
+    - down tempo bass synth
+    - rhythmic percussion
+    - kick pattern
+    motifs:
+    - GROOVE-1A
+    events: []
+    visual_direction: Steady pulse. Zoom on kick pattern. Grooving, not slamming.
+    details: '1B5. Down Tempo Bass Groove (1:37 - 1:48)
+
+      Section ~12 | Energy: mid | Mood: groovy, rhythmic | Motif: `GROOVE-1A`
+
+
+      - Cool down tempo bass synth
+
+      - Rhythmic percussion and kick pattern
+
+      - Groove-focused, less aggressive than 1B4
+
+      - Visual direction: Steady pulse. Zoom on kick pattern. Contrast pop on percussion
+      hits. Grooving, not slamming.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_015/v1.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_015/v2.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_015/v3.png
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_015/v4.png
+  selected: 1
+- id: kf_016
+  timestamp: '1:48'
+  section: 1B6
+  source: assets/stills/default.png
+  prompt: 'The entity blazing white at the center, purple spectral beings spiraling
+    around
+
+    it like orbiting ghosts, each spirit trailing violet light as it circles,
+
+    atmospheric mist swirling in their wake'
+  context:
+    mood: melodic, momentary departure
+    energy: mid
+    instruments:
+    - synth lead melody
+    motifs:
+    - LEAD-MELODY-2A
+    events: []
+    visual_direction: Glow swell on lead. Softer effects. Moment of melodic clarity.
+    details: '1B6. Synth Lead Break (1:48 - 1:51)
+
+      Section ~12 | Energy: mid | Mood: melodic, momentary departure | Motif: `LEAD-MELODY-2A`
+
+
+      - Break in the bass groove pattern
+
+      - Cool synth lead melody takes focus
+
+      - Brief melodic statement
+
+      - Visual direction: Glow swell on lead. Softer effects. Moment of melodic clarity.'
+  candidates: []
+  selected: null
+- id: kf_017
+  timestamp: '1:51'
+  section: 1B7
+  source: assets/stills/default.png
+  prompt: 'A gothic cathedral of blackened brass and wrought iron pipework, the entity
+
+    watching from the darkness with piercing purple eyes, furnace light replaced by
+
+    cold violet embers, every surface corroded and ancient, a black iron necropolis
+
+    of pipes and pressure vessels, the entity''s purple eyes the only light
+
+    source, their glow reflecting off wet obsidian surfaces, gothic arches formed
+    from
+
+    twisted metal, the entity manifesting as liquid dark metal with two piercing
+
+    purple eyes burning through the void, no flame just cold purple luminescence,
+
+    heavy black atmospheric fog'
+  context:
+    mood: groovy, rhythmic
+    energy: mid
+    instruments:
+    - down tempo bass synth
+    - rhythmic percussion
+    motifs:
+    - GROOVE-1A
+    events: []
+    visual_direction: Callback to GROOVE-1A visuals. Steady pulse.
+    details: '1B7. Bass Groove Return (1:51 - 2:02)
+
+      Section ~12 | Energy: mid | Mood: groovy, rhythmic | Motif: `GROOVE-1A`
+
+
+      - Back into the down tempo bass + percussion pattern from 1B5
+
+      - Continued rhythmic drive
+
+      - Visual direction: Same as 1B5. Steady pulse, zoom on kicks, contrast pop.'
+  candidates: []
+  selected: null
+- id: kf_018
+  timestamp: '2:02'
+  section: 1B8
+  source: assets/stills/default.png
+  prompt: 'The white entity and its purple spectral companions dissolving into echo,
+    the
+
+    spiral unwinding, spirits stretching into long trails of fading violet light,
+    the
+
+    whole scene rippling outward like a memory losing focus, atmospheric mist consuming
+
+    the forms'
+  context:
+    mood: reflective, dissolving
+    energy: mid
+    instruments:
+    - synth lead with echo fade
+    motifs:
+    - LEAD-MELODY-1B
+    events: []
+    visual_direction: Glow on lead fading with echo. Effects dissolving outward.
+    details: '1B8. Synth Lead Reprise + Echo Fade (2:02 - 2:05)
+
+      Section ~12 | Energy: mid, fading | Mood: reflective, dissolving | Motif: `LEAD-MELODY-1B`
+
+
+      - Synth lead melody repeats
+
+      - This time with echo fade out
+
+      - Transitional moment
+
+      - Visual direction: Glow on lead, then bloom fading with the echo. Effects dissolving
+      outward.'
+  candidates: []
+  selected: null
+- id: kf_019
+  timestamp: '2:05'
+  section: 1B9
+  source: assets/stills/default.png
+  prompt: 'Purple cathedral with ethereal veils and curtains, the entity watching
+    from behind
+
+    crystalline spires, atmospheric purple haze filling the sacred space'
+  context:
+    mood: ethereal, reflective, callback
+    energy: low
+    instruments:
+    - low synth ethereal pad
+    motifs:
+    - PAD-VERSE-1B
+    events: []
+    visual_direction: Callback to opening. Soft bloom/glow.
+    details: '1B9. Verse Reprise — Sparse (2:05 - 2:44)
+
+      Sections ~13-14 | Energy: low | Mood: ethereal, reflective, callback | Motif:
+      `PAD-VERSE-1B`
+
+
+      - Low synth ethereal pad
+
+      - No kicks, no drums
+
+      - Repeats opening verse feel — callback to 1A
+
+      - Sparse arrangement, breathing room
+
+      - Visual direction: Return to soft bloom/glow. Desaturated. Slow, gentle. Mirror
+      the opening. Calm before the storm.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_019/styled_000_001.png
+  selected: .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_019/styled_000_001.png
+- id: kf_020
+  timestamp: '2:12'
+  section: 1B9
+  source: assets/stills/default.png
+  prompt: 'Crystal palace architecture, the entity face formed within ice-blue crystalline
+    spires, light
+
+    beaming down from above, draped organic forms reaching from the structure, vast
+
+    and sacred'
+  context:
+    mood: ethereal, vast, sacred
+    energy: low
+    instruments:
+    - low synth ethereal pad
+    motifs:
+    - PAD-VERSE-1B
+    events: []
+    visual_direction: Crystalline callback. Sacred architecture. Calm.
+    details: '1B9. Verse Reprise — Sparse (2:05 - 2:44)
+
+      Sections ~13-14 | Energy: low | Mood: ethereal, reflective, callback | Motif:
+      `PAD-VERSE-1B`
+
+
+      - Low synth ethereal pad
+
+      - No kicks, no drums
+
+      - Repeats opening verse feel — callback to 1A
+
+      - Sparse arrangement, breathing room
+
+      - Visual direction: Return to soft bloom/glow. Desaturated. Slow, gentle. Mirror
+      the opening. Calm before the storm.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_020/styled_001.png
+  selected: .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_020/styled_001.png
+- id: kf_021
+  timestamp: '2:19'
+  section: 1B9
+  source: assets/stills/default.png
+  prompt: 'Purple flower field surrounding the entity, blossoms swirling in a spiral
+    pattern
+
+    with glowing white eyes at the center, callback to the opening flower
+
+    petal motif but deeper and more lush'
+  context:
+    mood: ethereal, lush, callback
+    energy: low
+    instruments:
+    - low synth ethereal pad
+    motifs:
+    - PAD-VERSE-1B
+    events: []
+    visual_direction: Flower callback. Lush purple. Spiral.
+    details: '1B9. Verse Reprise — Sparse (2:05 - 2:44)
+
+      Sections ~13-14 | Energy: low | Mood: ethereal, reflective, callback | Motif:
+      `PAD-VERSE-1B`
+
+
+      - Low synth ethereal pad
+
+      - No kicks, no drums
+
+      - Repeats opening verse feel — callback to 1A
+
+      - Sparse arrangement, breathing room
+
+      - Visual direction: Return to soft bloom/glow. Desaturated. Slow, gentle. Mirror
+      the opening. Calm before the storm.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_021/styled_002_000.png
+  selected: .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_021/styled_002_000.png
+- id: kf_022
+  timestamp: '2:27'
+  section: 1B9
+  source: assets/stills/default.png
+  prompt: 'Neural tendrils radiating from the entity with scattered flowers caught
+    in the
+
+    web, warm golden eyes glowing through organic purple roots and scattered petals,
+
+    nature and circuitry merged'
+  context:
+    mood: ethereal, organic, warm
+    energy: low
+    instruments:
+    - low synth ethereal pad
+    motifs:
+    - PAD-VERSE-1B
+    events: []
+    visual_direction: Neural + floral merge. Warm golden eyes. Organic.
+    details: '1B9. Verse Reprise — Sparse (2:05 - 2:44)
+
+      Sections ~13-14 | Energy: low | Mood: ethereal, reflective, callback | Motif:
+      `PAD-VERSE-1B`
+
+
+      - Low synth ethereal pad
+
+      - No kicks, no drums
+
+      - Repeats opening verse feel — callback to 1A
+
+      - Sparse arrangement, breathing room
+
+      - Visual direction: Return to soft bloom/glow. Desaturated. Slow, gentle. Mirror
+      the opening. Calm before the storm.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_022/styled_005.png
+  selected: .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_022/styled_005.png
+- id: kf_023
+  timestamp: '2:34'
+  section: 1B9
+  source: assets/stills/default.png
+  prompt: 'A vast cloud bank made entirely of tiny white flower petals, the
+
+    entity''s silhouette visible deep within like a face behind frosted glass, petals
+
+    drifting in and out of purple mist, the form breathing with the
+
+    fog, emerging from a sea of clouds, its face constructed from white
+
+    petals that trail mist from their edges like dry ice, the boundary
+
+    between flower and fog impossible to define, purple cloud banks rolling beneath
+
+    the form'
+  context:
+    mood: ethereal, misty, dreamlike
+    energy: low
+    instruments:
+    - low synth ethereal pad
+    motifs:
+    - PAD-VERSE-1B
+    events: []
+    visual_direction: Flower petals + mist merging. Dreamlike. Soft.
+    details: '1B9. Verse Reprise — Sparse (2:05 - 2:44)
+
+      Sections ~13-14 | Energy: low | Mood: ethereal, reflective, callback | Motif:
+      `PAD-VERSE-1B`
+
+
+      - Low synth ethereal pad
+
+      - No kicks, no drums
+
+      - Repeats opening verse feel — callback to 1A
+
+      - Sparse arrangement, breathing room
+
+      - Visual direction: Return to soft bloom/glow. Desaturated. Slow, gentle. Mirror
+      the opening. Calm before the storm.'
+  candidates: []
+  selected: null
+- id: kf_024
+  timestamp: '2:42'
+  section: 1B9
+  source: assets/stills/breathe.png
+  prompt: 'Angelic white entity with ethereal winged forms surrounding the face, pure
+    radiant
+
+    light, delicate and serene, the verse reprise reaching its most transcendent moment
+
+    before the storm returns'
+  context:
+    mood: transcendent, angelic, serene
+    energy: low
+    instruments:
+    - low synth ethereal pad
+    motifs:
+    - PAD-VERSE-1B
+    events: []
+    visual_direction: Peak serenity before the kick foreshadow shatters it.
+    details: '1B9. Verse Reprise — Sparse (2:05 - 2:44)
+
+      Sections ~13-14 | Energy: low | Mood: ethereal, reflective, callback | Motif:
+      `PAD-VERSE-1B`
+
+
+      - Low synth ethereal pad
+
+      - No kicks, no drums
+
+      - Repeats opening verse feel — callback to 1A
+
+      - Sparse arrangement, breathing room
+
+      - Visual direction: Return to soft bloom/glow. Desaturated. Slow, gentle. Mirror
+      the opening. Calm before the storm.'
+  candidates:
+  - .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_010/v2.png
+  selected: .beatlab_work/beyond_the_veil_v26_radio_v14/keyframe_candidates/candidates/section_kf_010/v2.png
+- id: kf_025
+  timestamp: '2:44'
+  section: 1B10
+  source: assets/stills/default.png
+  prompt: 'Single violent flash in absolute darkness, one shockwave rippling through
+    still water,
+
+    ominous'
+  context:
+    mood: ominous, anticipatory
+    energy: low
+    instruments:
+    - single drum kick
+    motifs:
+    - KICK-FORE-1A
+    events:
+    - type: kick
+      at: '2:44'
+      intensity: 0.9
+    visual_direction: Single hard flash + shake. One violent moment in the calm.
+    details: '1B10. Single Kick Foreshadow (2:44)
+
+      Energy: punctuation | Mood: ominous, anticipatory | Motif: `KICK-FORE-1A`
+
+
+      - Single hard drum kick hits
+
+      - Foreshadowing the intensity to come
+
+      - Exclamation point in the silence
+
+      - Visual direction: Single hard flash + shake on the kick. One violent visual
+      moment in the calm. Then stillness again.'
+  candidates: []
+  selected: null
+- id: kf_026
+  timestamp: '2:49'
+  section: 1B11
+  source: assets/stills/default.png
+  prompt: 'Ominous presence emerging from shadow, dark vocalization resonating through
+    void, rising synth
+
+    like a warning siren'
+  context:
+    mood: ominous, dark, rising
+    energy: low-mid
+    instruments:
+    - ominous vocalization
+    - rising lead synth
+    motifs:
+    - VOX-DARK-1A
+    events:
+    - type: vocal_entry
+      at: '2:49'
+      intensity: 0.6
+    visual_direction: Dark glow. Rising zoom. Colors shifting ominous.
+    details: '1B11. Ominous Vocalization + Rising Lead (2:49 - 2:53)
+
+      Energy: building | Mood: ominous, dark, rising | Motif: `VOX-DARK-1A`
+
+
+      - Ominous vocalization enters
+
+      - Rising lead synth building tension
+
+      - Short but impactful — priming for the drop
+
+      - Visual direction: Dark glow. Rising zoom. Colors shifting ominous. Intensity
+      building with the synth rise.'
+  candidates: []
+  selected: null
+- id: kf_027
+  timestamp: '2:53'
+  section: 1B12
+  source: assets/stills/default.png
+  prompt: 'Synth melody quickening, kick drum accents punctuating the rising anticipation
+    like heartbeats
+
+    speeding up'
+  context:
+    mood: anticipatory, accelerating
+    energy: mid
+    instruments:
+    - up tempo synth lead
+    - accenting drum kicks
+    motifs:
+    - LEAD-MELODY-4A
+    events:
+    - type: kick
+      at: '2:53'
+      intensity: 0.6
+    visual_direction: Flash on each kick accent. Zoom pulse quickening.
+    details: '1B12. Synth Lead + Accenting Kicks (2:53 - 2:58)
+
+      Energy: building | Mood: anticipatory, accelerating | Motif: `LEAD-MELODY-4A`
+
+
+      - Up tempo synth lead plays
+
+      - Sparse but more frequent drum kicks accent the buildup
+
+      - Anticipation mounting
+
+      - Visual direction: Flash on each kick accent. Zoom pulse quickening. Building
+      toward release.'
+  candidates: []
+  selected: null
+- id: kf_028
+  timestamp: '2:58'
+  section: 1B13
+  source: assets/stills/default.png
+  prompt: 'Call and response — sharp stab of light answered by rhythmic groove
+
+    pulse, alternating tension and release'
+  context:
+    mood: rhythmic call-and-response
+    energy: mid
+    instruments:
+    - synth stab
+    - bass groove
+    - kick pattern
+    motifs:
+    - STAB-1A
+    - GROOVE-1A
+    events:
+    - type: stab
+      at: '2:58'
+      intensity: 0.7
+    - type: stab
+      at: '3:04'
+      intensity: 0.7
+    visual_direction: Flash on stab hits. Steady pulse on groove. Alternating intensity.
+    details: '1B13. Synth Stab + Groove + Stab (2:58 - 3:07)
+
+      Energy: building | Mood: rhythmic call-and-response | Motifs: `STAB-1A` + `GROOVE-1A`
+
+
+      - 2:58 — Lead synth stab phrase (callback to earlier motif)
+
+      - 3:00 — Back to bass groove/kick pattern
+
+      - 3:04 — Another synth stab phrase
+
+      - Call-and-response between stabs and groove
+
+      - Visual direction: Flash on stab hits. Steady pulse on groove. Alternating
+      intensity — punch on stabs, groove on pattern.'
+  candidates: []
+  selected: null
+- id: kf_029
+  timestamp: '3:07'
+  section: 1B14
+  source: assets/stills/default.png
+  prompt: 'Dark energy gathering, ominous clouds spiraling inward, deep shadows consuming
+    light, foreboding
+
+    tension'
+  context:
+    mood: foreboding, dark anticipation
+    energy: mid-high
+    instruments:
+    - foreboding riser
+    motifs:
+    - RISER-2A
+    events:
+    - type: riser
+      at: '3:07'
+      intensity: 0.8
+    visual_direction: Slow zoom accelerating. Vignette tightening. Colors darkening.
+    details: '1B14. First Foreboding Riser (3:07 - 3:14)
+
+      Energy: building intensely | Mood: foreboding, dark anticipation | Motif: `RISER-2A`
+
+
+      - First really foreboding riser
+
+      - Tension escalating — signals something big coming
+
+      - Dark energy building
+
+      - Visual direction: Slow zoom accelerating. Glow swell building. Vignette tightening.
+      Colors darkening. Everything converging toward the drop.'
+  candidates: []
+  selected: null
+- id: kf_030
+  timestamp: '3:14'
+  section: 1B15
+  source: assets/stills/default.png
+  prompt: 'Riser in overdrive — visual screaming upward, approaching whiteout, everything
+    converging to
+
+    a breaking point'
+  context:
+    mood: unstoppable, about to blow
+    energy: peak
+    instruments:
+    - riser overdrive
+    motifs:
+    - RISER-2B
+    events:
+    - type: riser
+      at: '3:14'
+      intensity: 0.95
+    visual_direction: Rapid zoom. Shake intensifying. Glow whiteout approaching. Strobe-like.
+    details: '1B15. Riser Overdrive (3:14 - 3:18)
+
+      Energy: peaking | Mood: unstoppable, about to blow | Motif: `RISER-2B`
+
+
+      - Riser goes into overdrive
+
+      - Maximum pre-drop tension
+
+      - Everything screaming upward
+
+      - Visual direction: Rapid zoom. Shake intensifying. Glow whiteout approaching.
+      Strobe-like. The visual is barely containing itself.'
+  candidates: []
+  selected: null
+- id: kf_031
+  timestamp: '3:19'
+  section: 1B16
+  source: assets/stills/default.png
+  prompt: 'Single bolt of light frozen in black void, pure tension crystallized in
+
+    one suspended moment'
+  context:
+    mood: suspended, calm before impact
+    energy: low
+    instruments:
+    - isolated synth stab
+    motifs:
+    - STAB-1B
+    events:
+    - type: stab
+      at: '3:19'
+      intensity: 1.0
+    visual_direction: Hard flash on stab. Freeze. Maximum contrast.
+    details: '1B16. Isolated Synth Stab (3:19 - 3:21)
+
+      Energy: suspended | Mood: the calm before impact | Motif: `STAB-1B`
+
+
+      - Isolated synth stab right before the drop
+
+      - Everything else stripped away
+
+      - Pure tension in a single sound
+
+      - Visual direction: Hard flash on the stab. Freeze. Silence between the hit
+      and the drop. Maximum contrast.'
+  candidates: []
+  selected: null
+- id: kf_032
+  timestamp: '3:20'
+  section: 1C
+  source: assets/stills/default.png
+  prompt: 'Explosion of light and color, shattered geometric forms flying outward,
+    maximum visual
+
+    intensity, bass distortion warping reality'
+  context:
+    mood: exhilarating, explosive
+    energy: peak
+    instruments:
+    - growling distorted synth bass
+    - heavy kicks
+    - rapid hi-hats
+    - trap snare
+    motifs:
+    - DROP-1A
+    events:
+    - type: drop
+      at: '3:20'
+      intensity: 1.0
+    visual_direction: EVERYTHING fires. Hard cut + flash + shake + zoom bounce.
+    details: '1C. Peak EDM / First Drop (3:20 - 3:25)
+
+      Sections 12-18 | Energy: PEAK | Mood: exhilarating, explosive | Motif: `DROP-1A`
+
+
+      - The drop hits — full intensity
+
+      - Growling distorted synth bass, heavy kicks
+
+      - Maximum impact moment
+
+      - Visual direction: EVERYTHING fires. Hard cut + flash + shake + zoom bounce.'
+  candidates: []
+  selected: null
+- id: kf_033
+  timestamp: '3:25'
+  section: 1C2
+  source: assets/stills/default.png
+  prompt: Sharp stab of light punctuating the chaos, momentary freeze in the storm
+  context:
+    mood: punctuation
+    energy: high
+    instruments:
+    - synth stab
+    motifs:
+    - STAB-1A
+    events:
+    - type: stab
+      at: '3:25'
+      intensity: 0.8
+    visual_direction: Flash on stab. Momentary freeze.
+    details: '1C2. Synth Stab (3:25 - 3:27)
+
+      Energy: punctuation | Mood: breath between blows | Motif: `STAB-1A`
+
+
+      - Synth stab again — brief break in the groove
+
+      - Visual direction: Flash on stab. Momentary freeze.'
+  candidates: []
+  selected: null
+- id: kf_034
+  timestamp: '3:27'
+  section: 1C3
+  source: assets/stills/default.png
+  prompt: Drop pattern reasserts — growling bass, rapid hi-hats, relentless aggressive
+    energy
+  context:
+    mood: exhilarating, aggressive
+    energy: peak
+    instruments:
+    - distorted synth bass
+    - rapid hi-hats
+    - trap snare
+    motifs:
+    - DROP-1A
+    events: []
+    visual_direction: Shake on bass. Flash + zoom bounce. Maximum intensity.
+    details: '1C3. Drop Pattern (3:27 - 3:31)
+
+      Energy: PEAK sustained | Mood: exhilarating, aggressive, driving | Motif: `DROP-1A`
+
+
+      - Back into the pattern established by the drop
+
+      - Growling distorted synth bass, rapid hi-hats, trap snare
+
+      - Visual direction: Shake on bass hits. Flash + zoom bounce. Maximum intensity.'
+  candidates: []
+  selected: null
+- id: kf_035
+  timestamp: '3:31'
+  section: 1C4
+  source: assets/stills/default.png
+  prompt: Another stab punctuation — the pattern of drop-stab-drop establishing itself
+  context:
+    mood: punctuation
+    energy: high
+    instruments:
+    - synth stab
+    motifs:
+    - STAB-1A
+    events:
+    - type: stab
+      at: '3:31'
+      intensity: 0.8
+    visual_direction: Flash on stab. Momentary freeze.
+    details: '1C4. Synth Stab (3:31 - 3:34)
+
+      Energy: punctuation | Mood: breath between blows | Motif: `STAB-1A`
+
+
+      - Another synth stab break
+
+      - Visual direction: Flash on stab. Momentary freeze.'
+  candidates: []
+  selected: null
+- id: kf_036
+  timestamp: '3:34'
+  section: 1C5
+  source: assets/stills/default.png
+  prompt: 'Drop continues — the viewer now recognizes this alternating pattern, visual
+    callbacks
+
+    intensifying'
+  context:
+    mood: aggressive, driving
+    energy: peak
+    instruments:
+    - distorted synth bass
+    - kicks
+    motifs:
+    - DROP-1A
+    events: []
+    visual_direction: Callback to DROP-1A visuals. Escalated.
+    details: '1C5. Drop Pattern (3:34 - 3:40)
+
+      Energy: PEAK sustained | Mood: exhilarating, aggressive, driving | Motif: `DROP-1A`
+
+
+      - Drop pattern continues
+
+      - Visual direction: Shake on bass hits. Flash + zoom bounce. Maximum intensity.'
+  candidates: []
+  selected: null
+- id: kf_037
+  timestamp: '3:40'
+  section: 1C6
+  source: assets/stills/default.png
+  prompt: Stab — flash — freeze
+  context:
+    mood: punctuation
+    energy: high
+    instruments:
+    - synth stab
+    motifs:
+    - STAB-1A
+    events:
+    - type: stab
+      at: '3:40'
+      intensity: 0.8
+    visual_direction: Flash. Freeze.
+    details: '1C6. Synth Stab (3:40 - 3:41)
+
+      Energy: punctuation | Motif: `STAB-1A`
+
+
+      - Synth stab
+
+      - Visual direction: Flash. Freeze.'
+  candidates: []
+  selected: null
+- id: kf_038
+  timestamp: '3:41'
+  section: 1C7
+  source: assets/stills/default.png
+  prompt: Brief drop continuation before the fade
+  context:
+    mood: aggressive
+    energy: peak
+    instruments:
+    - drop pattern
+    motifs:
+    - DROP-1A
+    events: []
+    visual_direction: Shake on bass. Flash + zoom bounce.
+    details: '1C7. Drop Pattern (3:41 - 3:44)
+
+      Energy: PEAK sustained | Mood: aggressive, driving | Motif: `DROP-1A`
+
+
+      - Drop pattern continues briefly
+
+      - Visual direction: Shake on bass. Flash + zoom bounce.'
+  candidates: []
+  selected: null
+- id: kf_039
+  timestamp: '3:44'
+  section: 1C8
+  source: assets/stills/default.png
+  prompt: 'Final stab, then kicks fade, silence creeping in, the void between drops
+
+    — anticipation rebuilding through absence'
+  context:
+    mood: anticipation rebuilding, ominous
+    energy: mid
+    instruments:
+    - synth stab
+    - fading kicks
+    motifs:
+    - DBL-WUB-1A
+    - STAB-1A
+    events:
+    - type: stab
+      at: '3:44'
+      intensity: 0.7
+    visual_direction: Flash on stab, then effects pulling back. Darkness creeping
+      in. Stillness.
+    details: '1C8. Stab + Fade to Silence (3:44 - 3:47)
+
+      Energy: dropping | Mood: anticipation rebuilding, ominous | Motifs: `DBL-WUB-1A`
+      + `STAB-1A`
+
+
+      - Synth stab
+
+      - Kicks fade out
+
+      - Silence fills the sonic space
+
+      - Anticipation builds again through absence
+
+      - Visual direction: Flash on stab, then effects pulling back. Darkness creeping
+      in. Stillness. The void between drops.'
+  candidates: []
+  selected: null
+- id: kf_040
+  timestamp: '3:47'
+  section: 1C9
+  source: assets/stills/default.png
+  prompt: 'Glowing melody line floating alone in darkness, no percussion, pure melodic
+    tension
+
+    stretching toward something unseen'
+  context:
+    mood: anticipatory, suspended
+    energy: low-mid
+    instruments:
+    - anticipatory synth lead
+    motifs:
+    - LEAD-MELODY-3A
+    events: []
+    visual_direction: Glow swell on lead. Slow zoom. Pure melodic tension.
+    details: '1C9. Anticipatory Synth Lead (3:47 - 4:01)
+
+      Energy: low-mid, building | Mood: anticipatory, suspended | Motif: `LEAD-MELODY-3A`
+
+
+      - Anticipatory synth lead
+
+      - No drums, no kicks
+
+      - Tension through melody alone
+
+      - Visual direction: Glow swell on lead. Slow zoom. No percussive effects — pure
+      melodic tension building.'
+  candidates: []
+  selected: null
+- id: kf_041
+  timestamp: '4:01'
+  section: 1C10
+  source: assets/stills/default.png
+  prompt: 'Accelerating vortex of light and percussion, each stage more intense, hi-hats
+    flickering
+
+    like strobe, unstoppable upward momentum'
+  context:
+    mood: unstoppable, accelerating
+    energy: high
+    instruments:
+    - multi-stage riser
+    - hi-hats
+    motifs:
+    - RISER-3A
+    events:
+    - type: riser
+      at: '4:01'
+      intensity: 0.9
+    visual_direction: Zoom accelerating with each stage. Shake intensifying. Strobe
+      on hi-hats.
+    details: '1C10. Multi-Stage Riser (4:01 - 4:12)
+
+      Energy: building exponentially | Mood: unstoppable, accelerating | Motif: `RISER-3A`
+
+
+      - 4:01 — Riser begins
+
+      - 4:04 — Accelerates
+
+      - 4:07 — Accelerates further
+
+      - 4:10 — Even more accelerated, many hi-hat hits layered in
+
+      - Relentless upward momentum, multi-stage buildup
+
+      - Visual direction: Zoom accelerating with each stage. Shake intensifying. Glow
+      whiteout building. Hi-hat hits = rapid flicker/strobe. Each stage visually more
+      intense than the last.'
+  candidates: []
+  selected: null
+- id: kf_042
+  timestamp: '4:12'
+  section: 1C11
+  source: assets/stills/default.png
+  prompt: Absolute darkness, a single whispered light, the last breath before total
+    release
+  context:
+    mood: suspended, breath before impact
+    energy: low
+    instruments:
+    - gentle morning vocal
+    motifs:
+    - GM-VOX-1C
+    events:
+    - type: silence
+      at: '4:12'
+      intensity: 0.0
+    - type: vocal_sample
+      at: '4:12'
+      intensity: 0.3
+    visual_direction: Hard cut to black. Bloom on vocal. Maximum contrast.
+    details: '1C11. Silence + "Gentle Morning" (4:12 - 4:14)
+
+      Energy: drops to zero | Mood: suspended, the breath before impact | Motif: `GM-VOX-1C`
+
+
+      - Silence
+
+      - Single "gentle morning" vocal sample
+
+      - The calm before the biggest drop yet
+
+      - Visual direction: Hard cut to black/stillness. Bloom on vocal. Maximum contrast
+      with what comes next.'
+  candidates: []
+  selected: null
+- id: kf_043
+  timestamp: '4:14'
+  section: 1C12
+  source: assets/stills/default.png
+  prompt: 'Biggest explosion yet — reality fracturing, bass shockwaves rippling through
+    prismatic shards,
+
+    wub impacts warping space'
+  context:
+    mood: explosive, massive, relentless
+    energy: peak
+    instruments:
+    - full drop pattern
+    - heavy wubs
+    - double wubs
+    motifs:
+    - DROP-2A
+    - WUB-1A
+    - DBL-WUB-1A
+    events:
+    - type: drop
+      at: '4:14'
+      intensity: 1.0
+    visual_direction: 'Full effects. Flash + shake + zoom bounce. Wub breaks = hard
+
+      flash. Vocal reprieves = bloom.'
+    details: '1C12. Big Drop Sequence (4:14 - 4:34)
+
+      Energy: PEAK | Mood: explosive, massive, relentless | Motifs: `DROP-2A` + `DBL-WUB-1A`
+      + `WUB-1A` + `VOX-REPRIEVE-1A`
+
+
+      - 4:14 — Big drop hits, full force
+
+      - 4:19-4:20 — Two heavy wubs break up the drop briefly
+
+      - 4:20-4:24 — Drop pattern resumes
+
+      - 4:24-4:27 — Brief reprieve with vocal samples
+
+      - 4:27-4:33 — Drop pattern resumes
+
+      - 4:33-4:34 — Double wub break (~1s)
+
+      - 4:34 — Drop pattern resumes
+
+      - Pattern: drop groove punctuated by wub breaks and vocal reprieves
+
+      - Visual direction: Full effects on drop pattern (flash + shake + zoom bounce).
+      Hard flash on wub breaks. Softer bloom on vocal reprieves. Rhythmic visual breathing
+      within peak intensity.'
+  candidates: []
+  selected: null
+- id: kf_044
+  timestamp: '4:36'
+  section: 1C13
+  source: assets/stills/default.png
+  prompt: 'Ethereal breath, vocal warmth floating in momentary stillness, soft glow
+    in the
+
+    aftermath'
+  context:
+    mood: ethereal, breathing room
+    energy: low
+    instruments:
+    - vocal sample
+    - ethereal synth
+    motifs:
+    - VOX-REPRIEVE-1A
+    events: []
+    visual_direction: Bloom. Soft glow. Stillness.
+    details: '1C13. Vocal Reprieve (4:36 - 4:40)
+
+      Energy: low | Mood: ethereal, breathing room | Motif: `VOX-REPRIEVE-1A`
+
+
+      - Vocal sample reprieve
+
+      - Ethereal synth, no kicks or bass
+
+      - Visual direction: Bloom. Soft glow. Stillness.'
+  candidates: []
+  selected: null
+- id: kf_045
+  timestamp: '4:40'
+  section: 1C14
+  source: assets/stills/default.png
+  prompt: 'Epic symphonic light battling brutal bass darkness, beauty and brutality
+    alternating —
+
+    soaring golden arcs vs crushing dark impacts'
+  context:
+    mood: epic, heavy, call-and-response
+    energy: high
+    instruments:
+    - symphonic synth motif
+    - heavy wubs
+    motifs:
+    - SYMPH-1A
+    - WUB-1A
+    events: []
+    visual_direction: 'Glow/bloom on symphonic motif. Hard flash + shake on wubs.
+      Beauty vs
+
+      brutality.'
+    details: '1C14. Symphonic Motif + Wubs Alternation (4:40 - 5:03)
+
+      Energy: high, oscillating | Mood: epic, heavy, call-and-response | Motifs: `SYMPH-1A`
+      + `WUB-1A` + `DBL-WUB-1A`
+
+
+      - 4:40-4:43 — Symphonic synth motif (new theme)
+
+      - 4:43-4:46 — Big wubs
+
+      - 4:46-4:49 — Symphonic motif again
+
+      - 4:49-4:52 — Heavy wubs
+
+      - 4:52-4:53 — Double wub (callback to earlier)
+
+      - 4:53-4:56 — Symphonic motif
+
+      - 4:56-4:59 — Big wubs
+
+      - 4:59-5:03 — Symphonic motif tapers out
+
+      - Pattern: alternating between epic symphonic melody and heavy wub hits
+
+      - Visual direction: Glow/bloom on symphonic motif. Hard flash + shake on wubs.
+      Alternating visual character — beauty vs brutality. Let the contrast drive the
+      visuals.'
+  candidates: []
+  selected: null
+- id: kf_046
+  timestamp: '5:07'
+  section: 1C15
+  source: assets/stills/default.png
+  prompt: 'Single kick shatters silence, then vocal-driven momentum — no drums, just
+    voices
+
+    and bass pushing forward relentlessly'
+  context:
+    mood: anticipation, driving
+    energy: mid
+    instruments:
+    - big kick
+    - vocal samples
+    - bass synth
+    motifs:
+    - KICK-FORE-1A
+    - RISER-4A
+    events:
+    - type: kick
+      at: '5:07'
+      intensity: 0.9
+    visual_direction: Hard flash on kick. Then building zoom/glow following vocal
+      rhythm.
+    details: '1C15. Big Kick + Vocal-Driven Riser (5:07 - 5:19)
+
+      Energy: building | Mood: anticipation, driving | Motifs: `KICK-FORE-1A` + `RISER-4A`
+
+
+      - 5:07 — Big kick hit
+
+      - 5:07-5:19 — Riser driven by vocal samples + bass synths
+
+      - No kick or drum — forward momentum from vocals and bass alone
+
+      - Driving sensation without percussion
+
+      - Visual direction: Single hard flash on kick. Then building zoom/glow following
+      the vocal rhythm. Bass synth = slow pulse. No percussive effects — the drive
+      comes from vocal energy.'
+  candidates: []
+  selected: null
+- id: kf_047
+  timestamp: '5:19'
+  section: 1C16
+  source: assets/stills/default.png
+  prompt: 'Accelerating vortex returns — the viewer recognizes this riser, knows what''s
+    coming,
+
+    the anticipation is amplified by familiarity'
+  context:
+    mood: unstoppable, accelerating
+    energy: high
+    instruments:
+    - multi-stage riser
+    - hi-hats
+    motifs:
+    - RISER-3A
+    events:
+    - type: riser
+      at: '5:19'
+      intensity: 0.9
+    visual_direction: Callback to RISER-3A visuals but intensified. The second time
+      hits harder.
+    details: '1C16. Multi-Stage Riser (5:19 - 5:30)
+
+      Energy: building exponentially | Mood: unstoppable, accelerating | Motif: `RISER-3A`
+
+
+      - Same multi-stage accelerating riser as 1C10
+
+      - 11 seconds of relentless buildup
+
+      - Visual direction: Callback to 1C10 visuals but intensified. Zoom accelerating.
+      Shake building. Strobe on hi-hats.'
+  candidates: []
+  selected: null
+- id: kf_048
+  timestamp: '5:30'
+  section: 1C17
+  source: assets/stills/default.png
+  prompt: 'The familiar breath before impact — darkness, whispered vocal, the pattern
+    completing
+
+    its second cycle'
+  context:
+    mood: suspended
+    energy: low
+    instruments:
+    - gentle morning vocal
+    motifs:
+    - GM-VOX-1C
+    events:
+    - type: silence
+      at: '5:30'
+      intensity: 0.0
+    visual_direction: Callback to GM-VOX-1C visuals. Hard cut to stillness.
+    details: '1C17. Silence + "Gentle Morning" (5:30 - 5:32)
+
+      Energy: drops to zero | Mood: suspended | Motif: `GM-VOX-1C`
+
+
+      - Silence with gentle morning vocal sample
+
+      - Same pattern as 1C11 — the breath before impact
+
+      - Visual direction: Hard cut to stillness. Bloom on vocal. Callback to 1C11
+      visuals.'
+  candidates: []
+  selected: null
+- id: kf_049
+  timestamp: '5:32'
+  section: 1C18
+  source: assets/stills/default.png
+  prompt: 'Same explosive reality fracture but evolved — more intense, more vivid,
+    the
+
+    viewer recognizes this world but it hits harder'
+  context:
+    mood: explosive, massive, escalated
+    energy: peak
+    instruments:
+    - full drop pattern repeat
+    - wubs
+    - symphonic motif
+    motifs:
+    - DROP-2A
+    - SYMPH-1A
+    - WUB-1A
+    events:
+    - type: drop
+      at: '5:32'
+      intensity: 1.0
+    visual_direction: Callback to 1C12-1C14 visuals but intensified. Escalated recognition.
+    details: '1C18. Drop Cycle 2 (5:32 - 6:22)
+
+      Energy: PEAK | Mood: explosive, massive | Motifs: repeat of 1C12 → 1C14 sequence
+
+
+      - Exact repeat of the DROP-2A macro cycle from 4:14-5:07
+
+      - Same drop pattern, wub breaks, vocal reprieves, symphonic motif + wubs alternation
+
+      - Second occurrence — visuals should escalate from first cycle
+
+      - Visual direction: Same motif visuals as 1C12-1C14 but intensified. More aggressive
+      effects, brighter flashes, deeper shakes. The viewer recognizes the pattern
+      — reward that recognition with amplified visuals.
+
+
+      Macro Pattern (repeats 2x total):
+
+      ```
+
+      Cycle 1: 4:14 - 5:07  |  Cycle 2: 5:32 - 6:22
+
+      DROP-2A (drop + wub breaks + vocal reprieves)
+
+      VOX-REPRIEVE-1A
+
+      SYMPH-1A + WUB-1A alternation
+
+      KICK-FORE-1A → RISER-4A → RISER-3A → GM-VOX-1C → [next cycle or new section]
+
+      ```'
+  candidates: []
+  selected: null
+- id: kf_050
+  timestamp: '6:22'
+  section: 1D
+  source: assets/stills/default.png
+  prompt: 'Energy dissolving into echoing space, ripples fading outward, aftermath
+    of intensity settling
+
+    into breath'
+  context:
+    mood: dissolving, spacious
+    energy: low
+    instruments:
+    - echoing vocalization
+    motifs:
+    - VOX-REPRIEVE-1A
+    events: []
+    visual_direction: Bloom fading. Echo = visual ripple outward. Stillness settling.
+    details: '1D. Echo Fade Out (6:22 - 6:27)
+
+      Energy: low | Mood: dissolving, spacious | Motif: `VOX-REPRIEVE-1A`
+
+
+      - No drums or kicks
+
+      - Vocalization echoes out
+
+      - Breathing room after the drop cycles
+
+      - Visual direction: Bloom fading. Echo = visual ripple outward. Stillness settling.'
+  candidates: []
+  selected: null
+- id: kf_051
+  timestamp: '6:27'
+  section: 1D2
+  source: assets/stills/default.png
+  prompt: 'Aggressive mechanical energy returning, stabbing bass lights cutting through
+    recovering darkness, percussion
+
+    building like machinery'
+  context:
+    mood: aggressive, mechanical
+    energy: mid
+    instruments:
+    - stabby bass lead synth
+    - big drum/bass hits
+    - building percussion
+    motifs:
+    - STAB-1A
+    events:
+    - type: kick
+      at: '6:27'
+      intensity: 0.8
+    - type: kick
+      at: '6:36'
+      intensity: 0.8
+    visual_direction: Flash on big hits. Shake on bass. Building intensity.
+    details: '1D2. Stabby Bass Lead + Percussion Build (6:27 - 6:43)
+
+      Energy: building | Mood: aggressive, mechanical
+
+
+      - 6:27 — Big drum/bass hit, then stabby bass lead synth
+
+      - 6:36 — Another big drum/bass hit, percussion starts coming in
+
+      - 6:40 — Synth stab repeats to start a riser
+
+      - 6:42 — Riser accelerates
+
+      - Visual direction: Flash on big hits. Shake on bass. Building intensity with
+      percussion entry.'
+  candidates: []
+  selected: null
+- id: kf_052
+  timestamp: '6:43'
+  section: 1D3
+  source: assets/stills/default.png
+  prompt: 'Completely new riser character — mechanical, percussion-driven, rhythmic
+    and industrial, rising synth
+
+    samples layered with drum hits'
+  context:
+    mood: new, percussive, rising
+    energy: mid-high
+    instruments:
+    - percussion
+    - rising synth samples
+    motifs:
+    - RISER-5A
+    events:
+    - type: riser
+      at: '6:43'
+      intensity: 0.7
+    visual_direction: NEW riser visual character — more rhythmic/mechanical. Percussive
+      strobe. Rapid shake.
+    details: '1D3. Percussion-Driven Riser (6:43 - 6:49)
+
+      Energy: building intensely | Mood: new, percussive, rising | Motif: `RISER-5A`
+
+
+      - Completely new riser — driven by percussion and rising synth samples
+
+      - Distinct character from previous risers
+
+      - Visual direction: Percussive strobe. Rapid shake. New visual character — more
+      rhythmic/mechanical than previous risers.'
+  candidates: []
+  selected: null
+- id: kf_053
+  timestamp: '6:49'
+  section: 1D4
+  source: assets/stills/default.png
+  prompt: 'Riser cuts — just synth hanging in space, breath before re-entry, anticipatory
+
+    stillness'
+  context:
+    mood: anticipatory, suspended
+    energy: low
+    instruments:
+    - synth only
+    motifs: []
+    events: []
+    visual_direction: Glow on synth. Stillness. Breath before re-entry.
+    details: '1D4. Stripped Synth (6:49 - 6:54)
+
+      Energy: suspended | Mood: anticipatory
+
+
+      - Riser cuts out
+
+      - Just synth, no drums or kicks
+
+      - Visual direction: Glow on synth. Stillness. Breath before re-entry.'
+  candidates: []
+  selected: null
+- id: kf_054
+  timestamp: '6:55'
+  section: 1D5
+  source: assets/stills/default.png
+  prompt: 'Full sonic power restored, driving four-on-the-floor pulse of light, massive
+    wub impacts
+
+    punctuating the relentless groove'
+  context:
+    mood: driving, heavy, fuller
+    energy: high
+    instruments:
+    - four-on-the-floor kick
+    - full synth pattern
+    - big wub hits
+    motifs:
+    - WUB-1A
+    events:
+    - type: drop
+      at: '6:55'
+      intensity: 0.9
+    visual_direction: Steady zoom pulse on kicks. Hard flash + shake on wub hits.
+    details: '1D5. Full Four-on-the-Floor + Wub Hits (6:54 - 7:18)
+
+      Energy: high | Mood: driving, heavy, fuller
+
+
+      - 6:54 — Kick, break
+
+      - 6:55 — Same synth pattern returns with fuller sound + heavy four-on-the-floor
+      kick
+
+      - 6:59 — Big synth wub hit
+
+      - 7:10 — Big synth wub hit
+
+      - 7:14 — Big synth wub hit
+
+      - Pattern: driving groove punctuated by massive wub hits
+
+      - Visual direction: Steady zoom pulse on kicks. Hard flash + shake on each wub
+      hit. Full intensity.'
+  candidates: []
+  selected: null
+- id: kf_055
+  timestamp: '6:59'
+  section: 1D5
+  source: assets/stills/default.png
+  prompt: Massive wub impact — bass shockwave through driving groove
+  context:
+    mood: heavy, punctuating
+    energy: peak
+    instruments:
+    - big synth wub
+    motifs:
+    - WUB-1A
+    events:
+    - type: drop
+      at: '6:59'
+      intensity: 0.9
+    visual_direction: Hard flash + shake on wub hit.
+    details: '1D5. Full Four-on-the-Floor + Wub Hits (6:54 - 7:18)
+
+      Energy: high | Mood: driving, heavy, fuller
+
+
+      - 6:54 — Kick, break
+
+      - 6:55 — Same synth pattern returns with fuller sound + heavy four-on-the-floor
+      kick
+
+      - 6:59 — Big synth wub hit
+
+      - 7:10 — Big synth wub hit
+
+      - 7:14 — Big synth wub hit
+
+      - Pattern: driving groove punctuated by massive wub hits
+
+      - Visual direction: Steady zoom pulse on kicks. Hard flash + shake on each wub
+      hit. Full intensity.'
+  candidates: []
+  selected: null
+- id: kf_056
+  timestamp: '7:10'
+  section: 1D5
+  source: assets/stills/default.png
+  prompt: Second wub impact — pattern establishing, viewer anticipates the next
+  context:
+    mood: heavy, punctuating
+    energy: peak
+    instruments:
+    - big synth wub
+    motifs:
+    - WUB-1A
+    events:
+    - type: drop
+      at: '7:10'
+      intensity: 0.9
+    visual_direction: Callback to previous wub visual.
+    details: '1D5. Full Four-on-the-Floor + Wub Hits (6:54 - 7:18)
+
+      Energy: high | Mood: driving, heavy, fuller
+
+
+      - 6:54 — Kick, break
+
+      - 6:55 — Same synth pattern returns with fuller sound + heavy four-on-the-floor
+      kick
+
+      - 6:59 — Big synth wub hit
+
+      - 7:10 — Big synth wub hit
+
+      - 7:14 — Big synth wub hit
+
+      - Pattern: driving groove punctuated by massive wub hits
+
+      - Visual direction: Steady zoom pulse on kicks. Hard flash + shake on each wub
+      hit. Full intensity.'
+  candidates: []
+  selected: null
+- id: kf_057
+  timestamp: '7:14'
+  section: 1D5
+  source: assets/stills/default.png
+  prompt: Third wub — viewer knows this one is coming, satisfy the expectation
+  context:
+    mood: heavy, punctuating
+    energy: peak
+    instruments:
+    - big synth wub
+    motifs:
+    - WUB-1A
+    events:
+    - type: drop
+      at: '7:14'
+      intensity: 0.9
+    visual_direction: Escalated wub visual. Recognition rewarded.
+    details: '1D5. Full Four-on-the-Floor + Wub Hits (6:54 - 7:18)
+
+      Energy: high | Mood: driving, heavy, fuller
+
+
+      - 6:54 — Kick, break
+
+      - 6:55 — Same synth pattern returns with fuller sound + heavy four-on-the-floor
+      kick
+
+      - 6:59 — Big synth wub hit
+
+      - 7:10 — Big synth wub hit
+
+      - 7:14 — Big synth wub hit
+
+      - Pattern: driving groove punctuated by massive wub hits
+
+      - Visual direction: Steady zoom pulse on kicks. Hard flash + shake on each wub
+      hit. Full intensity.'
+  candidates: []
+  selected: null
+- id: kf_058
+  timestamp: '7:18'
+  section: 1D6
+  source: assets/stills/default.png
+  prompt: 'Symphonic golden light returning, no drums — epic melodic callback, beauty
+    after
+
+    brutality'
+  context:
+    mood: epic, melodic
+    energy: mid
+    instruments:
+    - symphonic synth motif
+    motifs:
+    - SYMPH-1A
+    events: []
+    visual_direction: Glow/bloom. Callback to SYMPH-1A visuals.
+    details: '1D6. Symphonic Theme (7:18 - 7:21)
+
+      Energy: mid | Mood: epic, melodic | Motif: `SYMPH-1A`
+
+
+      - Same symphonic melodic theme as before, no drum or kick
+
+      - Brief callback
+
+      - Visual direction: Glow/bloom. Callback to 1C14 symphonic visuals.'
+  candidates: []
+  selected: null
+- id: kf_059
+  timestamp: '7:21'
+  section: 1D7
+  source: assets/stills/default.png
+  prompt: 'The heaviest impact yet — reality buckling under bass weight, evolved and
+
+    more deliberate, slower but more devastating'
+  context:
+    mood: massive, heavy, evolved
+    energy: peak
+    instruments:
+    - MASSIVE dub hit
+    - fuller four-on-the-floor
+    - big wubs
+    motifs:
+    - DUB-1A
+    - WUB-1A
+    events:
+    - type: drop
+      at: '7:21'
+      intensity: 1.0
+    visual_direction: 'Biggest flash + shake yet. Heavy zoom bounces. Evolved form
+      of the
+
+      drop.'
+    details: '1D7. MASSIVE Dub + Fuller Four-on-the-Floor (7:21 - 7:33)
+
+      Energy: PEAK | Mood: massive, heavy, evolved
+
+
+      - 7:21 — MASSIVE dub hit
+
+      - Down tempo, harder hitting, fuller variation of the previous four-on-the-floor
+
+      - 7:25 — Big synth wub
+
+      - 7:29 — Big synth wub
+
+      - Evolution of the DROP pattern — heavier, more deliberate
+
+      - Visual direction: Biggest flash + shake yet on the dub hit. Heavy zoom bounces
+      on wubs. This is the evolved form of the drop.'
+  candidates: []
+  selected: null
+- id: kf_060
+  timestamp: '7:33'
+  section: 1D8
+  source: assets/stills/default.png
+  prompt: 'Symphonic theme returns once more — the final epic callback before the
+
+    genre shifts entirely'
+  context:
+    mood: epic
+    energy: mid
+    instruments:
+    - symphonic synth
+    motifs:
+    - SYMPH-1A
+    events: []
+    visual_direction: Callback to SYMPH-1A visuals.
+    details: '1D8. Symphonic Synth (7:33 - 7:38)
+
+      Energy: mid | Mood: epic | Motif: `SYMPH-1A`
+
+
+      - Symphonic synth returns
+
+      - Visual direction: Callback to symphonic visuals.'
+  candidates: []
+  selected: null
+- id: kf_061
+  timestamp: '7:38'
+  section: 1D9
+  source: assets/stills/default.png
+  prompt: Echoing thud reverberating into void, the last percussive gesture before
+    everything changes
+  context:
+    mood: transitional
+    energy: low
+    instruments:
+    - echoing thud
+    motifs: []
+    events:
+    - type: kick
+      at: '7:38'
+      intensity: 0.6
+    visual_direction: Single thud flash, then warmth returning.
+    details: '1D9. Echoing Thud → Genre Shift (7:38 - 7:50)
+
+      Energy: dropping to low | Mood: transitional, ethereal
+
+
+      - 7:38 — Echoing thud, no drums or kicks
+
+      - 7:40 — Ethereal pads + gentle morning verse: *"gentle morning brings in the
+      rays of sunrise"*
+
+      - 7:49 — Ethereal synths intensify
+
+      - Transition zone — dubstep dissolving into something new
+
+      - Visual direction: Warmth returning. Soft bloom. `PAD-VERSE-1A` callback. Golden/sunrise
+      colors. Gentle. Motif: `PAD-VERSE-1B` + `GM-VOX-1A`'
+  candidates: []
+  selected: null
+- id: kf_062
+  timestamp: '7:40'
+  section: 1D9
+  source: assets/stills/default.png
+  prompt: 'Warmth flooding back, golden sunrise light breaking through, ethereal pads
+    wrapping around
+
+    gentle morning vocals, soft and inviting'
+  context:
+    mood: transitional, ethereal, warm
+    energy: low
+    instruments:
+    - ethereal pads
+    - gentle morning vocal verse
+    motifs:
+    - PAD-VERSE-1B
+    - GM-VOX-1A
+    events:
+    - type: vocal_entry
+      at: '7:40'
+      intensity: 0.5
+    visual_direction: Warmth returning. Soft bloom. Golden/sunrise colors. Callback
+      to PAD-VERSE-1A.
+    details: '1D9. Echoing Thud → Genre Shift (7:38 - 7:50)
+
+      Energy: dropping to low | Mood: transitional, ethereal
+
+
+      - 7:38 — Echoing thud, no drums or kicks
+
+      - 7:40 — Ethereal pads + gentle morning verse: *"gentle morning brings in the
+      rays of sunrise"*
+
+      - 7:49 — Ethereal synths intensify
+
+      - Transition zone — dubstep dissolving into something new
+
+      - Visual direction: Warmth returning. Soft bloom. `PAD-VERSE-1A` callback. Golden/sunrise
+      colors. Gentle. Motif: `PAD-VERSE-1B` + `GM-VOX-1A`'
+  candidates: []
+  selected: null
+- id: kf_063
+  timestamp: '7:50'
+  section: 1D10
+  source: assets/stills/breathe.png
+  prompt: 'Complete transformation — vast cinematic landscape, powerful soaring vocals
+    over epic orchestral
+
+    rock, sunrise over mountains, grand and emotional'
+  context:
+    mood: powerful, epic, emotional
+    energy: high
+    instruments:
+    - powerful vocals
+    - big drums
+    - full arrangement
+    motifs:
+    - PROG-EPIC-1A
+    events:
+    - type: vocal_entry
+      at: '7:50'
+      intensity: 0.9
+    - type: kick
+      at: '7:53'
+      intensity: 0.7
+    visual_direction: NEW visual language. Warm, expansive. Slow powerful zoom. Grand,
+      not frantic.
+    details: '1D10. Prog Rock Epic — Full Verse (7:50 - 8:38)
+
+      Energy: high but different | Mood: powerful, epic, emotional | Motif: `PROG-EPIC-1A`
+
+
+      - 7:50 — Complete tone shift from dubstep to prog rock epic
+
+      - Powerful vocals replace soft vocals — full "gentle morning" verse continues
+
+      - 7:53 — Big drum hit
+
+      - 8:07 — Powerful vocal note (intense glow opportunity)
+
+      - 8:19 — Musical inflection point — hard to describe but a shift
+
+      - 8:35 — Big drum hit + vocal resolution
+
+      - 8:38 — Mutes
+
+      - This is a completely new sonic territory — emotional, soaring, powerful
+
+      - Visual direction: NEW visual language. Warm, expansive. Slow powerful zoom.
+      Glow swells on vocal peaks. Big bloom at 8:07. This is the emotional heart of
+      Gentle Morning. Let the visuals be grand, not frantic.'
+  candidates: []
+  selected: null
+- id: kf_064
+  timestamp: '7:53'
+  section: 1D10
+  source: assets/stills/breathe.png
+  prompt: 'Big drum hit punctuating the epic — a percussive exclamation within the
+
+    soaring vocals'
+  context:
+    mood: powerful, emphatic
+    energy: high
+    instruments:
+    - big drum hit
+    - powerful vocals
+    motifs:
+    - PROG-EPIC-1A
+    events:
+    - type: kick
+      at: '7:53'
+      intensity: 0.8
+    visual_direction: Flash + shake on drum. Grand but controlled.
+    details: '1D10. Prog Rock Epic — Full Verse (7:50 - 8:38)
+
+      Energy: high but different | Mood: powerful, epic, emotional | Motif: `PROG-EPIC-1A`
+
+
+      - 7:50 — Complete tone shift from dubstep to prog rock epic
+
+      - Powerful vocals replace soft vocals — full "gentle morning" verse continues
+
+      - 7:53 — Big drum hit
+
+      - 8:07 — Powerful vocal note (intense glow opportunity)
+
+      - 8:19 — Musical inflection point — hard to describe but a shift
+
+      - 8:35 — Big drum hit + vocal resolution
+
+      - 8:38 — Mutes
+
+      - This is a completely new sonic territory — emotional, soaring, powerful
+
+      - Visual direction: NEW visual language. Warm, expansive. Slow powerful zoom.
+      Glow swells on vocal peaks. Big bloom at 8:07. This is the emotional heart of
+      Gentle Morning. Let the visuals be grand, not frantic.'
+  candidates: []
+  selected: null
+- id: kf_065
+  timestamp: '8:07'
+  section: 1D10
+  source: assets/stills/breathe.png
+  prompt: 'Intense vocal peak — blinding light emanating from within, the emotional
+    climax
+
+    of the morning, pure radiant power'
+  context:
+    mood: peak emotion, radiant
+    energy: peak
+    instruments:
+    - intense vocal note
+    - full arrangement
+    motifs:
+    - PROG-EPIC-1A
+    events:
+    - type: vocal_entry
+      at: '8:07'
+      intensity: 1.0
+    visual_direction: Intense glow opportunity. Maximum bloom. The emotional heart.
+    details: '1D10. Prog Rock Epic — Full Verse (7:50 - 8:38)
+
+      Energy: high but different | Mood: powerful, epic, emotional | Motif: `PROG-EPIC-1A`
+
+
+      - 7:50 — Complete tone shift from dubstep to prog rock epic
+
+      - Powerful vocals replace soft vocals — full "gentle morning" verse continues
+
+      - 7:53 — Big drum hit
+
+      - 8:07 — Powerful vocal note (intense glow opportunity)
+
+      - 8:19 — Musical inflection point — hard to describe but a shift
+
+      - 8:35 — Big drum hit + vocal resolution
+
+      - 8:38 — Mutes
+
+      - This is a completely new sonic territory — emotional, soaring, powerful
+
+      - Visual direction: NEW visual language. Warm, expansive. Slow powerful zoom.
+      Glow swells on vocal peaks. Big bloom at 8:07. This is the emotional heart of
+      Gentle Morning. Let the visuals be grand, not frantic.'
+  candidates: []
+  selected: null
+- id: kf_066
+  timestamp: '8:19'
+  section: 1D10
+  source: assets/stills/breathe.png
+  prompt: 'Musical shift — an inflection point, the energy pivoting, something subtle
+    but
+
+    significant changing'
+  context:
+    mood: shifting, pivotal
+    energy: mid-high
+    instruments:
+    - full arrangement shifting
+    motifs:
+    - PROG-EPIC-1A
+    events: []
+    visual_direction: Subtle visual shift. Color temperature change. A turning point.
+    details: '1D10. Prog Rock Epic — Full Verse (7:50 - 8:38)
+
+      Energy: high but different | Mood: powerful, epic, emotional | Motif: `PROG-EPIC-1A`
+
+
+      - 7:50 — Complete tone shift from dubstep to prog rock epic
+
+      - Powerful vocals replace soft vocals — full "gentle morning" verse continues
+
+      - 7:53 — Big drum hit
+
+      - 8:07 — Powerful vocal note (intense glow opportunity)
+
+      - 8:19 — Musical inflection point — hard to describe but a shift
+
+      - 8:35 — Big drum hit + vocal resolution
+
+      - 8:38 — Mutes
+
+      - This is a completely new sonic territory — emotional, soaring, powerful
+
+      - Visual direction: NEW visual language. Warm, expansive. Slow powerful zoom.
+      Glow swells on vocal peaks. Big bloom at 8:07. This is the emotional heart of
+      Gentle Morning. Let the visuals be grand, not frantic.'
+  candidates: []
+  selected: null
+- id: kf_067
+  timestamp: '8:35'
+  section: 1D10
+  source: assets/stills/breathe.png
+  prompt: 'Big drum hit with vocal resolution — the epic reaching its conclusion,
+
+    resolving powerfully'
+  context:
+    mood: resolving, conclusive
+    energy: high
+    instruments:
+    - big drum hit
+    - vocal resolution
+    motifs:
+    - PROG-EPIC-1A
+    events:
+    - type: kick
+      at: '8:35'
+      intensity: 0.8
+    visual_direction: Flash on drum. Resolution = visual exhale. Grand but concluding.
+    details: '1D10. Prog Rock Epic — Full Verse (7:50 - 8:38)
+
+      Energy: high but different | Mood: powerful, epic, emotional | Motif: `PROG-EPIC-1A`
+
+
+      - 7:50 — Complete tone shift from dubstep to prog rock epic
+
+      - Powerful vocals replace soft vocals — full "gentle morning" verse continues
+
+      - 7:53 — Big drum hit
+
+      - 8:07 — Powerful vocal note (intense glow opportunity)
+
+      - 8:19 — Musical inflection point — hard to describe but a shift
+
+      - 8:35 — Big drum hit + vocal resolution
+
+      - 8:38 — Mutes
+
+      - This is a completely new sonic territory — emotional, soaring, powerful
+
+      - Visual direction: NEW visual language. Warm, expansive. Slow powerful zoom.
+      Glow swells on vocal peaks. Big bloom at 8:07. This is the emotional heart of
+      Gentle Morning. Let the visuals be grand, not frantic.'
+  candidates: []
+  selected: null
+- id: kf_068
+  timestamp: '8:38'
+  section: 1D11
+  source: assets/stills/breathe.png
+  prompt: 'Gentle dissolution, soft piano keys falling like light rain, whispered
+    farewell, warmth
+
+    fading into approaching darkness'
+  context:
+    mood: intimate, dissolving, farewell
+    energy: low
+    instruments:
+    - soft vocals
+    - soft piano
+    - chorus synth vocal
+    - whispering vocals
+    motifs:
+    - PAD-VERSE-1C
+    events:
+    - type: silence
+      at: '8:38'
+      intensity: 0.0
+    visual_direction: 'Gentle fade. Bloom on chorus vocal at 8:51. Piano = warmth.
+      Slowly
+
+      dimming. Near-darkness by 9:05.'
+    details: '1D11. Soft Denouement (8:38 - 9:05)
+
+      Energy: low, fading | Mood: intimate, dissolving, farewell | Motif: `PAD-VERSE-1C`
+
+
+      - 8:38-8:42 — Silence
+
+      - 8:42 — Back to soft vocals only
+
+      - 8:44 — Echo thud reverb, soft piano kicks in
+
+      - 8:51 — Chorus effect on highly synthesized vocal (good glow/slow zoom pulse)
+
+      - 8:58 — Vocal ends, reverberating synth
+
+      - 8:58 — Whispering vocals only
+
+      - 9:05 — Fade out
+
+      - Gentle Morning dissolving into silence before Beyond the Veil
+
+      - Visual direction: Gentle fade. Bloom on chorus vocal at 8:51. Piano = warmth.
+      Everything slowly dimming. By 9:05, near-darkness. The veil approaches.
+
+
+      - Progressive trance character (130-140 BPM feel)
+
+      - Bright arpeggiated synth, shimmering textures
+
+      - Chopped vocal sample hooks
+
+      - Riser effects building anticipation
+
+      - Slight energy dips that immediately rebuild
+
+      - Visual direction: Steady pulse. Zoom pulses on beat. Glow swells on risers.
+      Rhythmic consistency.'
+  candidates: []
+  selected: null
+- id: kf_069
+  timestamp: '8:42'
+  section: 1D11
+  source: assets/stills/breathe.png
+  prompt: Soft vocals alone, intimate and close, the morning whispering its farewell
+  context:
+    mood: intimate
+    energy: low
+    instruments:
+    - soft vocals only
+    motifs:
+    - PAD-VERSE-1C
+    events: []
+    visual_direction: Intimate bloom. Warmth but fading.
+    details: '1D11. Soft Denouement (8:38 - 9:05)
+
+      Energy: low, fading | Mood: intimate, dissolving, farewell | Motif: `PAD-VERSE-1C`
+
+
+      - 8:38-8:42 — Silence
+
+      - 8:42 — Back to soft vocals only
+
+      - 8:44 — Echo thud reverb, soft piano kicks in
+
+      - 8:51 — Chorus effect on highly synthesized vocal (good glow/slow zoom pulse)
+
+      - 8:58 — Vocal ends, reverberating synth
+
+      - 8:58 — Whispering vocals only
+
+      - 9:05 — Fade out
+
+      - Gentle Morning dissolving into silence before Beyond the Veil
+
+      - Visual direction: Gentle fade. Bloom on chorus vocal at 8:51. Piano = warmth.
+      Everything slowly dimming. By 9:05, near-darkness. The veil approaches.
+
+
+      - Progressive trance character (130-140 BPM feel)
+
+      - Bright arpeggiated synth, shimmering textures
+
+      - Chopped vocal sample hooks
+
+      - Riser effects building anticipation
+
+      - Slight energy dips that immediately rebuild
+
+      - Visual direction: Steady pulse. Zoom pulses on beat. Glow swells on risers.
+      Rhythmic consistency.'
+  candidates: []
+  selected: null
+- id: kf_070
+  timestamp: '8:44'
+  section: 1D11
+  source: assets/stills/breathe.png
+  prompt: Echo thud reverb, soft piano entering like gentle rain, warmth and tenderness
+  context:
+    mood: tender, warm
+    energy: low
+    instruments:
+    - echo thud reverb
+    - soft piano
+    motifs:
+    - PAD-VERSE-1C
+    events:
+    - type: kick
+      at: '8:44'
+      intensity: 0.3
+    visual_direction: Piano = warmth. Gentle bloom.
+    details: '1D11. Soft Denouement (8:38 - 9:05)
+
+      Energy: low, fading | Mood: intimate, dissolving, farewell | Motif: `PAD-VERSE-1C`
+
+
+      - 8:38-8:42 — Silence
+
+      - 8:42 — Back to soft vocals only
+
+      - 8:44 — Echo thud reverb, soft piano kicks in
+
+      - 8:51 — Chorus effect on highly synthesized vocal (good glow/slow zoom pulse)
+
+      - 8:58 — Vocal ends, reverberating synth
+
+      - 8:58 — Whispering vocals only
+
+      - 9:05 — Fade out
+
+      - Gentle Morning dissolving into silence before Beyond the Veil
+
+      - Visual direction: Gentle fade. Bloom on chorus vocal at 8:51. Piano = warmth.
+      Everything slowly dimming. By 9:05, near-darkness. The veil approaches.
+
+
+      - Progressive trance character (130-140 BPM feel)
+
+      - Bright arpeggiated synth, shimmering textures
+
+      - Chopped vocal sample hooks
+
+      - Riser effects building anticipation
+
+      - Slight energy dips that immediately rebuild
+
+      - Visual direction: Steady pulse. Zoom pulses on beat. Glow swells on risers.
+      Rhythmic consistency.'
+  candidates: []
+  selected: null
+- id: kf_071
+  timestamp: '8:51'
+  section: 1D11
+  source: assets/stills/breathe.png
+  prompt: 'Chorus effect on synthesized vocal — luminous, ethereal, a final glow before
+
+    fading'
+  context:
+    mood: ethereal, glowing
+    energy: low
+    instruments:
+    - chorus synth vocal
+    motifs:
+    - PAD-VERSE-1C
+    events:
+    - type: vocal_entry
+      at: '8:51'
+      intensity: 0.5
+    visual_direction: Good glow/slow zoom pulse opportunity. Bloom on chorus vocal.
+    details: '1D11. Soft Denouement (8:38 - 9:05)
+
+      Energy: low, fading | Mood: intimate, dissolving, farewell | Motif: `PAD-VERSE-1C`
+
+
+      - 8:38-8:42 — Silence
+
+      - 8:42 — Back to soft vocals only
+
+      - 8:44 — Echo thud reverb, soft piano kicks in
+
+      - 8:51 — Chorus effect on highly synthesized vocal (good glow/slow zoom pulse)
+
+      - 8:58 — Vocal ends, reverberating synth
+
+      - 8:58 — Whispering vocals only
+
+      - 9:05 — Fade out
+
+      - Gentle Morning dissolving into silence before Beyond the Veil
+
+      - Visual direction: Gentle fade. Bloom on chorus vocal at 8:51. Piano = warmth.
+      Everything slowly dimming. By 9:05, near-darkness. The veil approaches.
+
+
+      - Progressive trance character (130-140 BPM feel)
+
+      - Bright arpeggiated synth, shimmering textures
+
+      - Chopped vocal sample hooks
+
+      - Riser effects building anticipation
+
+      - Slight energy dips that immediately rebuild
+
+      - Visual direction: Steady pulse. Zoom pulses on beat. Glow swells on risers.
+      Rhythmic consistency.'
+  candidates: []
+  selected: null
+- id: kf_072
+  timestamp: '8:58'
+  section: 1D11
+  source: assets/stills/breathe.png
+  prompt: Whispering vocals only, reverberating synth dissolving, the last light before
+    darkness
+  context:
+    mood: dissolving, final
+    energy: low
+    instruments:
+    - whispering vocals
+    - reverberating synth
+    motifs:
+    - PAD-VERSE-1C
+    events: []
+    visual_direction: Nearly dark. Last whisper of light. Approaching the veil.
+    details: '1D11. Soft Denouement (8:38 - 9:05)
+
+      Energy: low, fading | Mood: intimate, dissolving, farewell | Motif: `PAD-VERSE-1C`
+
+
+      - 8:38-8:42 — Silence
+
+      - 8:42 — Back to soft vocals only
+
+      - 8:44 — Echo thud reverb, soft piano kicks in
+
+      - 8:51 — Chorus effect on highly synthesized vocal (good glow/slow zoom pulse)
+
+      - 8:58 — Vocal ends, reverberating synth
+
+      - 8:58 — Whispering vocals only
+
+      - 9:05 — Fade out
+
+      - Gentle Morning dissolving into silence before Beyond the Veil
+
+      - Visual direction: Gentle fade. Bloom on chorus vocal at 8:51. Piano = warmth.
+      Everything slowly dimming. By 9:05, near-darkness. The veil approaches.
+
+
+      - Progressive trance character (130-140 BPM feel)
+
+      - Bright arpeggiated synth, shimmering textures
+
+      - Chopped vocal sample hooks
+
+      - Riser effects building anticipation
+
+      - Slight energy dips that immediately rebuild
+
+      - Visual direction: Steady pulse. Zoom pulses on beat. Glow swells on risers.
+      Rhythmic consistency.'
+  candidates: []
+  selected: null
+- id: kf_073
+  timestamp: '9:05'
+  section: 2A
+  source: assets/stills/dark.png
+  prompt: Total darkness, the veil, silence before the crossing
+  context:
+    mood: void, liminal
+    energy: low
+    instruments: []
+    motifs: []
+    events:
+    - type: silence
+      at: '9:05'
+      intensity: 0.0
+    visual_direction: Near-black. The veil approaches. Stillness.
+  candidates: []
+  selected: null
+transitions:
+- id: tr_001
+  from: kf_001
+  to: kf_002
+  duration_seconds: 6.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 6.0
+- id: tr_002
+  from: kf_002
+  to: kf_003
+  duration_seconds: 6.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 6.0
+- id: tr_003
+  from: kf_003
+  to: kf_004
+  duration_seconds: 6.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 6.0
+- id: tr_004
+  from: kf_004
+  to: kf_005
+  duration_seconds: 4.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 4.0
+- id: tr_005
+  from: kf_005
+  to: kf_006
+  duration_seconds: 3.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 3.0
+- id: tr_006
+  from: kf_006
+  to: kf_007
+  duration_seconds: 14.0
+  slots: 2
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 14.0
+- id: tr_007
+  from: kf_007
+  to: kf_008
+  duration_seconds: 13.0
+  slots: 2
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 13.0
+- id: tr_008
+  from: kf_008
+  to: kf_009
+  duration_seconds: 14.0
+  slots: 2
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 14.0
+- id: tr_009
+  from: kf_009
+  to: kf_010
+  duration_seconds: 14.0
+  slots: 2
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 14.0
+- id: tr_010
+  from: kf_010
+  to: kf_011
+  duration_seconds: 4.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 4.0
+- id: tr_011
+  from: kf_011
+  to: kf_012
+  duration_seconds: 4.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 4.0
+- id: tr_012
+  from: kf_012
+  to: kf_013
+  duration_seconds: 4.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 4.0
+- id: tr_013
+  from: kf_013
+  to: kf_014
+  duration_seconds: 4.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 4.0
+- id: tr_014
+  from: kf_014
+  to: kf_015
+  duration_seconds: 1.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 1.0
+- id: tr_015
+  from: kf_015
+  to: kf_016
+  duration_seconds: 11.0
+  slots: 2
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 11.0
+- id: tr_016
+  from: kf_016
+  to: kf_017
+  duration_seconds: 3.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 3.0
+- id: tr_017
+  from: kf_017
+  to: kf_018
+  duration_seconds: 11.0
+  slots: 2
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 11.0
+- id: tr_018
+  from: kf_018
+  to: kf_019
+  duration_seconds: 3.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 3.0
+- id: tr_019
+  from: kf_019
+  to: kf_020
+  duration_seconds: 7.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 7.0
+- id: tr_020
+  from: kf_020
+  to: kf_021
+  duration_seconds: 7.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 7.0
+- id: tr_021
+  from: kf_021
+  to: kf_022
+  duration_seconds: 8.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 8.0
+- id: tr_022
+  from: kf_022
+  to: kf_023
+  duration_seconds: 7.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 7.0
+- id: tr_023
+  from: kf_023
+  to: kf_024
+  duration_seconds: 8.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 8.0
+- id: tr_024
+  from: kf_024
+  to: kf_025
+  duration_seconds: 2.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 2.0
+- id: tr_025
+  from: kf_025
+  to: kf_026
+  duration_seconds: 5.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 5.0
+- id: tr_026
+  from: kf_026
+  to: kf_027
+  duration_seconds: 4.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 4.0
+- id: tr_027
+  from: kf_027
+  to: kf_028
+  duration_seconds: 5.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 5.0
+- id: tr_028
+  from: kf_028
+  to: kf_029
+  duration_seconds: 9.0
+  slots: 2
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 9.0
+- id: tr_029
+  from: kf_029
+  to: kf_030
+  duration_seconds: 7.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 7.0
+- id: tr_030
+  from: kf_030
+  to: kf_031
+  duration_seconds: 5.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 5.0
+- id: tr_031
+  from: kf_031
+  to: kf_032
+  duration_seconds: 1.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 1.0
+- id: tr_032
+  from: kf_032
+  to: kf_033
+  duration_seconds: 5.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 5.0
+- id: tr_033
+  from: kf_033
+  to: kf_034
+  duration_seconds: 2.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 2.0
+- id: tr_034
+  from: kf_034
+  to: kf_035
+  duration_seconds: 4.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 4.0
+- id: tr_035
+  from: kf_035
+  to: kf_036
+  duration_seconds: 3.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 3.0
+- id: tr_036
+  from: kf_036
+  to: kf_037
+  duration_seconds: 6.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 6.0
+- id: tr_037
+  from: kf_037
+  to: kf_038
+  duration_seconds: 1.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 1.0
+- id: tr_038
+  from: kf_038
+  to: kf_039
+  duration_seconds: 3.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 3.0
+- id: tr_039
+  from: kf_039
+  to: kf_040
+  duration_seconds: 3.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 3.0
+- id: tr_040
+  from: kf_040
+  to: kf_041
+  duration_seconds: 14.0
+  slots: 2
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 14.0
+- id: tr_041
+  from: kf_041
+  to: kf_042
+  duration_seconds: 11.0
+  slots: 2
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 11.0
+- id: tr_042
+  from: kf_042
+  to: kf_043
+  duration_seconds: 2.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 2.0
+- id: tr_043
+  from: kf_043
+  to: kf_044
+  duration_seconds: 22.0
+  slots: 3
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 22.0
+- id: tr_044
+  from: kf_044
+  to: kf_045
+  duration_seconds: 4.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 4.0
+- id: tr_045
+  from: kf_045
+  to: kf_046
+  duration_seconds: 27.0
+  slots: 4
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 27.0
+- id: tr_046
+  from: kf_046
+  to: kf_047
+  duration_seconds: 12.0
+  slots: 2
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 12.0
+- id: tr_047
+  from: kf_047
+  to: kf_048
+  duration_seconds: 11.0
+  slots: 2
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 11.0
+- id: tr_048
+  from: kf_048
+  to: kf_049
+  duration_seconds: 2.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 2.0
+- id: tr_049
+  from: kf_049
+  to: kf_050
+  duration_seconds: 50.0
+  slots: 7
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 50.0
+- id: tr_050
+  from: kf_050
+  to: kf_051
+  duration_seconds: 5.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 5.0
+- id: tr_051
+  from: kf_051
+  to: kf_052
+  duration_seconds: 16.0
+  slots: 2
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 16.0
+- id: tr_052
+  from: kf_052
+  to: kf_053
+  duration_seconds: 6.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 6.0
+- id: tr_053
+  from: kf_053
+  to: kf_054
+  duration_seconds: 6.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 6.0
+- id: tr_054
+  from: kf_054
+  to: kf_055
+  duration_seconds: 4.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 4.0
+- id: tr_055
+  from: kf_055
+  to: kf_056
+  duration_seconds: 11.0
+  slots: 2
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 11.0
+- id: tr_056
+  from: kf_056
+  to: kf_057
+  duration_seconds: 4.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 4.0
+- id: tr_057
+  from: kf_057
+  to: kf_058
+  duration_seconds: 4.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 4.0
+- id: tr_058
+  from: kf_058
+  to: kf_059
+  duration_seconds: 3.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 3.0
+- id: tr_059
+  from: kf_059
+  to: kf_060
+  duration_seconds: 12.0
+  slots: 2
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 12.0
+- id: tr_060
+  from: kf_060
+  to: kf_061
+  duration_seconds: 5.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 5.0
+- id: tr_061
+  from: kf_061
+  to: kf_062
+  duration_seconds: 2.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 2.0
+- id: tr_062
+  from: kf_062
+  to: kf_063
+  duration_seconds: 10.0
+  slots: 2
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 10.0
+- id: tr_063
+  from: kf_063
+  to: kf_064
+  duration_seconds: 3.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 3.0
+- id: tr_064
+  from: kf_064
+  to: kf_065
+  duration_seconds: 14.0
+  slots: 2
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 14.0
+- id: tr_065
+  from: kf_065
+  to: kf_066
+  duration_seconds: 12.0
+  slots: 2
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 12.0
+- id: tr_066
+  from: kf_066
+  to: kf_067
+  duration_seconds: 16.0
+  slots: 2
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 16.0
+- id: tr_067
+  from: kf_067
+  to: kf_068
+  duration_seconds: 3.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 3.0
+- id: tr_068
+  from: kf_068
+  to: kf_069
+  duration_seconds: 4.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 4.0
+- id: tr_069
+  from: kf_069
+  to: kf_070
+  duration_seconds: 2.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 2.0
+- id: tr_070
+  from: kf_070
+  to: kf_071
+  duration_seconds: 7.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 7.0
+- id: tr_071
+  from: kf_071
+  to: kf_072
+  duration_seconds: 7.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 7.0
+- id: tr_072
+  from: kf_072
+  to: kf_073
+  duration_seconds: 7.0
+  slots: 1
+  action: ''
+  candidates: []
+  selected: []
+  remap:
+    method: linear
+    target_duration: 7.0

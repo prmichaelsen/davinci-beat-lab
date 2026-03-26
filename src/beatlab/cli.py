@@ -1276,6 +1276,16 @@ def destroy_gpu(destroy_all: bool):
         _log("No kept-alive instances found.")
 
 
+@main.command()
+@click.option("--port", default=8888, type=int, help="Server port (default: 8888)")
+@click.option("--host", default="0.0.0.0", type=str, help="Bind address (default: 0.0.0.0)")
+@click.option("--work-dir", default=".beatlab_work", type=str, help="Work directory (default: .beatlab_work)")
+def server(port: int, host: str, work_dir: str):
+    """Start SceneCraft REST API server for the synthesizer frontend."""
+    from beatlab.api_server import run_server
+    run_server(host, port, work_dir=work_dir)
+
+
 @main.command(name="audio-intelligence")
 @click.argument("video_file", type=click.Path(exists=True))
 @click.option("--work-dir", default=".beatlab_work", type=str, help="Work directory")

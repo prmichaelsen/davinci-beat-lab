@@ -107,7 +107,8 @@ Google AI APIs
 - 2 vCPU / 4GB RAM (SceneCraft server + light processing)
 - 50GB boot disk
 - Mounted volume: 100GB default (expandable)
-- Ubuntu 24.04 LTS
+- **Ubuntu 24.04 LTS** (MUST be LTS — non-LTS releases like 24.10 have broken package repos that prevent gcc/build-essential installation, breaking pip builds for native extensions like diffq)
+- **Python 3.12** (3.14 is too bleeding edge — many audio/ML packages don't support it yet)
 
 **Lifecycle**:
 - **Provisioned** on signup — customer gets a desktop within minutes
@@ -121,24 +122,35 @@ Google AI APIs
 - Heavy GPU work always goes to Vast.ai — the desktop never needs a GPU
 - Volume size expandable via billing portal
 
-### Component 2: Vast.ai GPU Management
+### Component 2: DigitalOcean GPU Droplets (On-Demand)
 
-**Account model**: All instances provisioned under our Vast.ai master account.
+**Provider**: DigitalOcean Gradient GPU Droplets — same provider as customer desktops, same datacenter.
+
+**Why not Vast.ai**: Vast.ai was used during prototyping but has fatal drawbacks for production:
+- Cross-internet transfers to random datacenters: 50-60 KB/s upload for a 1.7GB video = ~8 hours
+- Unreliable SSH key auth on fresh instances
+- No co-location guarantee with customer data
+- Separate billing relationship and API
+
+**Why DigitalOcean GPU Droplets**:
+- **Same datacenter as customer desktop** — internal network transfers at 1-10 Gbps (2-14 seconds for 1.7GB vs 8 hours on Vast.ai)
+- **Per-second billing** with 5-minute minimum — spin up, process, destroy. ~$0.10-0.50 per job.
+- **Same API** as regular droplets — `doctl`, REST API, Terraform. Single provider, single billing.
+- **H100/H200 available** — $0.76-$7.99/GPU/hr depending on hardware
+- **Regions**: NYC2, TOR1, ATL1, RIC1, AMS3
+
+**Account model**: All GPU instances provisioned under our DigitalOcean account, billed to customers with markup.
 
 **Per-customer isolation**:
 - Each customer's GPU work tagged with customer ID
-- Remote work directory: `/workspace/{customer_id}/`
-- Instance state stored on customer's volume: `.scenecraft/vast_instance.json`
-- Instances destroyed after job completion (or configurable keep-alive)
-
-**Billing**:
-- Track GPU-hours per customer
-- Bill at markup over Vast.ai cost (e.g. 1.5x)
-- Usage visible in customer billing dashboard
+- Files transferred via internal network from customer's mounted volume
+- Instance state stored on customer's volume: `.scenecraft/gpu_instance.json`
+- Instances destroyed after job completion (default) or kept alive with configurable timeout
 
 **Instance types**:
-- **Stems** (Demucs): 8GB VRAM, cheap, ~$0.15/hr
-- **Rendering** (future SD/Flux): 16GB+ VRAM, ~$0.50-1.00/hr
+- **Stems** (audio separation): smallest GPU available, ~$0.76/hr
+- **Effects rendering** (NVENC encoding): smallest GPU available, ~$0.76/hr
+- **AI image generation** (future SD/Flux): 16GB+ VRAM, ~$2-4/hr
 - Customer doesn't choose — SceneCraft auto-provisions the right type per job
 
 ### Component 3: AI API Credit System
@@ -226,14 +238,13 @@ POST /api/projects/:id/effects
 - **Cold start on wake**: Hibernated VMs take 5-30 seconds to resume. Mitigated by keeping VMs active during active sessions and only hibernating after extended inactivity.
 - **No real-time collaboration**: One desktop = one user. Mitigated by export/share workflows. Future: add collaboration via shared volumes or project sync.
 - **Operational burden**: Managing per-customer VMs at scale requires automation. Mitigated by infrastructure-as-code (Terraform/Pulumi) and a management API.
-- **Vast.ai reliability**: Third-party GPU provider may have availability issues. Mitigated by fallback to alternative providers, queue system for GPU jobs.
+- **GPU availability**: DigitalOcean GPU droplets may have capacity limits in popular regions. Mitigated by multi-region support and queue system for GPU jobs.
 
 ---
 
 ## Dependencies
 
-- **Cloud VM provider**: DigitalOcean, Hetzner, or similar (with API for automated provisioning)
-- **Vast.ai**: GPU compute (master account with API key)
+- **Cloud provider**: DigitalOcean (desktops + GPU droplets, single provider, co-located in same datacenter)
 - **Google AI APIs**: Vertex AI or AI Studio (master account with billing)
 - **Anthropic API**: Claude for AI effect planning, transition descriptions
 - **Domain**: scenecraft.online
@@ -273,7 +284,8 @@ POST /api/projects/:id/effects
 | Per-customer isolation | Cloud desktop (VM) per customer | Avoids multi-tenant complexity, gives persistent filesystem |
 | Storage | Mounted volumes, no GCS/S3 | IO-heavy operations need local-speed access; YAML files are filesystem-native |
 | Data format | YAML on disk, no SQL | Projects are document-shaped, portable, human-readable, git-friendly |
-| GPU provisioning | Our Vast.ai account, billed to customer | Simpler UX — customer doesn't need their own Vast.ai account |
+| GPU provisioning | DigitalOcean GPU Droplets, same datacenter as desktop | Internal network = 1-10 Gbps transfers (vs 50 KB/s cross-internet to Vast.ai). Per-second billing. Single provider. |
+| Why not Vast.ai | Rejected after prototyping | Cross-internet uploads took 8hrs for 1.7GB, unreliable SSH auth, no co-location with customer data, separate billing/API |
 | AI API routing | Our API keys, credit-based billing | Unified billing, no customer API key management |
 | VM scaling | Lightweight base + external GPU | Avoids irreversible scale-ups; GPU work is bursty, not sustained |
 

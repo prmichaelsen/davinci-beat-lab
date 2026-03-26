@@ -1285,9 +1285,23 @@ def destroy_gpu(destroy_all: bool):
 @click.option("--fps", default=None, type=float, help="Video frame rate (default: auto-detect)")
 @click.option("--sr", default=22050, type=int, help="Sample rate for analysis")
 @click.option("--descriptions", default=None, type=click.Path(exists=True), help="Path to existing descriptions.md (fallback when Gemini unavailable)")
+@click.option("--sens-zoom-pulse", default=0.5, type=float, help="Sensitivity for zoom_pulse (0.0-1.0)")
+@click.option("--sens-zoom-bounce", default=0.5, type=float, help="Sensitivity for zoom_bounce (0.0-1.0)")
+@click.option("--sens-shake-x", default=0.5, type=float, help="Sensitivity for shake_x (0.0-1.0)")
+@click.option("--sens-shake-y", default=0.5, type=float, help="Sensitivity for shake_y (0.0-1.0)")
+@click.option("--sens-flash", default=0.5, type=float, help="Sensitivity for flash (0.0-1.0)")
+@click.option("--sens-hard-cut", default=0.5, type=float, help="Sensitivity for hard_cut (0.0-1.0)")
+@click.option("--sens-contrast-pop", default=0.5, type=float, help="Sensitivity for contrast_pop (0.0-1.0)")
+@click.option("--sens-glow-swell", default=0.5, type=float, help="Sensitivity for glow_swell (0.0-1.0)")
+@click.option("--sens-all", default=None, type=float, help="Set all sensitivities at once (overridden by individual --sens-* flags)")
 def audio_intelligence(video_file: str, work_dir: str, output: str | None,
                        chunk_duration: float, creative_direction: str | None,
-                       fps: float | None, sr: int, descriptions: str | None):
+                       fps: float | None, sr: int, descriptions: str | None,
+                       sens_zoom_pulse: float, sens_zoom_bounce: float,
+                       sens_shake_x: float, sens_shake_y: float,
+                       sens_flash: float, sens_hard_cut: float,
+                       sens_contrast_pop: float, sens_glow_swell: float,
+                       sens_all: float | None):
     """Run multi-layer audio intelligence pipeline (DSP + Gemini + Claude).
 
     Requires cached stems in work dir. Run 'beatlab analyze --stems' first.
@@ -1317,6 +1331,29 @@ def audio_intelligence(video_file: str, work_dir: str, output: str | None,
     audio_path = str(work.audio_path)
     out_path = output or str(work.root / "audio_intelligence.json")
 
+    # Build sensitivity dict
+    sensitivity = {
+        "zoom_pulse": sens_zoom_pulse,
+        "zoom_bounce": sens_zoom_bounce,
+        "shake_x": sens_shake_x,
+        "shake_y": sens_shake_y,
+        "flash": sens_flash,
+        "hard_cut": sens_hard_cut,
+        "contrast_pop": sens_contrast_pop,
+        "glow_swell": sens_glow_swell,
+    }
+    if sens_all is not None:
+        sensitivity = {k: sens_all for k in sensitivity}
+        # Individual overrides still apply if they differ from default 0.5
+        for k, v, default in [
+            ("zoom_pulse", sens_zoom_pulse, 0.5), ("zoom_bounce", sens_zoom_bounce, 0.5),
+            ("shake_x", sens_shake_x, 0.5), ("shake_y", sens_shake_y, 0.5),
+            ("flash", sens_flash, 0.5), ("hard_cut", sens_hard_cut, 0.5),
+            ("contrast_pop", sens_contrast_pop, 0.5), ("glow_swell", sens_glow_swell, 0.5),
+        ]:
+            if v != default:
+                sensitivity[k] = v
+
     result = run_audio_intelligence(
         stem_paths=stem_paths,
         audio_path=audio_path,
@@ -1326,6 +1363,7 @@ def audio_intelligence(video_file: str, work_dir: str, output: str | None,
         creative_direction=creative_direction,
         fps=video_fps,
         descriptions_md=descriptions_path,
+        sensitivity=sensitivity,
     )
 
     _log(f"  {len(result['layer3_events'])} effect events generated")

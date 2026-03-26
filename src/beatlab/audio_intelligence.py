@@ -241,20 +241,51 @@ def _gemini_describe_chunk(chunk_path: str, start_time: float, end_time: float,
     with open(chunk_path, "rb") as f:
         audio_bytes = f.read()
 
-    prompt = f"""You are a professional music producer analyzing an isolated audio stem.
+    chunk_offset = start_time
+    prompt = f"""You are a professional music producer with perfect pitch and rhythm. You are analyzing an audio stem for the purpose of syncing precise visual effects to every musical event.
 
-This is the **{stem_name}** stem from {start_time:.0f}s to {end_time:.0f}s in the track.
+This is the **{stem_name}** stem from {start_time:.0f}s to {end_time:.0f}s in the track. Timestamps in your response should be ABSOLUTE (relative to the full track, starting at {start_time:.0f}s), NOT relative to this chunk.
 
-Analyze this audio and provide a detailed musical description. Be specific about:
+Your primary job is to produce a DETAILED TIMESTAMP LOG of every audible musical event. We need sub-second precision for beat-syncing visual effects to this audio.
 
-1. **Instruments/sounds present**: What specific instruments or sound types do you hear? (e.g., "808 kick", "open hi-hat", "sustained synth pad", "vocal chop")
-2. **Rhythm pattern**: Describe the rhythmic pattern. Is it four-on-the-floor? Syncopated? Sparse? Dense?
-3. **Energy dynamics**: Is the energy constant, building, dropping, or fluctuating?
-4. **Sustained sounds**: Are there any held/sustained notes or pads? How long do they last approximately?
-5. **Key moments**: Any notable hits, stabs, drops, or transitions? Approximate their position within this chunk (e.g., "heavy stab at ~5s into chunk", "energy drops around 20s").
-6. **Intensity profile**: Rate overall intensity 1-10 and describe how it changes through the chunk.
+## Required Output
 
-Be concise but specific. Focus on what would matter for syncing visual effects to this audio."""
+### 1. EVENT LOG (most important — be exhaustive)
+
+List EVERY distinct audible event with its timestamp. Use the format:
+  [{start_time:.0f}s + offset] event_type: description
+
+Event types: kick, snare, hi-hat, cymbal_crash, tom, percussion_other, bass_note, bass_drop, bass_sustain_start, bass_sustain_end, synth_stab, synth_pad_start, synth_pad_end, synth_lead, arpeggio, riser_start, riser_peak, drop, breakdown_start, buildup_start, vocal_start, vocal_end, vocal_chop, fx_sweep, fx_impact, silence_start, silence_end
+
+For repeating patterns (e.g., hi-hats every 8th note), you may describe the pattern AND list the first few timestamps, then note the interval:
+  "hi-hat pattern: every ~0.23s from {start_time:.0f}s+2.1 to {start_time:.0f}s+15.3"
+
+For sustained sounds, give BOTH start and end timestamps and approximate duration:
+  "{start_time:.0f}s+5.2 synth_pad_start: warm pad enters, sustained ~3.5s"
+  "{start_time:.0f}s+8.7 synth_pad_end: pad fades out"
+
+### 2. RHYTHM ANALYSIS
+- BPM estimate for this section
+- Time signature (4/4, 3/4, 6/8, etc.)
+- Kick pattern description (four-on-the-floor, syncopated, etc.)
+- Snare pattern description
+- Hi-hat pattern description
+
+### 3. ENERGY PROFILE
+Rate intensity 1-10 at these checkpoints: start, 25%, 50%, 75%, end.
+Note any sudden energy changes with timestamps.
+
+### 4. SUSTAINED SOUNDS
+List every sustained sound with start time, end time, and character:
+- Pads, drones, held chords
+- Reverb tails on impacts
+- Risers and sweeps
+- Sustained bass notes
+
+### 5. KEY MOMENTS
+The 3-5 most visually impactful moments in this chunk — the ones that should trigger the strongest visual effects. Give precise timestamps and describe why they're impactful.
+
+Be EXHAUSTIVE with timestamps. More events = better visual sync. We will cross-reference your timestamps against DSP onset detection data, so precision matters."""
 
     response = client.models.generate_content(
         model="gemini-2.5-flash",
@@ -375,8 +406,8 @@ def _format_layer1_for_claude(layer1_data: dict, time_offset: float = 0.0,
             if time_limit is not None:
                 onsets = [o for o in onsets if time_offset <= o["time"] < time_offset + time_limit]
 
-            # Top onsets by strength (max 30 per band to keep prompt manageable)
-            top_onsets = sorted(onsets, key=lambda o: o["strength"], reverse=True)[:30]
+            # Top onsets by strength (max 80 per band — Claude needs dense data for aggressive coverage)
+            top_onsets = sorted(onsets, key=lambda o: o["strength"], reverse=True)[:80]
             top_onsets.sort(key=lambda o: o["time"])
 
             # Sustained regions in window
@@ -416,6 +447,18 @@ def _format_layer2_for_claude(layer2_data: list[dict]) -> str:
     return "\n".join(lines)
 
 
+DEFAULT_SENSITIVITY = {
+    "zoom_pulse": 0.5,
+    "zoom_bounce": 0.5,
+    "shake_x": 0.5,
+    "shake_y": 0.5,
+    "flash": 0.5,
+    "hard_cut": 0.5,
+    "contrast_pop": 0.5,
+    "glow_swell": 0.5,
+}
+
+
 def extract_layer3(
     layer1_data: dict,
     layer2_data: list[dict],
@@ -423,6 +466,7 @@ def extract_layer3(
     time_limit: float | None = None,
     creative_direction: str | None = None,
     fps: float = 24.0,
+    sensitivity: dict[str, float] | None = None,
 ) -> list[dict]:
     """Run Layer 3 Claude creative direction.
 
@@ -474,11 +518,12 @@ Each effect event must have:
 
 1. **Use DSP timestamps** for exact timing — never invent timestamps that aren't in the DSP data.
 2. **Use Gemini descriptions** to understand WHAT each onset is — a kick, snare, synth stab, etc.
-3. **Sustained sounds**: When Gemini describes a sustained sound AND the DSP shows a sustained_region, create an effect with matching sustain duration.
-4. **Suppress during vocals**: When vocals are present (check vocals stem), reduce intensity of aggressive effects by 50%.
-5. **Layer effects**: Big moments can have multiple simultaneous effects (e.g., bass drop = zoom_bounce + shake_y + hard_cut).
-6. **Don't over-assign**: Not every onset needs an effect. Ignore weak onsets (strength < 0.1) and hi-hat ghost notes unless they serve a musical purpose.
-7. **Match the music's energy arc**: Buildups should have gradually increasing effect intensity. Drops should hit hard. Breakdowns should be minimal.
+3. **Sustained sounds**: When Gemini describes a sustained sound AND the DSP shows a sustained_region, create an effect with matching sustain duration. Sustained synth stabs should get a sustained glow or zoom that HOLDS for the full duration of the sustain.
+4. **Suppress during vocals**: When vocals are present (check vocals stem), reduce intensity of aggressive effects by 30% — but still apply effects, just softer.
+5. **Layer effects**: Big moments can have multiple simultaneous effects (e.g., bass drop = zoom_bounce + shake_y + hard_cut). Layer generously — real music videos have multiple visual events per beat.
+6. **BE AGGRESSIVE WITH COVERAGE**: Assign effects to MOST onsets, not just the strongest ones. A music video should have visible effects on nearly every beat. For a 120-second clip at 130 BPM, you should produce 100-300+ effect events. Every kick should get at least a subtle shake. Every snare should get at least a flash. Every bass note should get at least a zoom pulse. Only truly inaudible ghost notes (strength < 0.02) should be skipped.
+7. **Match the music's energy arc**: Buildups = gradually increasing intensity. Drops = hit hard with max layering. Breakdowns = reduce but don't stop — keep subtle glow/zoom pulsing.
+8. **Vary intensity, not presence**: Instead of skipping quiet onsets, assign them lower intensity (0.2-0.4). The video should always be breathing with the music. Silence = no effects. Sound = some effect, even if subtle.
 
 ## Output Format
 
@@ -507,11 +552,33 @@ Respond with ONLY a JSON array of effect events. No markdown, no explanation out
 ]
 ```"""
 
+    # Merge sensitivity defaults with overrides
+    sens = dict(DEFAULT_SENSITIVITY)
+    if sensitivity:
+        sens.update(sensitivity)
+
+    sensitivity_text = "\n".join(
+        f"- **{effect}**: {level:.1f}" + (
+            " (very aggressive — trigger on nearly every relevant onset, high intensity)" if level >= 0.8
+            else " (aggressive — trigger frequently, moderate-high intensity)" if level >= 0.6
+            else " (moderate — trigger on clear, distinct onsets)" if level >= 0.4
+            else " (conservative — only trigger on strong, obvious moments)" if level >= 0.2
+            else " (minimal — rarely trigger, only on the most dramatic moments)"
+        )
+        for effect, level in sens.items()
+    )
+
     user_prompt = f"""# Audio Analysis Data
 
 {dsp_summary}
 
 {gemini_summary}
+
+## Effect Sensitivity Settings (0.0 = never trigger, 1.0 = trigger on everything)
+
+These sensitivity levels are directives from the user controlling how aggressively each effect should be used. Higher = more frequent triggers, lower thresholds, more events. Lower = fewer triggers, only on the most prominent moments.
+
+{sensitivity_text}
 
 """
     if creative_direction:
@@ -521,15 +588,18 @@ Respond with ONLY a JSON array of effect events. No markdown, no explanation out
 
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
-    _log("    Sending to Claude...")
-    response = client.messages.create(
+    _log("    Sending to Claude (streaming)...")
+    text = ""
+    with client.messages.stream(
         model="claude-sonnet-4-20250514",
-        max_tokens=8192,
+        max_tokens=32768,
         system=system_prompt,
         messages=[{"role": "user", "content": user_prompt}],
-    )
+    ) as stream:
+        for chunk in stream.text_stream:
+            text += chunk
 
-    text = response.content[0].text.strip()
+    text = text.strip()
 
     # Parse JSON — handle markdown code blocks
     if text.startswith("```"):
@@ -561,6 +631,7 @@ def run_audio_intelligence(
     creative_direction: str | None = None,
     fps: float = 24.0,
     descriptions_md: str | None = None,
+    sensitivity: dict[str, float] | None = None,
 ) -> dict:
     """Run the full 3-layer audio intelligence pipeline.
 
@@ -593,6 +664,7 @@ def run_audio_intelligence(
         time_limit=duration,
         creative_direction=creative_direction,
         fps=fps,
+        sensitivity=sensitivity,
     )
 
     result = {

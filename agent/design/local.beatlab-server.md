@@ -67,6 +67,8 @@ Follows `marker_server.py` conventions: `BaseHTTPRequestHandler` subclass, `_jso
 
 #### Route mapping
 
+**Phase 1 — Core editor operations** (replaces synthesizer server fns):
+
 | Method | Path | Handler | Calls |
 |---|---|---|---|
 | GET | `/api/projects` | `handle_list_projects` | `os.listdir(WORK_DIR)` + metadata scan |
@@ -76,7 +78,49 @@ Follows `marker_server.py` conventions: `BaseHTTPRequestHandler` subclass, `_jso
 | POST | `/api/projects/:name/select-transitions` | `handle_select_transitions` | (future) |
 | POST | `/api/projects/:name/update-timestamp` | `handle_update_timestamp` | YAML field update + save |
 | GET | `/api/projects/:name/files/*` | `handle_serve_file` | Stream file with Range support |
-| POST | `/api/projects/:name/assemble` | `handle_assemble` | `narrative.assemble_final()` (async) |
+
+**Phase 2 — Analysis & audio** (exposes CLI analyze/stems commands):
+
+| Method | Path | Handler | Calls |
+|---|---|---|---|
+| GET | `/api/projects/:name/beats` | `handle_get_beats` | Load `beats.json` — beat data, sections, stem analysis |
+| POST | `/api/projects/:name/analyze` | `handle_analyze` | `analyzer.analyze_audio()` + `create_beat_map()` (async job) |
+| POST | `/api/projects/:name/stems` | `handle_stems` | `stems.separate_stems_remote()` + `analyze_all_stems()` (async job) |
+| GET | `/api/projects/:name/stems` | `handle_get_stems` | Return stem analysis summary from beats.json |
+
+**Phase 3 — Rendering & effects** (exposes CLI render/effects commands):
+
+| Method | Path | Handler | Calls |
+|---|---|---|---|
+| POST | `/api/projects/:name/render` | `handle_render` | `render_google_pipeline()` (async job) |
+| POST | `/api/projects/:name/effects` | `handle_effects` | `effects_opencv.apply_effects()` (async job) |
+| POST | `/api/projects/:name/assemble` | `handle_assemble` | `narrative.assemble_final()` (async job) |
+| POST | `/api/projects/:name/ingredients` | `handle_upload_ingredients` | Save reference images to `ingredients/` dir |
+| GET | `/api/projects/:name/ingredients` | `handle_list_ingredients` | List files in `ingredients/` dir |
+| DELETE | `/api/projects/:name/ingredients/:filename` | `handle_delete_ingredient` | Remove ingredient file |
+
+**Phase 4 — Platform management** (cloud desktop ops):
+
+| Method | Path | Handler | Calls |
+|---|---|---|---|
+| POST | `/api/auth/login` | `handle_login` | Token-based auth (cloud deployment) |
+| GET | `/api/billing/credits` | `handle_get_credits` | Read `.scenecraft/billing.yaml` |
+| POST | `/api/billing/purchase` | `handle_purchase_credits` | Stripe integration + update billing.yaml |
+| GET | `/api/billing/usage` | `handle_get_usage` | Usage history from billing.yaml |
+| GET | `/api/gpu/status` | `handle_gpu_status` | `VastAIManager` instance state |
+| POST | `/api/gpu/destroy` | `handle_gpu_destroy` | `VastAIManager.destroy_instance()` |
+| GET | `/api/storage/usage` | `handle_storage_usage` | Volume disk usage |
+
+**Async job tracking** (shared across all long-running operations):
+
+| Method | Path | Handler | Calls |
+|---|---|---|---|
+| GET | `/api/jobs/:id` | `handle_get_job` | Check job status, return progress/result |
+| GET | `/api/jobs` | `handle_list_jobs` | List active/recent jobs |
+| POST | `/api/jobs/:id/cancel` | `handle_cancel_job` | Cancel a running job |
+| WS | `/api/projects/:name/progress` | `handle_progress_ws` | WebSocket stream for real-time progress |
+
+Long-running operations (analyze, stems, render, effects, assemble) return immediately with a job ID. The client polls `GET /api/jobs/:id` or connects to the WebSocket for real-time progress updates.
 
 #### Internal function mapping
 
@@ -207,10 +251,11 @@ The `make_handler(work_dir)` factory creates a handler class with the work_dir b
 
 ## Migration Path
 
-1. **Phase 1**: Create `api_server.py` with `GET /api/projects`, `GET /api/projects/:name/keyframes`, `POST /api/projects/:name/select-keyframes`, `POST /api/projects/:name/update-timestamp`, `GET /api/projects/:name/files/*`
-2. **Phase 2**: Add `select-slot-keyframes` and `select-transitions` endpoints
-3. **Phase 3**: Add `POST /api/projects/:name/assemble` with async job tracking
-4. **Phase 4** (optional): Migrate to FastAPI if endpoint count or complexity warrants it
+1. **Phase 1**: Core editor — `api_server.py` with projects, keyframes, selections, timestamp updates, file serving. Replaces synthesizer's direct filesystem server fns.
+2. **Phase 2**: Analysis & audio — beats, analyze, stems endpoints. Async job tracking infrastructure (job IDs, polling, WebSocket progress).
+3. **Phase 3**: Rendering & effects — render, effects, assemble, ingredients upload. All long-running ops use async jobs.
+4. **Phase 4**: Platform — auth, billing/credits, GPU management, storage. Cloud desktop deployment.
+5. **Phase 5** (optional): Migrate to FastAPI if endpoint count or async complexity warrants it.
 
 ---
 
@@ -240,13 +285,12 @@ The `make_handler(work_dir)` factory creates a handler class with the work_dir b
 
 ## Future Considerations
 
-- **WebSocket progress**: Stream generation/assembly progress to the frontend
-- **FastAPI migration**: If we exceed ~15 endpoints or need OpenAPI docs
 - **File watching**: Push YAML changes to frontend when files are edited externally (e.g., by CLI)
 - **Candidate generation trigger**: Expose `narrative keyframes` as an endpoint to generate new candidates from the UI
-- **`beatlab archive`**: Backup `.beatlab_work/` project to object storage from the mounted volume for disaster recovery
-- **Desktop provisioning**: Scripts/Terraform for spinning up customer instances with beatlab + synthesizer pre-installed
-- **Auth**: Token-based auth if the desktop instance is ever network-exposed beyond localhost
+- **`scenecraft archive`**: Backup project to object storage from mounted volume for disaster recovery
+- **Batch operations**: Bulk select keyframes, bulk render segments
+- **Project import/export**: Zip/download a project, upload to a new desktop
+- **Collaboration hooks**: Notify other sessions when project files change
 
 ---
 

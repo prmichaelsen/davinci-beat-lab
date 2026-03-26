@@ -431,8 +431,8 @@ def apply_effects_ai(
             elif effect == "shake_y":
                 shake_y_val += int(5 * ei * math.cos(t * 53))
             elif effect == "flash":
-                bright_alpha = max(bright_alpha, 1.0 + 0.3 * ei)
-                bright_beta = max(bright_beta, int(30 * ei))
+                # Flash disabled — too blinding. Treated as contrast_pop instead.
+                contrast_amount = max(contrast_amount, 0.4 * ei)
             elif effect == "hard_cut":
                 bright_alpha = max(bright_alpha, 1.0 + 0.8 * ei)
                 bright_beta = max(bright_beta, int(50 * ei))

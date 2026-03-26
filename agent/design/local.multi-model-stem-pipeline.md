@@ -28,23 +28,24 @@ Run three models and merge their outputs:
 ```
 Full Mix Audio
   │
-  ├──[MDX23C-InstVoc-HQ]──→ vocals, instrumental
-  │                            │
-  │                            ├── vocals → vocal onset detection + presence regions + confidence ratio
-  │                            │
-  │                            └── instrumental ──[MDX23C-DrumSep]──→ kick, snare, toms, hh, ride, crash
-  │                                                                    │
-  │                                                                    └── per-drum onset detection
-  │                                                                        (no vocal bleed — DrumSep
-  │                                                                         runs on pre-cleaned instrumental)
-  │
-  └──[Demucs htdemucs_6s]──→ vocals*, drums*, bass, guitar, piano, other
+  └──[MDX23C-InstVoc-HQ]──→ vocals, instrumental
                                │
-                               └── bass, guitar, piano, other → onset detection + sustained regions
-                                   (vocals* and drums* discarded — MDX23C versions are cleaner)
+                               ├── vocals → vocal onset detection + presence regions + confidence ratio
+                               │
+                               └── instrumental
+                                     │
+                                     ├──[MDX23C-DrumSep]──→ kick, snare, toms, hh, ride, crash
+                                     │                        │
+                                     │                        └── per-drum onset detection
+                                     │
+                                     └──[Demucs htdemucs_6s]──→ vocals*, drums*, bass, guitar, piano, other
+                                                                  │
+                                                                  └── bass, guitar, piano, other
+                                                                      → onset detection + sustained regions
+                                                                      (vocals* and drums* discarded)
 ```
 
-**Key pipeline ordering**: DrumSep runs on the **instrumental output** from MDX23C-InstVoc, NOT on the full mix. This eliminates vocal bleed in the drum stems — vocals are already stripped before drum decomposition begins. This was discovered during benchmarking when DrumSep on the full mix produced drum stems contaminated with vocal transients (each syllable triggered false drum onsets).
+**Key pipeline ordering**: Both DrumSep AND Demucs 6s run on the **instrumental output** from MDX23C-InstVoc, NOT on the full mix. This eliminates vocal bleed from ALL downstream stems — vocals are stripped first by the best vocal separator (2.1x less bleed than Demucs), then the remaining models only decompose instruments. Discovered during benchmarking when models running on the full mix produced stems contaminated with vocal transients (each syllable triggered false onsets).
 
 ### Why This Combination
 
@@ -78,19 +79,18 @@ Applied to all non-vocal stems: if a stem's RMS energy at onset time is <15% of 
 
 ## Implementation
 
-### Step 1: Run MDX23C-InstVoc first, then DrumSep + Demucs 6s in parallel
+### Step 1: MDX23C-InstVoc first, then DrumSep + Demucs 6s in parallel on instrumental
 
-DrumSep depends on InstVoc's instrumental output (to avoid vocal bleed in drum stems).
-Demucs 6s has no dependencies and can run in parallel with DrumSep.
+Both DrumSep and Demucs 6s depend on InstVoc's instrumental output. They run in parallel with each other but sequentially after InstVoc.
 
 ```python
-# Step 1a: InstVoc must run first
+# Step 1a: InstVoc strips vocals — must run first
 instvoc_stems = run_mdx23c_instvoc(audio_path)  # vocals, instrumental
 
-# Step 1b: DrumSep on instrumental + Demucs 6s on full mix — in parallel
+# Step 1b: DrumSep + Demucs 6s both run on the instrumental — in parallel
 with ThreadPoolExecutor(max_workers=2) as executor:
     fut_drumsep = executor.submit(run_mdx23c_drumsep, instvoc_stems["instrumental"])
-    fut_demucs = executor.submit(run_demucs_6s, audio_path)
+    fut_demucs = executor.submit(run_demucs_6s, instvoc_stems["instrumental"])
 
     drumsep_stems = fut_drumsep.result()   # kick, snare, toms, hh, ride, crash
     demucs_stems = fut_demucs.result()     # vocals*, drums*, bass, guitar, piano, other

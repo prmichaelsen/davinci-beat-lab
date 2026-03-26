@@ -9,21 +9,31 @@ import time
 from pathlib import Path
 
 
-INSTANCE_STATE_FILE = Path.home() / ".beatlab" / "vast_instance.json"
+INSTANCE_STATE_DIR = Path.home() / ".beatlab"
+INSTANCE_STATE_FILE = INSTANCE_STATE_DIR / "vast_instance.json"
 
 
-def _load_instance_state() -> dict | None:
+def _state_file(instance_key: str = "default") -> Path:
+    """Get state file path for a given instance key."""
+    if instance_key == "default":
+        return INSTANCE_STATE_FILE
+    return INSTANCE_STATE_DIR / f"vast_instance_{instance_key}.json"
+
+
+def _load_instance_state(instance_key: str = "default") -> dict | None:
     """Load saved instance state from disk."""
-    if INSTANCE_STATE_FILE.exists():
-        with open(INSTANCE_STATE_FILE) as f:
+    path = _state_file(instance_key)
+    if path.exists():
+        with open(path) as f:
             return json.load(f)
     return None
 
 
-def _save_instance_state(instance_id: str, gpu_name: str, price: float) -> None:
+def _save_instance_state(instance_id: str, gpu_name: str, price: float, instance_key: str = "default") -> None:
     """Save instance state to disk for reuse."""
-    INSTANCE_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(INSTANCE_STATE_FILE, "w") as f:
+    path = _state_file(instance_key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
         json.dump({
             "instance_id": instance_id,
             "gpu_name": gpu_name,
@@ -32,10 +42,11 @@ def _save_instance_state(instance_id: str, gpu_name: str, price: float) -> None:
         }, f)
 
 
-def _clear_instance_state() -> None:
+def _clear_instance_state(instance_key: str = "default") -> None:
     """Remove saved instance state."""
-    if INSTANCE_STATE_FILE.exists():
-        INSTANCE_STATE_FILE.unlink()
+    path = _state_file(instance_key)
+    if path.exists():
+        path.unlink()
 
 
 class VastAIManager:
@@ -162,12 +173,26 @@ class VastAIManager:
         ssh_host = info.get("ssh_host", "localhost")
         return f"http://{ssh_host}:8188"
 
-    def get_or_create_instance(self) -> tuple[str, bool]:
+    def get_or_create_instance(
+        self,
+        instance_key: str = "default",
+        image: str = "vastai/comfy:v0.18.0-cuda-13.1-py312",
+        min_vram_gb: int = 16,
+        max_price_hr: float = 10.0,
+        disk_gb: int = 50,
+    ) -> tuple[str, bool]:
         """Reuse a saved running instance or create a new one.
+
+        Args:
+            instance_key: State file key (allows separate instances for different tasks).
+            image: Docker image to use.
+            min_vram_gb: Minimum VRAM in GB.
+            max_price_hr: Maximum price per hour.
+            disk_gb: Disk size in GB.
 
         Returns (instance_id, was_reused).
         """
-        state = _load_instance_state()
+        state = _load_instance_state(instance_key)
         if state:
             instance_id = state["instance_id"]
             try:
@@ -177,22 +202,23 @@ class VastAIManager:
                     return instance_id, True
             except Exception:
                 pass
-            _clear_instance_state()
+            _clear_instance_state(instance_key)
 
         # No reusable instance — create new
-        offer = self.find_instance()
-        instance_id = self.create_instance(offer["id"])
+        offer = self.find_instance(min_vram_gb=min_vram_gb, max_price_hr=max_price_hr)
+        instance_id = self.create_instance(offer["id"], image=image, disk_gb=disk_gb)
         _save_instance_state(
             instance_id,
             offer.get("gpu_name", "unknown"),
             offer.get("dph_total", 0),
+            instance_key=instance_key,
         )
         return instance_id, False
 
-    def destroy_instance(self, instance_id: str) -> None:
+    def destroy_instance(self, instance_id: str, instance_key: str = "default") -> None:
         """Destroy an instance and clear saved state."""
         self._vastai_cmd("destroy", "instance", instance_id)
-        _clear_instance_state()
+        _clear_instance_state(instance_key)
 
     @staticmethod
     def _ssh_key_arg() -> str:
@@ -209,13 +235,13 @@ class VastAIManager:
         key_opt = f"-i {key} " if key else ""
         return f"ssh {key_opt}-o StrictHostKeyChecking=no -p {port}"
 
-    def ssh_run(self, instance_id: str, command: str) -> str:
+    def ssh_run(self, instance_id: str, command: str, timeout: int = 300) -> str:
         """Run a command on the instance via SSH."""
         host, port = self.get_ssh_info(instance_id)
         ssh_opts = self._ssh_opts(port)
         result = subprocess.run(
             f'{ssh_opts} root@{host} "{command}"',
-            shell=True, capture_output=True, text=True, timeout=300,
+            shell=True, capture_output=True, text=True, timeout=timeout,
         )
         return result.stdout
 

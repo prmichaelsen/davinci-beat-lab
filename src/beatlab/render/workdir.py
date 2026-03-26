@@ -26,9 +26,22 @@ class WorkDir:
         self.frames_dir = self.root / "frames"
         self.styled_dir = self.root / "styled"
         self.status_path = self.root / "status.json"
+        self.stems_dir = self.root / "stems"
+
+    STEM_NAMES = ("drums", "bass", "vocals", "other")
 
     def has_audio(self) -> bool:
         return self.audio_path.exists() and self.audio_path.stat().st_size > 0
+
+    def has_stems(self) -> bool:
+        """Check if all 4 stem WAVs exist."""
+        if not self.stems_dir.exists():
+            return False
+        return all((self.stems_dir / f"{s}.wav").exists() for s in self.STEM_NAMES)
+
+    def stem_paths(self) -> dict[str, str]:
+        """Return paths to stem WAVs."""
+        return {s: str(self.stems_dir / f"{s}.wav") for s in self.STEM_NAMES}
 
     def has_beats(self) -> bool:
         return self.beats_path.exists()
@@ -121,6 +134,8 @@ class WorkDir:
         lines = [f"Work dir: {self.root}"]
         if self.has_audio():
             lines.append(f"  audio: cached")
+        if self.has_stems():
+            lines.append(f"  stems: cached (drums, bass, vocals, other)")
         if self.has_beats():
             lines.append(f"  beats: cached")
         if self.has_plan():

@@ -22,6 +22,41 @@ def _log(msg: str) -> None:
 # ── Timestamp Parsing ──────────────────────────────────────────────
 
 
+def _extract_frame(video_path: str, output_path: str, position: str = "first") -> str:
+    """Extract first or last frame from a video as PNG.
+
+    Args:
+        video_path: Path to the video file.
+        output_path: Where to save the extracted frame.
+        position: "first" or "last".
+
+    Returns:
+        output_path
+    """
+    import subprocess
+    if position == "first":
+        subprocess.run([
+            "ffmpeg", "-y", "-i", video_path,
+            "-frames:v", "1", "-q:v", "2", output_path,
+        ], capture_output=True, check=True)
+    else:
+        # Get last frame: seek to near end, grab last frame
+        # First get duration
+        probe = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", video_path],
+            capture_output=True, text=True,
+        )
+        import json
+        duration = float(json.loads(probe.stdout)["format"]["duration"])
+        # Seek to 0.5s before end to ensure we get the last frame
+        seek = max(0, duration - 0.5)
+        subprocess.run([
+            "ffmpeg", "-y", "-ss", str(seek), "-i", video_path,
+            "-update", "1", "-q:v", "2", output_path,
+        ], capture_output=True, check=True)
+    return output_path
+
+
 def _parse_timestamp(ts: str) -> float:
     """Parse M:SS or M:SS.mmm to seconds."""
     ts = str(ts).strip("'\"")
@@ -90,6 +125,28 @@ def load_narrative(yaml_path: str) -> dict:
             kf["_source_resolved"] = str(base_dir / source)
         else:
             kf["_source_resolved"] = str(source)
+        # Resolve existing_keyframe if present
+        if kf.get("existing_keyframe"):
+            ekf = Path(kf["existing_keyframe"])
+            if not ekf.is_absolute():
+                kf["_existing_keyframe_resolved"] = str(base_dir / ekf)
+            else:
+                kf["_existing_keyframe_resolved"] = str(ekf)
+
+    # Resolve existing_segment paths on transitions
+    for tr in data["transitions"]:
+        if tr.get("existing_segment"):
+            segs = tr["existing_segment"]
+            if isinstance(segs, str):
+                segs = [segs]
+            resolved = []
+            for s in segs:
+                p = Path(s)
+                if not p.is_absolute():
+                    resolved.append(str(base_dir / p))
+                else:
+                    resolved.append(str(p))
+            tr["_existing_segment_resolved"] = resolved
 
     audio = Path(meta["audio"])
     if not audio.is_absolute():
@@ -140,6 +197,8 @@ def narrative_stats(data: dict) -> dict:
 
     selected_kf = sum(1 for kf in keyframes if kf.get("selected") is not None)
     has_candidates_kf = sum(1 for kf in keyframes if kf.get("candidates"))
+    existing_kf = sum(1 for kf in keyframes if kf.get("existing_keyframe"))
+    existing_tr = sum(1 for tr in transitions if tr.get("existing_segment"))
 
     return {
         "keyframes": len(keyframes),
@@ -149,6 +208,8 @@ def narrative_stats(data: dict) -> dict:
         "intermediate_keyframes_needed": intermediate_kfs,
         "keyframes_with_candidates": has_candidates_kf,
         "keyframes_selected": selected_kf,
+        "existing_keyframes": existing_kf,
+        "existing_transitions": existing_tr,
     }
 
 
@@ -322,6 +383,46 @@ def _make_replicate_stylize_fn():
     return stylize_fn
 
 
+def resolve_existing_boundary_frames(yaml_path: str) -> None:
+    """Extract first/last frames from existing transition segments and place them
+    in selected_keyframes/ so adjacent Veo transitions can use them.
+
+    For each transition with existing_segment:
+    - Extract first frame of the first segment -> selected_keyframes/{from_kf_id}.png
+      (only if that keyframe doesn't already have a selected image)
+    - Extract last frame of the last segment -> selected_keyframes/{to_kf_id}.png
+      (only if that keyframe doesn't already have a selected image)
+    """
+    data = load_narrative(yaml_path)
+    work_dir = Path(data["_work_dir"])
+    selected_dir = work_dir / "selected_keyframes"
+    selected_dir.mkdir(parents=True, exist_ok=True)
+
+    for tr in data["transitions"]:
+        existing = tr.get("_existing_segment_resolved")
+        if not existing:
+            continue
+
+        from_kf_id = tr["from"]
+        to_kf_id = tr["to"]
+
+        # First frame of first segment -> from keyframe
+        first_seg = existing[0]
+        from_dest = selected_dir / f"{from_kf_id}.png"
+        if not from_dest.exists() and Path(first_seg).exists():
+            _extract_frame(first_seg, str(from_dest), "first")
+            _log(f"  {tr['id']}: extracted first frame of {Path(first_seg).name} -> {from_kf_id}.png")
+
+        # Last frame of last segment -> to keyframe
+        last_seg = existing[-1]
+        to_dest = selected_dir / f"{to_kf_id}.png"
+        if not to_dest.exists() and Path(last_seg).exists():
+            _extract_frame(last_seg, str(to_dest), "last")
+            _log(f"  {tr['id']}: extracted last frame of {Path(last_seg).name} -> {to_kf_id}.png")
+
+    _log("Existing segment boundary frames resolved.")
+
+
 def generate_keyframe_candidates(
     yaml_path: str,
     vertex: bool = False,
@@ -391,12 +492,27 @@ def generate_keyframe_candidates(
                         target.unlink()
                         _log(f"  {kf_id}: deleted {v_name} for regen")
 
-    # Build jobs list, skipping already-generated
+    # Auto-select keyframes with existing_keyframe — copy to selected_keyframes, skip generation
+    selected_dir = work_dir / "selected_keyframes"
+    selected_dir.mkdir(parents=True, exist_ok=True)
+    for kf in keyframes:
+        ekf_path = kf.get("_existing_keyframe_resolved")
+        if ekf_path and Path(ekf_path).exists():
+            dest = selected_dir / f"{kf['id']}.png"
+            if not dest.exists():
+                shutil.copy2(ekf_path, str(dest))
+                _log(f"  {kf['id']}: using existing keyframe {ekf_path}")
+            kf["selected"] = "existing"
+
+    # Build jobs list, skipping already-generated and existing keyframes
     # generate_image_candidates stores in: {work_dir}/candidates/section_{key}/v*.png
     jobs = []
     regen_grid_only = []
     for kf in keyframes:
         kf_id = kf["id"]
+        # Skip if existing keyframe is set
+        if kf.get("_existing_keyframe_resolved") and Path(kf["_existing_keyframe_resolved"]).exists():
+            continue
         cand_dir = kf_candidates_dir / "candidates" / f"section_{kf_id}"
         existing = list(cand_dir.glob("v*.png")) if cand_dir.exists() else []
         if len(existing) >= n_candidates:
@@ -834,6 +950,9 @@ def generate_transition_candidates(
     segment_filter: set[str] | None = None,
 ) -> None:
     """Generate Veo transition video candidates for each slot."""
+    # First resolve boundary frames from any existing segments
+    resolve_existing_boundary_frames(yaml_path)
+
     data = load_narrative(yaml_path)
     work_dir = Path(data["_work_dir"])
     n_candidates = candidates_per_slot or data["meta"]["candidates_per_slot"]
@@ -852,9 +971,26 @@ def generate_transition_candidates(
     if segment_filter:
         transitions = [tr for tr in transitions if tr["id"] in segment_filter]
 
-    # Build all jobs
+    # Auto-handle transitions with existing_segment — copy to selected_transitions, skip generation
+    selected_tr_dir = work_dir / "selected_transitions"
+    selected_tr_dir.mkdir(parents=True, exist_ok=True)
+    for tr in transitions:
+        existing = tr.get("_existing_segment_resolved")
+        if existing:
+            # For single-segment: copy as slot_0
+            # For multi-segment chains: copy as slot_0, slot_1, etc.
+            for i, seg_path in enumerate(existing):
+                if Path(seg_path).exists():
+                    dest = selected_tr_dir / f"{tr['id']}_slot_{i}.mp4"
+                    if not dest.exists():
+                        shutil.copy2(seg_path, str(dest))
+                        _log(f"  {tr['id']} slot_{i}: using existing segment {Path(seg_path).name}")
+
+    # Build all jobs, skipping transitions with existing_segment
     jobs = []
     for tr in transitions:
+        if tr.get("_existing_segment_resolved"):
+            continue
         n_slots = tr["slots"]
         slot_duration = min(max_seconds, tr["duration_seconds"] / n_slots)
 

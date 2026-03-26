@@ -265,3 +265,74 @@ def analyze_audio(path: str, sr: int = 22050, detect_sections_flag: bool = False
         result["sections"] = detect_sections(y, sr_out)
 
     return result
+
+
+def detect_drops(y: np.ndarray, sr: int, hop_length: int = 512, threshold: float = 3.0) -> list[dict]:
+    """Detect sudden energy jumps (bass drops, impacts).
+
+    Finds frames where RMS energy jumps by more than `threshold` standard deviations
+    above the local mean.
+
+    Returns list of {"time": float, "intensity": float}.
+    """
+    rms = librosa.feature.rms(y=y, hop_length=hop_length)[0]
+    if len(rms) < 10:
+        return []
+
+    # Compute frame-to-frame energy delta
+    delta = np.diff(rms)
+    if len(delta) == 0:
+        return []
+
+    mean_delta = np.mean(delta)
+    std_delta = np.std(delta)
+    if std_delta == 0:
+        return []
+
+    drops = []
+    for i, d in enumerate(delta):
+        if d > mean_delta + threshold * std_delta:
+            t = librosa.frames_to_time(i + 1, sr=sr, hop_length=hop_length)
+            intensity = min(1.0, float((d - mean_delta) / (std_delta * threshold * 2)))
+            drops.append({"time": float(t), "intensity": intensity})
+
+    return drops
+
+
+def detect_presence(y: np.ndarray, sr: int, hop_length: int = 512, threshold_ratio: float = 0.15) -> list[dict]:
+    """Detect regions where audio is present (above RMS threshold).
+
+    Useful for finding vocal regions in a vocals-only stem.
+
+    Returns list of {"start_time": float, "end_time": float}.
+    """
+    rms = librosa.feature.rms(y=y, hop_length=hop_length)[0]
+    if len(rms) == 0:
+        return []
+
+    threshold = float(np.max(rms)) * threshold_ratio
+    frames_per_sec = sr / hop_length
+
+    regions = []
+    in_region = False
+    start_idx = 0
+
+    for i, val in enumerate(rms):
+        if val >= threshold and not in_region:
+            in_region = True
+            start_idx = i
+        elif val < threshold and in_region:
+            in_region = False
+            start_t = start_idx / frames_per_sec
+            end_t = i / frames_per_sec
+            if end_t - start_t >= 0.5:  # minimum 0.5s to count
+                regions.append({"start_time": float(start_t), "end_time": float(end_t)})
+
+    # Close final region
+    if in_region:
+        end_t = len(rms) / frames_per_sec
+        start_t = start_idx / frames_per_sec
+        if end_t - start_t >= 0.5:
+            regions.append({"start_time": float(start_t), "end_time": float(end_t)})
+
+    return regions

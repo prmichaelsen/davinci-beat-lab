@@ -110,6 +110,7 @@ def render_google_pipeline(
     segment_filter: set[int] | None = None,
     intra_transition_prompt: str | None = None,
     ai_transitions: bool = False,
+    ingredients: list[str] | None = None,
 ) -> str:
     """Run the full Nano Banana + Veo pipeline.
 
@@ -466,6 +467,7 @@ def render_google_pipeline(
             client.generate_video_transition(
                 job["start_img"], job["end_img"], job["prompt"], job["path"],
                 duration_seconds=8,
+                ingredients=ingredients,
             )
         except Exception as e:
             _log(f"  [{i+1}/{num_segments}] FAILED: {e}")

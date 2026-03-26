@@ -220,6 +220,34 @@ class GoogleVideoClient:
 
         raise RuntimeError("Nano Banana did not return an image")
 
+    @staticmethod
+    def _load_ingredient_images(ingredient_paths: list[str]) -> list:
+        """Load ingredient images as VideoGenerationReferenceImage objects.
+
+        Args:
+            ingredient_paths: Up to 3 paths to character/object/style reference images.
+
+        Returns:
+            List of VideoGenerationReferenceImage objects.
+        """
+        from google.genai import types
+        mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
+        refs = []
+        for p in ingredient_paths[:3]:
+            with open(p, "rb") as f:
+                img_bytes = f.read()
+            ext = Path(p).suffix.lower()
+            refs.append(
+                types.VideoGenerationReferenceImage(
+                    image=types.Image(
+                        image_bytes=img_bytes,
+                        mime_type=mime_map.get(ext, "image/png"),
+                    ),
+                    reference_type="asset",
+                )
+            )
+        return refs
+
     def generate_video_from_image(
         self,
         image_path: str,
@@ -228,6 +256,7 @@ class GoogleVideoClient:
         duration_seconds: int = 8,
         model: str = "veo-3.0-generate-001",
         aspect_ratio: str = "16:9",
+        ingredients: list[str] | None = None,
     ) -> str:
         """Generate a video clip from a reference image using Veo.
 
@@ -238,6 +267,7 @@ class GoogleVideoClient:
             duration_seconds: Clip duration (max 8).
             model: Veo model name.
             aspect_ratio: Output aspect ratio.
+            ingredients: Optional list of up to 3 character/object reference image paths.
 
         Returns:
             output_path
@@ -252,18 +282,25 @@ class GoogleVideoClient:
 
         img = types.Image(image_bytes=image_bytes, mime_type=mime)
 
+        ref_images = self._load_ingredient_images(ingredients) if ingredients else None
+        # Ingredients require veo-3.1
+        if ref_images:
+            model = "veo-3.1-generate-preview"
+
         def _generate():
+            config = types.GenerateVideosConfig(
+                aspect_ratio=aspect_ratio,
+                number_of_videos=1,
+                duration_seconds=duration_seconds,
+                person_generation="allow_adult",
+                **({"reference_images": ref_images} if ref_images else {}),
+            )
             return _retry_on_429(
                 self.client.models.generate_videos,
                 model=model,
                 prompt=prompt,
                 image=img,
-                config=types.GenerateVideosConfig(
-                    aspect_ratio=aspect_ratio,
-                    number_of_videos=1,
-                    duration_seconds=duration_seconds,
-                    person_generation="allow_adult",
-                ),
+                config=config,
             )
 
         generated = _retry_video_generation(_generate, self.client, output_path)
@@ -278,6 +315,7 @@ class GoogleVideoClient:
         output_path: str,
         duration_seconds: int = 2,
         model: str = "veo-3.0-generate-001",
+        ingredients: list[str] | None = None,
     ) -> str:
         """Generate a transition clip between two frames using Veo.
 
@@ -290,6 +328,7 @@ class GoogleVideoClient:
             output_path: Where to save the transition clip.
             duration_seconds: Transition duration.
             model: Veo model name.
+            ingredients: Optional list of up to 3 character/object reference image paths.
 
         Returns:
             output_path
@@ -306,27 +345,29 @@ class GoogleVideoClient:
         mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
 
         start_img = types.Image(image_bytes=start_bytes, mime_type=mime_map.get(ext_a, "image/png"))
-
-        # Try veo-3.1 with last_frame, fall back to veo-3.0 without it
         end_img = types.Image(image_bytes=end_bytes, mime_type=mime_map.get(ext_b, "image/png"))
+
+        ref_images = self._load_ingredient_images(ingredients) if ingredients else None
 
         def _generate():
             try:
+                config = types.GenerateVideosConfig(
+                    aspect_ratio="16:9",
+                    number_of_videos=1,
+                    duration_seconds=duration_seconds,
+                    person_generation="allow_adult",
+                    last_frame=end_img,
+                    **({"reference_images": ref_images} if ref_images else {}),
+                )
                 return _retry_on_429(
                     self.client.models.generate_videos,
                     model="veo-3.1-generate-preview",
                     prompt=prompt,
                     image=start_img,
-                    config=types.GenerateVideosConfig(
-                        aspect_ratio="16:9",
-                        number_of_videos=1,
-                        duration_seconds=duration_seconds,
-                        person_generation="allow_adult",
-                        last_frame=end_img,
-                    ),
+                    config=config,
                 )
             except Exception:
-                # Fall back to start-frame-only on veo-3.0
+                # Fall back to start-frame-only on veo-3.0 (no ingredients in fallback)
                 return _retry_on_429(
                     self.client.models.generate_videos,
                     model=model,

@@ -67,6 +67,14 @@ Keep values subtle — small changes create visible looks:
 7. **Color grading**: Use sustained_effects to set the mood per section. Different sections should have different color treatments. Transitions between sections are automatic and smooth.
 8. **Combine pulse + sustained**: Beat-pulse effects (presets) handle rhythm. Sustained effects (color grading) handle mood. Use both together for the best result.
 
+## Stem-Aware Effect Mapping
+
+When per-stem analysis data is provided (Stems line in section data), use it for precision:
+- **drum hits**: Use for shake_x, shake_y, flash timing — percussion-synced effects. Higher drum hit count = more aggressive presets.
+- **bass drops**: Trigger zoom_bounce + hard_cut at bass drop moments. Sections with bass drops should have "exponential" intensity curves.
+- **vocals=yes**: Pull back aggressive effects during vocal sections — prefer zoom_pulse and glow_swell over flash and hard_cut. Use gentler color grading.
+- **vocals=no**: Free to use full-intensity effects without worrying about overwhelming vocal content.
+
 ## Instrument-Aware Effect Selection
 
 When audio descriptions are provided, use them to match effects to what's actually playing:
@@ -265,6 +273,38 @@ def build_user_prompt(
                 f"rolloff={spectral.get('rolloff', 0):.2f}, "
                 f"contrast={spectral.get('contrast', 0):.2f}"
             )
+
+        # Stem data (when available)
+        stems = beat_map.get("stems", {})
+        if stems:
+            stem_parts = []
+            # Drum beats in this section
+            drum_beats = [
+                b for b in stems.get("drums", {}).get("beats", [])
+                if sec.get("start_time", 0) <= b.get("time", 0) < sec.get("end_time", 0)
+            ]
+            if drum_beats:
+                drum_avg = sum(b.get("intensity", 0) for b in drum_beats) / len(drum_beats)
+                stem_parts.append(f"drum hits={len(drum_beats)} (avg {drum_avg:.2f})")
+
+            # Bass drops in this section
+            bass_drops = [
+                d for d in stems.get("bass", {}).get("drops", [])
+                if sec.get("start_time", 0) <= d.get("time", 0) < sec.get("end_time", 0)
+            ]
+            if bass_drops:
+                stem_parts.append(f"bass drops={len(bass_drops)}")
+
+            # Vocal presence
+            vocal_regions = stems.get("vocals", {}).get("presence", [])
+            vocal_present = any(
+                r.get("start_time", 0) < sec.get("end_time", 0) and r.get("end_time", 0) > sec.get("start_time", 0)
+                for r in vocal_regions
+            )
+            stem_parts.append(f"vocals={'yes' if vocal_present else 'no'}")
+
+            if stem_parts:
+                line += f"\n- Stems: {', '.join(stem_parts)}"
 
         if audio_descriptions and i < len(audio_descriptions):
             line += f"\n- Audio: {audio_descriptions[i]}"

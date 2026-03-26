@@ -131,6 +131,22 @@ def make_color_corrector(
     return FusionNode(name=name, tool_type="ColorCorrector", inputs=inputs, pos_x=pos_x)
 
 
+def make_camera_shake(
+    name: str = "CameraShake1",
+    source_op: str | None = None,
+    pos_x: float = 440,
+) -> FusionNode:
+    """Create a Transform node dedicated to position offset (camera shake).
+
+    Uses XOffset/YOffset which are independent float params on Transform,
+    keeping shake separate from any zoom/size Transform nodes.
+    """
+    inputs: dict = {}
+    if source_op:
+        inputs["Input"] = {"SourceOp": source_op, "Source": "Output"}
+    return FusionNode(name=name, tool_type="Transform", inputs=inputs, pos_x=pos_x)
+
+
 def make_glow(
     name: str = "Glow1",
     source_op: str | None = None,

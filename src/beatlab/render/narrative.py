@@ -152,6 +152,87 @@ def narrative_stats(data: dict) -> dict:
     }
 
 
+# ── Grid Generation ────────────────────────────────────────────────
+
+
+def make_slot_grid(
+    slot_images: list[list[str]],
+    output_path: str,
+    title: str,
+    slot_labels: list[str] | None = None,
+) -> str:
+    """Create a grid image with rows=slots, columns=variants.
+
+    Args:
+        slot_images: List of lists — slot_images[slot_idx] = [v1.png, v2.png, ...].
+        output_path: Where to save the grid PNG.
+        title: Title text for the grid.
+        slot_labels: Optional label per row (default: "slot 0", "slot 1", ...).
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    n_slots = len(slot_images)
+    n_variants = max(len(row) for row in slot_images) if slot_images else 0
+    if n_slots == 0 or n_variants == 0:
+        return output_path
+
+    # Load first image to get dimensions
+    sample = Image.open(slot_images[0][0])
+    w, h = sample.size
+    sample.close()
+
+    padding = 4
+    label_w = 120  # left column for slot labels
+    label_h = 30   # bottom label per image
+    title_h = 50
+
+    sheet_w = label_w + n_variants * (w + padding) + padding
+    sheet_h = title_h + n_slots * (h + label_h + padding) + padding
+
+    sheet = Image.new("RGB", (sheet_w, sheet_h), (30, 30, 30))
+    draw = ImageDraw.Draw(sheet)
+
+    try:
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+        font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
+        font_slot = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+    except (OSError, IOError):
+        font_title = ImageFont.load_default()
+        font_label = font_title
+        font_slot = font_title
+
+    # Title
+    draw.text((padding, 10), title, fill="white", font=font_title)
+
+    if not slot_labels:
+        slot_labels = [f"slot {i}" for i in range(n_slots)]
+
+    for row_idx, (row_paths, slot_label) in enumerate(zip(slot_images, slot_labels)):
+        y_base = title_h + padding + row_idx * (h + label_h + padding)
+
+        # Slot label on the left
+        draw.text((padding, y_base + h // 2 - 10), slot_label, fill="#aaaaaa", font=font_slot)
+
+        for col_idx, img_path in enumerate(row_paths):
+            x = label_w + col_idx * (w + padding)
+            y = y_base
+
+            img = Image.open(img_path)
+            if img.size != (w, h):
+                img = img.resize((w, h))
+            sheet.paste(img, (x, y))
+            img.close()
+
+            # Variant label
+            draw.text((x + 5, y + h + 2), f"v{col_idx + 1}", fill="white", font=font_label)
+
+            # Border
+            draw.rectangle([x - 1, y - 1, x + w, y + h], outline="white", width=2)
+
+    sheet.save(output_path)
+    return output_path
+
+
 # ── Keyframe Candidate Generation ─────────────────────────────────
 
 
@@ -247,8 +328,15 @@ def generate_keyframe_candidates(
     candidates_per_slot: int | None = None,
     segment_filter: set[str] | None = None,
     use_replicate: bool = False,
+    regen: dict[str, set[str]] | None = None,
 ) -> None:
-    """Generate styled image candidates for each keyframe using Nano Banana."""
+    """Generate styled image candidates for each keyframe using Nano Banana.
+
+    Args:
+        regen: If set, maps keyframe IDs to variant sets to regenerate.
+               e.g. {"kf_005": {"v1", "v2"}, "kf_007": set()} where empty set = all variants.
+               Targeted keyframes are automatically included even without segment_filter.
+    """
     data = load_narrative(yaml_path)
     work_dir = Path(data["_work_dir"])
     n_candidates = candidates_per_slot or data["meta"]["candidates_per_slot"]
@@ -271,17 +359,65 @@ def generate_keyframe_candidates(
     kf_candidates_dir = work_dir / "keyframe_candidates"
     kf_candidates_dir.mkdir(parents=True, exist_ok=True)
 
+    # Handle --regen: delete targeted variants so generate_image_candidates recreates them
+    # Also ensure regen keyframes are included in the keyframes list
+    if regen is not None:
+        kf_by_id = {kf["id"]: kf for kf in data["keyframes"]}
+        for kf_id, variants in regen.items():
+            if kf_id not in kf_by_id:
+                _log(f"  WARNING: --regen references unknown keyframe {kf_id}")
+                continue
+            # Ensure this keyframe is in our working list
+            if not any(kf["id"] == kf_id for kf in keyframes):
+                keyframes.append(kf_by_id[kf_id])
+
+            cand_dir = kf_candidates_dir / "candidates" / f"section_{kf_id}"
+            if not cand_dir.exists():
+                continue
+            if len(variants) == 0:
+                # Regen all variants
+                for f in cand_dir.glob("v*.png"):
+                    f.unlink()
+                    _log(f"  {kf_id}: deleted {f.name} for regen")
+                grid = cand_dir / "grid.png"
+                if grid.exists():
+                    grid.unlink()
+            else:
+                # Regen specific variants
+                for v in variants:
+                    v_name = v if v.endswith(".png") else f"{v}.png"
+                    target = cand_dir / v_name
+                    if target.exists():
+                        target.unlink()
+                        _log(f"  {kf_id}: deleted {v_name} for regen")
+
     # Build jobs list, skipping already-generated
     # generate_image_candidates stores in: {work_dir}/candidates/section_{key}/v*.png
     jobs = []
+    regen_grid_only = []
     for kf in keyframes:
         kf_id = kf["id"]
         cand_dir = kf_candidates_dir / "candidates" / f"section_{kf_id}"
         existing = list(cand_dir.glob("v*.png")) if cand_dir.exists() else []
         if len(existing) >= n_candidates:
-            _log(f"  {kf_id}: {len(existing)} candidates exist, skipping")
+            if regen is not None and kf_id in regen and len(regen[kf_id]) > 0:
+                # Specific variants were regened but all slots filled — just rebuild grid
+                regen_grid_only.append(kf)
+            else:
+                _log(f"  {kf_id}: {len(existing)} candidates exist, skipping")
             continue
         jobs.append(kf)
+
+    # Rebuild grids for keyframes that had specific variants regened but are fully populated
+    if regen_grid_only:
+        for kf in regen_grid_only:
+            kf_id = kf["id"]
+            cand_dir = kf_candidates_dir / "candidates" / f"section_{kf_id}"
+            paths = sorted(str(p) for p in cand_dir.glob("v*.png"))
+            grid_path = str(cand_dir / "grid.png")
+            make_contact_sheet(paths, grid_path, kf_id)
+            kf["candidates"] = paths
+            _log(f"  {kf_id}: rebuilt grid after regen")
 
     if not jobs:
         _log("All keyframe candidates already generated.")
@@ -349,7 +485,7 @@ def apply_keyframe_selection(yaml_path: str, selections: dict[str, int]) -> None
             continue
 
         kf = kf_by_id[kf_id]
-        candidates_dir = work_dir / "keyframe_candidates" / kf_id
+        candidates_dir = work_dir / "keyframe_candidates" / "candidates" / f"section_{kf_id}"
         source = candidates_dir / f"v{variant}.png"
 
         if not source.exists():
@@ -470,8 +606,12 @@ def generate_slot_keyframe_candidates(
     yaml_path: str,
     vertex: bool = False,
     candidates_per_slot: int | None = None,
+    use_replicate: bool = False,
 ) -> None:
-    """Generate intermediate keyframe candidates for multi-slot transitions."""
+    """Generate intermediate keyframe candidates for multi-slot transitions.
+
+    Produces a combined grid per transition: rows=intermediate slots, columns=variants.
+    """
     data = load_narrative(yaml_path)
     work_dir = Path(data["_work_dir"])
     n_candidates = candidates_per_slot or data["meta"]["candidates_per_slot"]
@@ -483,13 +623,15 @@ def generate_slot_keyframe_candidates(
         _log("No multi-slot transitions. Skipping.")
         return
 
-    from beatlab.render.google_video import GoogleVideoClient
-    from beatlab.render.candidates import generate_image_candidates, make_contact_sheet
+    from beatlab.render.candidates import generate_image_candidates
 
-    client = GoogleVideoClient(vertex=vertex)
-
-    def stylize_fn(source_path: str, style_prompt: str, output_path: str) -> str:
-        return client.stylize_image(source_path, style_prompt, output_path)
+    if use_replicate:
+        stylize_fn = _make_replicate_stylize_fn()
+    else:
+        from beatlab.render.google_video import GoogleVideoClient
+        client = GoogleVideoClient(vertex=vertex)
+        def stylize_fn(source_path: str, style_prompt: str, output_path: str) -> str:
+            return client.stylize_image(source_path, style_prompt, output_path)
 
     slot_kf_dir = work_dir / "slot_keyframe_candidates"
     slot_kf_dir.mkdir(parents=True, exist_ok=True)
@@ -552,7 +694,6 @@ def generate_slot_keyframe_candidates(
         lines = [l.strip() for l in response.content[0].text.strip().split("\n") if l.strip()]
         prompts = []
         for line in lines:
-            # Strip leading number/period/dash
             cleaned = re.sub(r"^\d+[\.\)\-:\s]+", "", line).strip()
             if cleaned:
                 prompts.append(cleaned)
@@ -562,18 +703,21 @@ def generate_slot_keyframe_candidates(
             while len(prompts) < n_intermediates:
                 prompts.append(f"Smooth visual transition between {from_kf['prompt'][:50]} and {to_kf['prompt'][:50]}")
 
-        # Store intermediate keyframe prompts in transition data
         tr["_slot_keyframe_prompts"] = prompts[:n_intermediates]
 
         # Generate candidates for each intermediate keyframe
-        source_img = str(from_img)  # Use from keyframe as source for styling
+        source_img = str(from_img)
+        all_slot_images = []  # for combined grid: list of lists
+
         for slot_idx in range(n_intermediates):
             slot_key = f"{tr['id']}_slot_{slot_idx}"
-            slot_dir = slot_kf_dir / slot_key
 
-            existing = list(slot_dir.glob("v*.png")) if slot_dir.exists() else []
+            # generate_image_candidates stores in: {work_dir}/candidates/section_{key}/
+            cand_dir = slot_kf_dir / "candidates" / f"section_{slot_key}"
+            existing = list(cand_dir.glob("v*.png")) if cand_dir.exists() else []
             if len(existing) >= n_candidates:
                 _log(f"    {slot_key}: {len(existing)} candidates exist, skipping")
+                all_slot_images.append(sorted(str(p) for p in existing)[:n_candidates])
                 continue
 
             _log(f"    {slot_key}: generating {n_candidates} candidates...")
@@ -586,9 +730,14 @@ def generate_slot_keyframe_candidates(
                 work_dir=str(slot_kf_dir),
                 stylize_fn=stylize_fn,
             )
+            all_slot_images.append(paths)
 
-            grid_path = str(slot_dir / "grid.png")
-            make_contact_sheet(paths, grid_path, slot_key)
+        # Generate combined grid: rows=slots, columns=variants
+        if all_slot_images:
+            grid_path = str(slot_kf_dir / f"{tr['id']}_grid.png")
+            slot_labels = [f"slot {i}" for i in range(n_intermediates)]
+            make_slot_grid(all_slot_images, grid_path, f"{tr['id']} — {n_intermediates} intermediate keyframes", slot_labels)
+            _log(f"    Combined grid: {grid_path}")
 
     save_narrative(data, yaml_path)
     _log("Slot keyframe candidate generation complete.")

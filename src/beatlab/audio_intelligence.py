@@ -47,8 +47,15 @@ def _detect_onsets(y: np.ndarray, sr: int, hop_length: int = 512) -> list[dict]:
     onset_frames = np.clip(onset_frames, 0, max_idx)
     onset_times = librosa.frames_to_time(onset_frames, sr=sr, hop_length=hop_length)
     strengths = onset_env[onset_frames]
-    if strengths.max() > 0:
-        strengths = strengths / strengths.max()
+    if len(strengths) > 0 and strengths.max() > 0:
+        # Adaptive percentile normalization — p10 = noise floor, p95 = full intensity
+        p10 = np.percentile(strengths, 10)
+        p95 = np.percentile(strengths, 95)
+        rng = p95 - p10
+        if rng > 0:
+            strengths = np.clip((strengths - p10) / rng, 0.0, 1.0)
+        else:
+            strengths = np.ones_like(strengths) * 0.5
     return [{"time": float(t), "strength": float(s)} for t, s in zip(onset_times, strengths)]
 
 

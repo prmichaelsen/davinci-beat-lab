@@ -10,6 +10,8 @@
 
 Add a `beatlab server` command that starts an HTTP server inside davinci-beat-lab, exposing narrative pipeline operations as REST endpoints. The beatlab-synthesizer frontend (a TanStack Start web app at `../beatlab-synthesizer`) calls these endpoints instead of manipulating `.beatlab_work/` files directly, ensuring all operations go through the same Python functions the CLI uses.
 
+**Deployment model:** Both the beatlab server and synthesizer run on a **provisioned cloud desktop instance per customer** with a mounted volume holding `.beatlab_work/`. No GCS, no database, no multi-tenant complexity. YAML files on the mounted volume are the primary storage — treated as project documents (like a `.docx`). GPU-heavy operations (generation, rendering) shell out to separate machines (Vast.ai) as beatlab already does, keeping the desktop lightweight and avoiding irreversible scale-up traps.
+
 ---
 
 ## Problem Statement
@@ -222,6 +224,8 @@ The `make_handler(work_dir)` factory creates a handler class with the work_dir b
 | Server location | Inside beatlab as `beatlab server` command | Direct access to internal functions, no wrapper drift |
 | Work dir discovery | `Path.cwd() / ".beatlab_work"` | Consistent with all other beatlab commands |
 | Routing | Path prefix matching in `do_GET`/`do_POST` | Simple, no framework needed for <10 routes |
+| Storage | YAML on mounted volume, no database | YAML-as-document — the file is the project. Provisioned desktop + volume per customer. No GCS, no D1. |
+| Deployment | Provisioned cloud desktop per customer | Lightweight I/O instance, GPU ops to Vast.ai. Customer isolation by design. Avoids irreversible scale-up. |
 
 ### Data Flow
 
@@ -240,6 +244,9 @@ The `make_handler(work_dir)` factory creates a handler class with the work_dir b
 - **FastAPI migration**: If we exceed ~15 endpoints or need OpenAPI docs
 - **File watching**: Push YAML changes to frontend when files are edited externally (e.g., by CLI)
 - **Candidate generation trigger**: Expose `narrative keyframes` as an endpoint to generate new candidates from the UI
+- **`beatlab archive`**: Backup `.beatlab_work/` project to object storage from the mounted volume for disaster recovery
+- **Desktop provisioning**: Scripts/Terraform for spinning up customer instances with beatlab + synthesizer pre-installed
+- **Auth**: Token-based auth if the desktop instance is ever network-exposed beyond localhost
 
 ---
 

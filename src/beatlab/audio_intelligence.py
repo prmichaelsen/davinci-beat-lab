@@ -779,14 +779,54 @@ Respond with ONLY a JSON array of rules. No markdown, no explanation outside the
     return rules
 
 
-def apply_rules(layer1_data: dict, rules: list[dict]) -> list[dict]:
+def _build_rms_lookup(rms_envelope: list[dict]) -> callable:
+    """Build a fast RMS lookup function from an envelope.
+
+    Returns a function f(t) -> rms_energy at time t (interpolated).
+    """
+    if not rms_envelope:
+        return lambda t: 0.0
+
+    times = np.array([p["time"] for p in rms_envelope])
+    energies = np.array([p["energy"] for p in rms_envelope])
+
+    def lookup(t):
+        idx = np.searchsorted(times, t, side="right") - 1
+        if idx < 0:
+            return float(energies[0])
+        if idx >= len(energies) - 1:
+            return float(energies[-1])
+        return float(energies[idx])
+
+    return lookup
+
+
+def apply_rules(layer1_data: dict, rules: list[dict],
+                vocal_bleed_threshold: float = 0.15) -> list[dict]:
     """Apply effect rules to all DSP onsets, producing frame-accurate events.
 
     This is the deterministic step — every onset that matches a rule gets an effect.
     Guarantees complete coverage across all pattern repetitions.
+
+    Args:
+        layer1_data: Layer 1 DSP data.
+        rules: Effect rules from Claude.
+        vocal_bleed_threshold: Confidence ratio threshold. When a non-vocal stem's
+            RMS energy at onset time is less than this fraction of the vocal stem's
+            RMS, the onset is suppressed as likely bleed. Set to 0.0 to disable.
+            Default: 0.15 (suppress when stem is <15% of vocal energy).
     """
     _log("  Applying rules to DSP data...")
+
+    # Build vocal RMS lookup for confidence ratio
+    vocal_rms_env = layer1_data.get("vocals", {}).get("full", {}).get("rms_envelope", [])
+    vocal_rms = _build_rms_lookup(vocal_rms_env)
+    bleed_enabled = vocal_bleed_threshold > 0 and len(vocal_rms_env) > 0
+    if bleed_enabled:
+        _log(f"    Vocal bleed suppression enabled (threshold={vocal_bleed_threshold})")
+
     events = []
+    suppressed_total = 0
 
     for rule in rules:
         stem = rule.get("stem", "drums")
@@ -800,18 +840,34 @@ def apply_rules(layer1_data: dict, rules: list[dict]) -> list[dict]:
         layer_with = rule.get("layer_with", [])
         layer_threshold = rule.get("layer_threshold", 0.7)
 
+        # Build this stem's RMS lookup for confidence ratio
+        stem_rms_env = layer1_data.get(stem, {}).get(band, {}).get("rms_envelope", [])
+        stem_rms = _build_rms_lookup(stem_rms_env)
+
         stem_data = layer1_data.get(stem, {})
         band_data = stem_data.get(band, {})
         onsets = band_data.get("onsets", [])
         sustained_regions = band_data.get("sustained_regions", [])
 
         matched = 0
+        suppressed = 0
         for onset in onsets:
             strength = onset.get("strength", 0)
             if strength < min_str or strength > max_str:
                 continue
 
             t = onset["time"]
+
+            # Confidence ratio: suppress bleed from non-vocal stems
+            if bleed_enabled and stem != "vocals":
+                v_energy = vocal_rms(t)
+                if v_energy > 0.01:  # vocals are present
+                    s_energy = stem_rms(t)
+                    ratio = s_energy / v_energy if v_energy > 0 else 999
+                    if ratio < vocal_bleed_threshold:
+                        suppressed += 1
+                        continue
+
             intensity = min(1.0, strength * intensity_scale)
             evt_duration = duration
             sustain = None
@@ -848,17 +904,24 @@ def apply_rules(layer1_data: dict, rules: list[dict]) -> list[dict]:
                         "rationale": f"layered with {effect} on strong hit",
                     })
 
-        _log(f"    Rule '{effect}' on {stem}/{band} [{min_str:.2f}-{max_str:.2f}]: {matched} events")
+        suppressed_total += suppressed
+        suppressed_str = f" ({suppressed} suppressed)" if suppressed > 0 else ""
+        _log(f"    Rule '{effect}' on {stem}/{band} [{min_str:.2f}-{max_str:.2f}]: {matched} events{suppressed_str}")
 
     # Sort by time
     events.sort(key=lambda e: e["time"])
-    _log(f"  Total effect events: {len(events)}")
+    _log(f"  Total effect events: {len(events)} ({suppressed_total} suppressed as vocal bleed)")
     return events
 
 
 def apply_rules_in_range(layer1_data: dict, rules: list[dict],
-                          start_time: float, end_time: float) -> list[dict]:
+                          start_time: float, end_time: float,
+                          vocal_bleed_threshold: float = 0.15) -> list[dict]:
     """Apply effect rules only to onsets within a time range."""
+    vocal_rms_env = layer1_data.get("vocals", {}).get("full", {}).get("rms_envelope", [])
+    vocal_rms = _build_rms_lookup(vocal_rms_env)
+    bleed_enabled = vocal_bleed_threshold > 0 and len(vocal_rms_env) > 0
+
     events = []
 
     for rule in rules:
@@ -873,6 +936,9 @@ def apply_rules_in_range(layer1_data: dict, rules: list[dict],
         layer_with = rule.get("layer_with", [])
         layer_threshold = rule.get("layer_threshold", 0.7)
 
+        stem_rms_env = layer1_data.get(stem, {}).get(band, {}).get("rms_envelope", [])
+        stem_rms = _build_rms_lookup(stem_rms_env)
+
         stem_data = layer1_data.get(stem, {})
         band_data = stem_data.get(band, {})
         onsets = band_data.get("onsets", [])
@@ -885,6 +951,14 @@ def apply_rules_in_range(layer1_data: dict, rules: list[dict],
             strength = onset.get("strength", 0)
             if strength < min_str or strength > max_str:
                 continue
+
+            if bleed_enabled and stem != "vocals":
+                v_energy = vocal_rms(t)
+                if v_energy > 0.01:
+                    s_energy = stem_rms(t)
+                    ratio = s_energy / v_energy if v_energy > 0 else 999
+                    if ratio < vocal_bleed_threshold:
+                        continue
 
             intensity = min(1.0, strength * intensity_scale)
             evt_duration = duration
@@ -985,6 +1059,7 @@ def extract_layer3_rules_chunked(
     layer2_data: list[dict],
     creative_direction: str | None = None,
     sensitivity: dict[str, float] | None = None,
+    vocal_bleed_threshold: float = 0.15,
 ) -> tuple[list[dict], list[dict]]:
     """Generate per-section rules by chunking the track into energy-coherent regions.
 
@@ -1036,7 +1111,8 @@ def extract_layer3_rules_chunked(
             rule["_chunk_energy"] = energy
 
         # Apply rules only to onsets in this time range
-        chunk_events = apply_rules_in_range(layer1_data, rules, start, end)
+        chunk_events = apply_rules_in_range(layer1_data, rules, start, end,
+                                            vocal_bleed_threshold=vocal_bleed_threshold)
         _log(f"    → {len(rules)} rules, {len(chunk_events)} events")
 
         all_rules.extend(rules)
@@ -1061,6 +1137,7 @@ def run_audio_intelligence(
     sensitivity: dict[str, float] | None = None,
     rules_mode: bool = False,
     chunked: bool = False,
+    vocal_bleed_threshold: float = 0.15,
 ) -> dict:
     """Run the full 3-layer audio intelligence pipeline.
 
@@ -1093,6 +1170,7 @@ def run_audio_intelligence(
             layer1, layer2,
             creative_direction=creative_direction,
             sensitivity=sensitivity,
+            vocal_bleed_threshold=vocal_bleed_threshold,
         )
     elif rules_mode:
         rules = extract_layer3_rules(
@@ -1102,7 +1180,7 @@ def run_audio_intelligence(
             creative_direction=creative_direction,
             sensitivity=sensitivity,
         )
-        layer3 = apply_rules(layer1, rules)
+        layer3 = apply_rules(layer1, rules, vocal_bleed_threshold=vocal_bleed_threshold)
     else:
         rules = None
         layer3 = extract_layer3(

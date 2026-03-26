@@ -1296,6 +1296,7 @@ def destroy_gpu(destroy_all: bool):
 @click.option("--sens-all", default=None, type=float, help="Set all sensitivities at once (overridden by individual --sens-* flags)")
 @click.option("--rules/--no-rules", default=True, help="Use rules mode (Claude generates rules, applied programmatically) vs direct event mode (default: rules)")
 @click.option("--chunked/--no-chunked", default=True, help="Generate per-section rules based on energy (uses descriptions.md sections). Requires --rules (default: on)")
+@click.option("--vocal-bleed-threshold", default=0.15, type=float, help="Suppress non-vocal onsets when stem energy < this ratio of vocal energy (0.0 to disable, default: 0.15)")
 def audio_intelligence(video_file: str, work_dir: str, output: str | None,
                        chunk_duration: float, creative_direction: str | None,
                        fps: float | None, sr: int, descriptions: str | None,
@@ -1303,7 +1304,8 @@ def audio_intelligence(video_file: str, work_dir: str, output: str | None,
                        sens_shake_x: float, sens_shake_y: float,
                        sens_flash: float, sens_hard_cut: float,
                        sens_contrast_pop: float, sens_glow_swell: float,
-                       sens_all: float | None, rules: bool, chunked: bool):
+                       sens_all: float | None, rules: bool, chunked: bool,
+                       vocal_bleed_threshold: float):
     """Run multi-layer audio intelligence pipeline (DSP + Gemini + Claude).
 
     Requires cached stems in work dir. Run 'beatlab analyze --stems' first.
@@ -1368,6 +1370,7 @@ def audio_intelligence(video_file: str, work_dir: str, output: str | None,
         sensitivity=sensitivity,
         rules_mode=rules,
         chunked=chunked and rules,
+        vocal_bleed_threshold=vocal_bleed_threshold,
     )
 
     _log(f"  {len(result['layer3_events'])} effect events generated")

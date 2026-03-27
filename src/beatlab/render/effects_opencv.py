@@ -309,6 +309,7 @@ def apply_effects_ai(
     time_offset: float = 0.0,
     hard_cuts: bool = False,
     preview: bool = False,
+    effect_offsets: dict[str, float] | None = None,
 ) -> str:
     """Apply effects from Layer 3 AI-generated effect events.
 
@@ -340,8 +341,21 @@ def apply_effects_ai(
         _log(f"Applying AI-directed effects: {total_frames} frames, {w}x{h} @ {video_fps}fps")
     _log(f"  {len(effect_events)} effect events")
 
+    # Apply per-effect time offsets (shift events earlier/later to align visual peak with audio peak)
+    if effect_offsets:
+        events = []
+        for event in effect_events:
+            offset_ms = effect_offsets.get(event.get("effect", ""), 0)
+            if offset_ms:
+                event = dict(event)
+                event["time"] = max(0, event["time"] + offset_ms / 1000.0)
+            events.append(event)
+        _log(f"  Applied effect offsets: {effect_offsets}")
+    else:
+        events = list(effect_events)
+
     # Pre-sort events by time, filter hard_cuts if disabled
-    events = sorted(effect_events, key=lambda e: e["time"])
+    events = sorted(events, key=lambda e: e["time"])
     if not hard_cuts:
         before = len(events)
         events = [e for e in events if e.get("effect") != "hard_cut"]

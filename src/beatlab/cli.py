@@ -1400,9 +1400,10 @@ def audio_intelligence(video_file: str, work_dir: str, output: str | None,
 @click.option("--remote/--local", default=False, help="Run effects on Vast.ai GPU (NVENC encoding, much faster)")
 @click.option("--hard-cuts/--no-hard-cuts", default=False, help="Enable hard_cut effect (blinding brightness spikes, off by default)")
 @click.option("--preview/--no-preview", default=False, help="Half resolution + ultrafast encode for quick previews (~4x faster)")
+@click.option("--config", default=None, type=click.Path(exists=True), help="SceneCraft project config YAML (settings, offsets, etc.)")
 def effects(video_file: str, beats: str | None, ai_events: str | None, output: str | None,
             glow: bool, fps: float | None, plan: str | None, time_offset: float, remote: bool,
-            hard_cuts: bool, preview: bool):
+            hard_cuts: bool, preview: bool, config: str | None):
     """Apply beat-synced OpenCV effects to a video.
 
     Two modes:
@@ -1412,9 +1413,25 @@ def effects(video_file: str, beats: str | None, ai_events: str | None, output: s
     Add --remote to run on Vast.ai GPU for ~10x faster encoding.
 
     Examples:
-        beatlab effects video.mp4 --ai-events ai.json --remote
+        beatlab effects video.mp4 --ai-events ai.json --config scenecraft.yaml
         beatlab effects video.mp4 --beats beats.json
     """
+    # Load config if provided
+    effect_offsets = None
+    if config:
+        import yaml as pyyaml
+        with open(config) as f:
+            cfg = pyyaml.safe_load(f)
+        settings = cfg.get("settings", {})
+        # Config overrides CLI defaults (but explicit CLI flags still win)
+        if not hard_cuts and settings.get("hard_cuts"):
+            hard_cuts = True
+        if not preview and settings.get("preview"):
+            preview = True
+        effect_offsets = cfg.get("effect_offsets")
+        if effect_offsets:
+            _log(f"Config: effect offsets loaded from {config}")
+
     if not beats and not ai_events:
         raise click.ClickException("Either --beats or --ai-events is required")
 
@@ -1436,7 +1453,8 @@ def effects(video_file: str, beats: str | None, ai_events: str | None, output: s
             ai_data = json.load(f)
         events = ai_data.get("layer3_events", ai_data if isinstance(ai_data, list) else [])
         _log(f"AI-directed effects: {len(events)} events")
-        apply_effects_ai(video_file, output, events, fps=fps, time_offset=time_offset, hard_cuts=hard_cuts, preview=preview)
+        apply_effects_ai(video_file, output, events, fps=fps, time_offset=time_offset,
+                         hard_cuts=hard_cuts, preview=preview, effect_offsets=effect_offsets)
         return
 
     # Classic beat map mode (local)

@@ -1306,7 +1306,7 @@ def server(port: int, host: str, work_dir: str):
 @click.option("--sens-all", default=None, type=float, help="Set all sensitivities at once (overridden by individual --sens-* flags)")
 @click.option("--rules/--no-rules", default=True, help="Use rules mode (Claude generates rules, applied programmatically) vs direct event mode (default: rules)")
 @click.option("--chunked/--no-chunked", default=True, help="Generate per-section rules based on energy (uses descriptions.md sections). Requires --rules (default: on)")
-@click.option("--vocal-bleed-threshold", default=0.15, type=float, help="Suppress non-vocal onsets when stem energy < this ratio of vocal energy (0.0 to disable, default: 0.15)")
+@click.option("--vocal-bleed-threshold", default=0.25, type=float, help="Suppress non-vocal onsets when stem energy < this ratio of vocal energy (0.0 to disable, default: 0.25)")
 @click.option("--stats/--no-stats", default=False, help="Send statistical summaries to Claude instead of individual onsets (compact, fits full tracks)")
 def audio_intelligence(video_file: str, work_dir: str, output: str | None,
                        chunk_duration: float, creative_direction: str | None,

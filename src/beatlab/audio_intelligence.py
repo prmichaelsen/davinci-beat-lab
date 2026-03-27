@@ -1089,7 +1089,7 @@ def _build_rms_lookup(rms_envelope: list[dict]) -> callable:
 
 
 def apply_rules(layer1_data: dict, rules: list[dict],
-                vocal_bleed_threshold: float = 0.15,
+                vocal_bleed_threshold: float = 0.25,
                 reverb_dedup: bool = False) -> list[dict]:
     """Apply effect rules to all DSP onsets, producing frame-accurate events.
 
@@ -1249,7 +1249,7 @@ def apply_rules(layer1_data: dict, rules: list[dict],
 
 def apply_rules_in_range(layer1_data: dict, rules: list[dict],
                           start_time: float, end_time: float,
-                          vocal_bleed_threshold: float = 0.15) -> list[dict]:
+                          vocal_bleed_threshold: float = 0.25) -> list[dict]:
     """Apply effect rules only to onsets within a time range."""
     vocal_rms_env = layer1_data.get("vocals", {}).get("full", {}).get("rms_envelope", [])
     vocal_rms = _build_rms_lookup(vocal_rms_env)
@@ -1392,7 +1392,7 @@ def extract_layer3_rules_chunked(
     layer2_data: list[dict],
     creative_direction: str | None = None,
     sensitivity: dict[str, float] | None = None,
-    vocal_bleed_threshold: float = 0.15,
+    vocal_bleed_threshold: float = 0.25,
 ) -> tuple[list[dict], list[dict]]:
     """Generate per-section rules by chunking the track into energy-coherent regions.
 
@@ -1470,7 +1470,7 @@ def run_audio_intelligence(
     sensitivity: dict[str, float] | None = None,
     rules_mode: bool = False,
     chunked: bool = False,
-    vocal_bleed_threshold: float = 0.15,
+    vocal_bleed_threshold: float = 0.25,
     stats_mode: bool = False,
 ) -> dict:
     """Run the full 3-layer audio intelligence pipeline.

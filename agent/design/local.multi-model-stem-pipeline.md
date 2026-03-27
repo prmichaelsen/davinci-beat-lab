@@ -152,10 +152,11 @@ Same rules-based approach, but Claude now sees 11 named instrument stems instead
 | new_pipeline_v2 | `effects_ai_9_11m_new_pipeline_v2.mp4` | 2059 | Multi-model (InstVoc→DrumSep+Demucs6s) + onset-based rules + vocal bleed + percussion sustain suppression | "Clean as fuck" — best overall so far |
 | drumsep (full mix) | `effects_ai_9_11m_drumsep.mp4` | 1911 | DrumSep on full mix (not instrumental) | Worse — vocal artifacts in drum stems |
 | stats-only | `effects_ai_9_11m_stats.mp4` | 3806 | Multi-model + stats-only Claude prompt | "More precise but less dynamic" |
-| hybrid | `effects_ai_9_11m_hybrid.mp4` | 3067 | Multi-model + hybrid stats+curve-simplified onsets | TBD — comparing now |
+| hybrid v1 | `effects_ai_9_11m_hybrid.mp4` | 3067 | Multi-model + hybrid stats+curves, 21 rules | More dynamic than stats-only, zoom intensity lower than v2 |
+| hybrid v4 | `effects_ai_9_11m_hybrid_v4.mp4` | 1258 | Multi-model + hybrid stats+curves, 12 rules (capped) | **Sweet spot** — dynamic, punchy, focused |
 | chunked (full track) | `google_muxed_effects_final.mp4` | 8566 | 27 chunks, per-section rules | Very sparse, underwhelming — chunking kills intensity |
 
-**Current best**: `new_pipeline_v2` — multi-model stems from InstVoc instrumental, onset-based rules, no chunking, vocal bleed suppression, percussion sustained-region suppression, no hard_cut, flash→contrast_pop.
+**Current best**: `hybrid_v4` — multi-model stems from InstVoc instrumental, hybrid stats+curve-simplified onsets, 12 rules (capped), vocal bleed suppression, percussion sustained-region suppression, no hard_cut, flash→contrast_pop.
 
 ## Fallback
 

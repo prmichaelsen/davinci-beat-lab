@@ -44,6 +44,17 @@ def make_handler(work_dir: Path):
             if m:
                 return self._handle_get_beats(m.group(1))
 
+            # GET /api/projects/:name/ls (directory listing, optional ?path=subdir)
+            m = re.match(r"^/api/projects/([^/]+)/ls$", path)
+            if m:
+                query = parsed.query
+                subpath = ""
+                if query:
+                    for param in query.split("&"):
+                        if param.startswith("path="):
+                            subpath = unquote(param[5:])
+                return self._handle_ls(m.group(1), subpath)
+
             # GET /api/projects/:name/files/(.*)
             m = re.match(r"^/api/projects/([^/]+)/files/(.+)$", path)
             if m:
@@ -270,6 +281,28 @@ def make_handler(work_dir: Path):
             except Exception as e:
                 self._error(500, "INTERNAL_ERROR", str(e))
 
+        def _handle_ls(self, project_name: str, subpath: str):
+            """GET /api/projects/:name/ls?path=subdir — list directory contents."""
+            project_root = (work_dir / project_name).resolve()
+            target = (project_root / subpath).resolve()
+
+            # Path traversal prevention
+            if not str(target).startswith(str(project_root)):
+                return self._error(403, "FORBIDDEN", "Path traversal denied")
+
+            if not target.is_dir():
+                return self._error(404, "NOT_FOUND", f"Directory not found: {subpath or '/'}")
+
+            entries = []
+            for entry in sorted(target.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())):
+                rel = str(entry.resolve().relative_to(project_root))
+                info = {"name": entry.name, "path": rel, "isDirectory": entry.is_dir()}
+                if not entry.is_dir():
+                    info["size"] = entry.stat().st_size
+                entries.append(info)
+
+            self._json_response(entries)
+
         def _handle_serve_file(self, project_name: str, file_path: str):
             """GET /api/projects/:name/files/* — serve project files with Range support."""
             full_path = (work_dir / project_name / file_path).resolve()
@@ -384,6 +417,7 @@ def run_server(host: str = "0.0.0.0", port: int = 8888, work_dir: str | None = N
     _log("  GET  /api/projects                          List projects")
     _log("  GET  /api/projects/:name/keyframes          Keyframe data for editor")
     _log("  GET  /api/projects/:name/beats              Beat analysis data")
+    _log("  GET  /api/projects/:name/ls?path=             List directory contents")
     _log("  GET  /api/projects/:name/files/*             Serve project files (audio/video/images)")
     _log("  POST /api/projects/:name/select-keyframes   Apply keyframe selections")
     _log("  POST /api/projects/:name/select-slot-keyframes  Apply slot selections")

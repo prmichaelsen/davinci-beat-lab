@@ -90,8 +90,14 @@ def _compute_spectral_features(y: np.ndarray, sr: int, hop_length: int = 512) ->
 
 
 def _detect_sustained_regions(y: np.ndarray, sr: int, hop_length: int = 512,
-                               min_duration: float = 0.3, threshold_ratio: float = 0.2) -> list[dict]:
+                               min_duration: float = 0.3, threshold_ratio: float = 0.1,
+                               merge_gap: float = 2.0) -> list[dict]:
     """Detect sustained energy regions (held notes, pad swells, sustained stabs).
+
+    Args:
+        threshold_ratio: RMS threshold as fraction of max (0.1 = 10% of peak).
+        merge_gap: Merge sustained regions separated by less than this (seconds).
+            Catches strings/pads that briefly dip below threshold.
 
     Returns [{start_time, end_time, peak_energy, duration}].
     """
@@ -138,6 +144,20 @@ def _detect_sustained_regions(y: np.ndarray, sr: int, hop_length: int = 512,
                 "duration": float(dur),
                 "peak_energy": peak_val / float(np.max(rms)) if np.max(rms) > 0 else 0,
             })
+
+    # Merge nearby sustained regions — bridges brief dips in strings/pads
+    if merge_gap > 0 and len(regions) >= 2:
+        merged = [regions[0]]
+        for r in regions[1:]:
+            gap = r["start_time"] - merged[-1]["end_time"]
+            if gap <= merge_gap:
+                # Merge: extend previous region to cover the gap
+                merged[-1]["end_time"] = r["end_time"]
+                merged[-1]["duration"] = merged[-1]["end_time"] - merged[-1]["start_time"]
+                merged[-1]["peak_energy"] = max(merged[-1]["peak_energy"], r["peak_energy"])
+            else:
+                merged.append(r)
+        regions = merged
 
     return regions
 

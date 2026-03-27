@@ -450,6 +450,116 @@ def _format_layer1_for_claude(layer1_data: dict, time_offset: float = 0.0,
     return "\n".join(lines)
 
 
+def _simplify_curve(points: list[dict], time_key: str = "time", value_key: str = "strength",
+                     epsilon: float = 0.05) -> list[dict]:
+    """Ramer-Douglas-Peucker simplification on onset strength-over-time.
+
+    Removes points that are within epsilon of the line between their neighbors.
+    Keeps only shape-defining points — attacks, drops, accents.
+    """
+    if len(points) <= 2:
+        return points
+
+    # Find the point farthest from the line between first and last
+    first = points[0]
+    last = points[-1]
+
+    t0, v0 = first[time_key], first[value_key]
+    t1, v1 = last[time_key], last[value_key]
+
+    max_dist = 0
+    max_idx = 0
+    dt = t1 - t0 if t1 != t0 else 1e-9
+
+    for i in range(1, len(points) - 1):
+        t = points[i][time_key]
+        v = points[i][value_key]
+        # Distance from point to line between first and last
+        interpolated = v0 + (v1 - v0) * (t - t0) / dt
+        dist = abs(v - interpolated)
+        if dist > max_dist:
+            max_dist = dist
+            max_idx = i
+
+    if max_dist > epsilon:
+        # Recurse on both halves
+        left = _simplify_curve(points[:max_idx + 1], time_key, value_key, epsilon)
+        right = _simplify_curve(points[max_idx:], time_key, value_key, epsilon)
+        return left[:-1] + right
+    else:
+        # All points between first and last are redundant
+        return [first, last]
+
+
+def _estimate_tokens(text: str) -> int:
+    """Rough token estimate — ~4 chars per token for English text."""
+    return len(text) // 4
+
+
+def _format_hybrid_for_claude(layer1_data: dict, stats: dict, layer2_data: list[dict],
+                                time_offset: float = 0.0, time_limit: float | None = None,
+                                max_tokens: int = 150000) -> str:
+    """Format stats + simplified onset curves, fitting within token budget.
+
+    Strategy:
+    1. Always include stats summary (cheap, ~2k tokens)
+    2. Always include descriptions (cheap, ~3k tokens)
+    3. Fill remaining budget with simplified onset curves
+    4. Adjust epsilon (simplification tolerance) to fit
+    """
+    # Fixed sections
+    stats_text = _format_stats_for_claude(stats)
+    descriptions_text = _format_layer2_for_claude(layer2_data)
+
+    fixed_tokens = _estimate_tokens(stats_text) + _estimate_tokens(descriptions_text) + 5000  # system prompt overhead
+    remaining_tokens = max_tokens - fixed_tokens
+
+    # Collect all onset series across stems/bands
+    all_series = []
+    for stem_name, bands in layer1_data.items():
+        for band_name, data in bands.items():
+            onsets = data.get("onsets", [])
+            if time_limit is not None:
+                onsets = [o for o in onsets if time_offset <= o["time"] < time_offset + time_limit]
+            if len(onsets) < 2:
+                continue
+            all_series.append((stem_name, band_name, onsets))
+
+    if not all_series:
+        return f"# Audio Analysis\n\n{stats_text}\n\n{descriptions_text}"
+
+    # Binary search for epsilon that fits the budget
+    epsilon_low = 0.001
+    epsilon_high = 0.5
+    best_text = ""
+
+    for _ in range(15):  # converge in ~15 iterations
+        epsilon = (epsilon_low + epsilon_high) / 2
+
+        lines = ["\n## Onset Shape Data (curve-simplified, shape-defining points only)\n"]
+        for stem_name, band_name, onsets in all_series:
+            simplified = _simplify_curve(onsets, epsilon=epsilon)
+            if len(simplified) < 2:
+                continue
+            lines.append(f"### {stem_name}/{band_name} ({len(simplified)} points from {len(onsets)} onsets)")
+            for o in simplified:
+                lines.append(f"  {o['time']:.3f}s → {o['strength']:.3f}")
+
+        onset_text = "\n".join(lines)
+        total_tokens = _estimate_tokens(onset_text)
+
+        if total_tokens <= remaining_tokens:
+            best_text = onset_text
+            epsilon_high = epsilon  # try to fit more
+        else:
+            epsilon_low = epsilon  # too many, simplify more
+
+    total_points = best_text.count("→")
+    _log(f"    Hybrid prompt: stats + {total_points} shape-defining onset points (epsilon={epsilon_high:.4f})")
+
+    return f"# Audio Analysis\n\n## Statistical Summary\n{stats_text}\n\n## Onset Shapes\n{best_text}\n\n{descriptions_text}"
+
+
 def _compute_stem_stats(layer1_data: dict, time_offset: float = 0.0,
                          time_limit: float | None = None) -> dict:
     """Compute statistical summary per stem/band for compact Claude prompts."""
@@ -796,10 +906,17 @@ def extract_layer3_rules(
 
     if stats_mode:
         stem_stats = _compute_stem_stats(layer1_data, time_offset, time_limit)
-        dsp_summary = _format_stats_for_claude(stem_stats)
+        # Hybrid: stats + curve-simplified onset shapes, budget-aware
+        hybrid_prompt = _format_hybrid_for_claude(
+            layer1_data, stem_stats, layer2_data,
+            time_offset=time_offset, time_limit=time_limit,
+        )
+        dsp_summary = hybrid_prompt
+        gemini_summary = ""  # already included in hybrid
     else:
         dsp_summary = _format_layer1_for_claude(layer1_data, time_offset, time_limit)
-    gemini_summary = _format_layer2_for_claude(layer2_data)
+    if not stats_mode:
+        gemini_summary = _format_layer2_for_claude(layer2_data)
 
     sens = dict(DEFAULT_SENSITIVITY)
     if sensitivity:

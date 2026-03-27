@@ -990,7 +990,7 @@ Each rule specifies: which onsets to match → what effect to apply.
 3. **Layer on big hits**: Use layer_with + layer_threshold to stack effects on strong onsets without cluttering weak ones.
 4. **Sustained sounds**: Use sustain_from_rms=true for pads, held synths, vocal notes. This makes glow/zoom hold for the natural duration.
 5. **Sensitivity settings control how aggressive each effect is**: Higher sensitivity = lower min_strength thresholds, higher intensity_scale.
-6. **Aim for 15-30 rules** that collectively cover the full sonic landscape. Quality over quantity — each rule should have a clear musical purpose.
+6. **Aim for 12-18 rules MAX**. Fewer rules = more dynamic contrast. Each rule should target a DISTINCT musical element. Do NOT create separate rules for the same instrument across multiple bands unless they serve genuinely different purposes. One strong rule per instrument is better than three weak ones. The silence between effects is as important as the effects themselves.
 7. **CRITICAL — min_strength thresholds**: Set min_strength at or ABOVE the p25 (25th percentile) of that stem's strength distribution. NEVER set min_strength to 0.00 — this captures noise and micro-transients that produce tiny barely-visible effects, diluting the impact of real hits. Silence between beats is essential for dynamics — the contrast between "no effect" and "big effect" is what makes beats feel punchy. If the stats show p25=0.22, set min_strength to 0.20-0.25.
 8. **CRITICAL — intensity_scale**: For percussion (kick, snare, toms), intensity_scale should be >= 1.0. For melodic/sustained content (bass, other, piano), intensity_scale can be 0.6-1.0. Percussion should always feel impactful.
 

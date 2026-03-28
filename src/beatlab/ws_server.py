@@ -164,92 +164,129 @@ VIDEO_EXTS = {'.mp4', '.webm', '.mov'}
 
 
 class FolderWatcher:
-    """Watches folders for new files and auto-imports them to project bins."""
+    """Watches folders for new files using Linux inotify and auto-imports them to project bins."""
+
+    # inotify constants
+    IN_CREATE = 0x00000100
+    IN_MOVED_TO = 0x00000080
+    IN_CLOSE_WRITE = 0x00000008
+    EVENT_SIZE = 16  # struct inotify_event without name
 
     def __init__(self, work_dir: Path):
+        import ctypes
         self._work_dir = work_dir
-        self._watches: dict[str, dict] = {}  # key: "project:path" -> config
-        self._seen: dict[str, set[str]] = {}  # key: "project:path" -> set of filenames already seen
+        self._libc = ctypes.CDLL("libc.so.6")
+        self._fd = self._libc.inotify_init()
+        if self._fd < 0:
+            raise OSError("Failed to initialize inotify")
+        self._wd_map: dict[int, dict] = {}  # watch descriptor -> config
+        self._key_to_wd: dict[str, int] = {}  # "project:path" -> wd
         self._lock = threading.Lock()
         self._running = False
         self._thread: threading.Thread | None = None
 
     def add_watch(self, project: str, folder_path: str) -> dict:
-        """Start watching a folder for new importable files."""
+        """Start watching a folder for new importable files via inotify."""
+        import ctypes
         key = f"{project}:{folder_path}"
 
-        # Resolve the folder
         resolved = (self._work_dir / folder_path).resolve() if not Path(folder_path).is_absolute() else Path(folder_path).resolve()
         if not resolved.is_dir():
             raise ValueError(f"Not a directory: {folder_path}")
 
-        # Snapshot current files
-        current_files = set()
-        for f in resolved.iterdir():
-            if f.is_file() and f.suffix.lower() in (IMAGE_EXTS | VIDEO_EXTS):
-                current_files.add(f.name)
+        # Count existing importable files
+        existing_count = sum(1 for f in resolved.iterdir()
+                            if f.is_file() and f.suffix.lower() in (IMAGE_EXTS | VIDEO_EXTS))
+
+        # Add inotify watch: CREATE, MOVED_TO, CLOSE_WRITE
+        mask = self.IN_CREATE | self.IN_MOVED_TO | self.IN_CLOSE_WRITE
+        wd = self._libc.inotify_add_watch(self._fd, str(resolved).encode(), ctypes.c_uint32(mask))
+        if wd < 0:
+            raise OSError(f"inotify_add_watch failed for {resolved}")
 
         with self._lock:
-            self._watches[key] = {
-                "project": project,
-                "folder_path": folder_path,
-                "resolved": resolved,
-            }
-            self._seen[key] = current_files
+            # Remove old watch for same key if exists
+            if key in self._key_to_wd:
+                old_wd = self._key_to_wd[key]
+                self._libc.inotify_rm_watch(self._fd, old_wd)
+                self._wd_map.pop(old_wd, None)
+
+            self._wd_map[wd] = {"project": project, "folder_path": folder_path, "resolved": resolved}
+            self._key_to_wd[key] = wd
 
         if not self._running:
             self._start()
 
-        _log(f"Watching folder: {resolved} for project {project} ({len(current_files)} existing files)")
-        return {"watching": str(resolved), "existingFiles": len(current_files)}
+        _log(f"inotify watching: {resolved} for project {project} ({existing_count} existing files)")
+        return {"watching": str(resolved), "existingFiles": existing_count}
 
     def remove_watch(self, project: str, folder_path: str):
         key = f"{project}:{folder_path}"
         with self._lock:
-            self._watches.pop(key, None)
-            self._seen.pop(key, None)
+            wd = self._key_to_wd.pop(key, None)
+            if wd is not None:
+                self._libc.inotify_rm_watch(self._fd, wd)
+                self._wd_map.pop(wd, None)
         _log(f"Stopped watching: {folder_path} for project {project}")
 
     def get_watches(self, project: str) -> list[str]:
         with self._lock:
-            return [w["folder_path"] for k, w in self._watches.items() if w["project"] == project]
+            return [cfg["folder_path"] for cfg in self._wd_map.values() if cfg["project"] == project]
 
     def _start(self):
         self._running = True
-        self._thread = threading.Thread(target=self._poll_loop, daemon=True)
+        self._thread = threading.Thread(target=self._inotify_loop, daemon=True)
         self._thread.start()
 
-    def _poll_loop(self):
+    def _inotify_loop(self):
+        """Read inotify events and import new files."""
+        import ctypes
+        import struct
+        import os
+
+        # Pending files: wait for CLOSE_WRITE before importing (file might still be writing)
+        pending: dict[str, tuple[str, Path]] = {}  # filename -> (project, folder)
+
         while self._running:
-            time.sleep(3)
-            self._check_all()
+            # Read events (blocks until events available)
+            try:
+                buf = os.read(self._fd, 4096)
+            except OSError:
+                break
 
-    def _check_all(self):
-        with self._lock:
-            watches = dict(self._watches)
-            seen = dict(self._seen)
+            offset = 0
+            while offset < len(buf):
+                wd, mask, cookie, name_len = struct.unpack_from("iIII", buf, offset)
+                offset += self.EVENT_SIZE
+                name = buf[offset:offset + name_len].rstrip(b'\x00').decode('utf-8', errors='replace')
+                offset += name_len
 
-        for key, config in watches.items():
-            resolved: Path = config["resolved"]
-            project: str = config["project"]
-            if not resolved.is_dir():
-                continue
+                if not name:
+                    continue
 
-            current_files = set()
-            for f in resolved.iterdir():
-                if f.is_file() and f.suffix.lower() in (IMAGE_EXTS | VIDEO_EXTS):
-                    current_files.add(f.name)
+                with self._lock:
+                    config = self._wd_map.get(wd)
+                if not config:
+                    continue
 
-            prev_seen = seen.get(key, set())
-            new_files = current_files - prev_seen
-            if not new_files:
-                continue
+                ext = Path(name).suffix.lower()
+                if ext not in (IMAGE_EXTS | VIDEO_EXTS):
+                    continue
 
-            with self._lock:
-                self._seen[key] = current_files
+                project = config["project"]
+                folder = config["resolved"]
 
-            # Import new files
-            self._import_files(project, resolved, sorted(new_files))
+                if mask & (self.IN_CREATE | self.IN_MOVED_TO):
+                    # File created/moved in — mark as pending (wait for write to finish)
+                    pending[f"{wd}:{name}"] = (project, folder)
+
+                if mask & self.IN_CLOSE_WRITE:
+                    # File finished writing — import it
+                    pkey = f"{wd}:{name}"
+                    pending.pop(pkey, None)
+                    full_path = folder / name
+                    if full_path.is_file():
+                        self._import_files(project, folder, [name])
 
     def _import_files(self, project: str, folder: Path, filenames: list[str]):
         """Import new files into the project bin."""

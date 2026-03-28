@@ -1164,12 +1164,36 @@ def apply_rules(layer1_data: dict, rules: list[dict],
             # Confidence ratio: suppress bleed from non-vocal stems
             if bleed_enabled and stem != "vocals":
                 v_energy = vocal_rms(t)
-                if v_energy > 0.01:  # vocals are present
+                if v_energy > 0.01:
                     s_energy = stem_rms(t)
                     ratio = s_energy / v_energy if v_energy > 0 else 999
                     if ratio < vocal_bleed_threshold:
                         suppressed += 1
                         continue
+
+            # Percussion cross-stem bleed: DrumSep doesn't know about non-drum
+            # instruments (piano, bass, guitar, etc). Check percussion onsets against
+            # ALL melodic/harmonic stems. If any melodic stem dominates at this
+            # timestamp, the percussion onset is likely bleed from that instrument.
+            PERC_STEMS = {"kick", "snare", "hh", "toms", "ride", "crash", "drums"}
+            MELODIC_STEMS = {"vocals", "bass", "piano", "guitar", "other"}
+            if bleed_enabled and stem in PERC_STEMS:
+                s_energy = stem_rms(t)
+                is_bleed = False
+                for mel_stem in MELODIC_STEMS:
+                    mel_rms_env = layer1_data.get(mel_stem, {}).get("full", {}).get("rms_envelope", [])
+                    if not mel_rms_env:
+                        continue
+                    mel_lookup = _build_rms_lookup(mel_rms_env)
+                    mel_energy = mel_lookup(t)
+                    if mel_energy > 0.01 and s_energy > 0:
+                        ratio = s_energy / mel_energy
+                        if ratio < vocal_bleed_threshold:
+                            is_bleed = True
+                            break
+                if is_bleed:
+                    suppressed += 1
+                    continue
 
             intensity = min(1.0, strength * intensity_scale)
             evt_duration = duration

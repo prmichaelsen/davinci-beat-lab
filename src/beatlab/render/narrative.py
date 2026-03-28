@@ -1098,12 +1098,16 @@ def apply_transition_selection(yaml_path: str, selections: dict[str, int]) -> No
         shutil.copy2(str(source), str(dest))
         _log(f"  {key}: selected v{variant} -> {dest}")
 
-        # Record selection in the transition entry
+        # Record selection in the transition's selected list
+        # Each slot entry is either:
+        #   - an integer (variant number from generated candidates, e.g. 2 = v2.mp4)
+        #   - a string (path to an imported/external file)
         tr = tr_by_id.get(tr_id)
         if tr:
-            if "selected_variants" not in tr:
-                tr["selected_variants"] = {}
-            tr["selected_variants"][f"slot_{slot_idx}"] = variant
+            n_slots = tr.get("slots", 1)
+            if not isinstance(tr.get("selected"), list) or len(tr["selected"]) != n_slots:
+                tr["selected"] = [None] * n_slots
+            tr["selected"][slot_idx] = variant
 
     save_narrative(data, yaml_path)
     _log("Transition selections applied.")

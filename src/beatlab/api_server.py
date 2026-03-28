@@ -341,7 +341,10 @@ def make_handler(work_dir: Path):
                     sel_path = selected_tr_dir / f"{tr_id}_slot_{slot_idx}.mp4"
                     has_selected_videos.append(sel_path.exists())
 
-                selected_variants = tr.get("selected_variants", {})
+                # selected is a list: [variant_or_path_per_slot]
+                selected_list = tr.get("selected", [])
+                if not isinstance(selected_list, list):
+                    selected_list = []
 
                 transitions.append({
                     "id": tr_id,
@@ -353,8 +356,7 @@ def make_handler(work_dir: Path):
                     "useGlobalPrompt": tr.get("use_global_prompt", True),
                     "candidates": slot_candidates,
                     "hasSelectedVideos": has_selected_videos,
-                    "selectedVariants": selected_variants,
-                    "selected": tr.get("selected", []),
+                    "selected": selected_list,
                     "remap": tr.get("remap", {"method": "linear", "target_duration": 0}),
                 })
 

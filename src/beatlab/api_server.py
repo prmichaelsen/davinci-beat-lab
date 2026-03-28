@@ -86,6 +86,11 @@ def make_handler(work_dir: Path):
             if m:
                 return self._handle_select_slot_keyframes(m.group(1))
 
+            # POST /api/projects/:name/select-transitions
+            m = re.match(r"^/api/projects/([^/]+)/select-transitions$", path)
+            if m:
+                return self._handle_select_transitions(m.group(1))
+
             # POST /api/projects/:name/update-timestamp
             m = re.match(r"^/api/projects/([^/]+)/update-timestamp$", path)
             if m:
@@ -345,6 +350,32 @@ def make_handler(work_dir: Path):
             try:
                 from beatlab.render.narrative import apply_slot_keyframe_selection
                 apply_slot_keyframe_selection(str(yaml_path), selections)
+                self._json_response({"success": True, "applied": len(selections)})
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_select_transitions(self, project_name: str):
+            """POST /api/projects/:name/select-transitions — apply transition video selections.
+
+            Body: { "selections": { "tr_001_slot_0": 2, "tr_005": 1 } }
+            Keys are "tr_NNN_slot_N" or "tr_NNN" (shorthand for slot_0).
+            Values are 1-based variant indices.
+            """
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            selections = body.get("selections", {})
+            if not selections:
+                return self._error(400, "BAD_REQUEST", "Missing 'selections' in body")
+
+            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
+            if not yaml_path.exists():
+                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+
+            try:
+                from beatlab.render.narrative import apply_transition_selection
+                apply_transition_selection(str(yaml_path), selections)
                 self._json_response({"success": True, "applied": len(selections)})
             except Exception as e:
                 self._error(500, "INTERNAL_ERROR", str(e))

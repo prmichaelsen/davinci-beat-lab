@@ -1199,12 +1199,16 @@ def apply_rules(layer1_data: dict, rules: list[dict],
             # Layered effects on strong hits
             if layer_with and strength >= layer_threshold:
                 for layer_effect in layer_with:
+                    # Transient layered effects get transient duration, not sustained
+                    TRANSIENT_LAYER = {"shake_x", "shake_y", "flash", "hard_cut"}
+                    layer_dur = duration if layer_effect in TRANSIENT_LAYER else evt_duration
+                    layer_sustain = None if layer_effect in TRANSIENT_LAYER else sustain
                     events.append({
                         "time": t,
-                        "duration": evt_duration,
+                        "duration": layer_dur,
                         "effect": layer_effect,
                         "intensity": min(1.0, intensity * 0.8),
-                        "sustain": sustain,
+                        "sustain": layer_sustain,
                         "stem_source": f"{stem}/{band}",
                         "rationale": f"layered with {effect} on strong hit",
                     })
@@ -1319,12 +1323,16 @@ def apply_rules_in_range(layer1_data: dict, rules: list[dict],
 
             if layer_with and strength >= layer_threshold:
                 for layer_effect in layer_with:
+                    # Transient layered effects get transient duration, not sustained
+                    TRANSIENT_LAYER = {"shake_x", "shake_y", "flash", "hard_cut"}
+                    layer_dur = duration if layer_effect in TRANSIENT_LAYER else evt_duration
+                    layer_sustain = None if layer_effect in TRANSIENT_LAYER else sustain
                     events.append({
                         "time": t,
-                        "duration": evt_duration,
+                        "duration": layer_dur,
                         "effect": layer_effect,
                         "intensity": min(1.0, intensity * 0.8),
-                        "sustain": sustain,
+                        "sustain": layer_sustain,
                         "stem_source": f"{stem}/{band}",
                         "rationale": f"layered with {effect} on strong hit",
                     })

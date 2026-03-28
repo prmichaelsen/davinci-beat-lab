@@ -214,20 +214,23 @@ def make_handler(work_dir: Path):
             if not target.is_dir():
                 return self._error(404, "NOT_FOUND", f"Directory not found: {subpath or '/'}")
 
+            # Use os.scandir for fast directory listing (single syscall, cached stat)
             entries = []
-            for entry in sorted(target.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())):
-                rel = str(entry.resolve().relative_to(work_dir.resolve()))
-                info = {"name": entry.name, "path": rel, "isDirectory": entry.is_dir()}
-                if not entry.is_dir():
-                    ext = entry.suffix.lower()
-                    info["size"] = entry.stat().st_size
-                    if ext in ('.png', '.jpg', '.jpeg', '.webp'):
-                        info["type"] = "image"
-                    elif ext in ('.mp4', '.webm', '.mov'):
-                        info["type"] = "video"
-                    else:
-                        info["type"] = "other"
-                entries.append(info)
+            with os.scandir(target) as scanner:
+                items = sorted(scanner, key=lambda e: (not e.is_dir(follow_symlinks=False), e.name.lower()))
+                for entry in items:
+                    is_dir = entry.is_dir(follow_symlinks=False)
+                    rel = str(Path(entry.path).relative_to(work_dir.resolve()))
+                    info: dict = {"name": entry.name, "path": rel, "isDirectory": is_dir}
+                    if not is_dir:
+                        ext = Path(entry.name).suffix.lower()
+                        if ext in ('.png', '.jpg', '.jpeg', '.webp'):
+                            info["type"] = "image"
+                        elif ext in ('.mp4', '.webm', '.mov'):
+                            info["type"] = "video"
+                        else:
+                            info["type"] = "other"
+                    entries.append(info)
 
             self._json_response({"path": subpath or "", "entries": entries})
 
@@ -1210,13 +1213,15 @@ def make_handler(work_dir: Path):
             if not target.is_dir():
                 return self._error(404, "NOT_FOUND", f"Directory not found: {subpath or '/'}")
 
+            # Use os.scandir for fast listing (no per-file stat on network mounts)
             entries = []
-            for entry in sorted(target.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())):
-                rel = str(entry.resolve().relative_to(project_root))
-                info = {"name": entry.name, "path": rel, "isDirectory": entry.is_dir()}
-                if not entry.is_dir():
-                    info["size"] = entry.stat().st_size
-                entries.append(info)
+            with os.scandir(target) as scanner:
+                items = sorted(scanner, key=lambda e: (not e.is_dir(follow_symlinks=False), e.name.lower()))
+                for entry in items:
+                    is_dir = entry.is_dir(follow_symlinks=False)
+                    rel = str(Path(entry.path).relative_to(project_root))
+                    info: dict = {"name": entry.name, "path": rel, "isDirectory": is_dir}
+                    entries.append(info)
 
             self._json_response(entries)
 

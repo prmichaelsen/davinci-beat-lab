@@ -75,6 +75,16 @@ def make_handler(work_dir: Path):
             if m:
                 return self._handle_get_watched_folders(m.group(1))
 
+            # GET /api/projects/:name/version/history
+            m = re.match(r"^/api/projects/([^/]+)/version/history$", path)
+            if m:
+                return self._handle_version_history(m.group(1))
+
+            # GET /api/projects/:name/version/diff
+            m = re.match(r"^/api/projects/([^/]+)/version/diff$", path)
+            if m:
+                return self._handle_version_diff(m.group(1))
+
             # GET /api/projects/:name/effects
             m = re.match(r"^/api/projects/([^/]+)/effects$", path)
             if m:
@@ -175,6 +185,26 @@ def make_handler(work_dir: Path):
             m = re.match(r"^/api/projects/([^/]+)/unwatch-folder$", path)
             if m:
                 return self._handle_unwatch_folder(m.group(1))
+
+            # POST /api/projects/:name/version/commit
+            m = re.match(r"^/api/projects/([^/]+)/version/commit$", path)
+            if m:
+                return self._handle_version_commit(m.group(1))
+
+            # POST /api/projects/:name/version/checkout
+            m = re.match(r"^/api/projects/([^/]+)/version/checkout$", path)
+            if m:
+                return self._handle_version_checkout(m.group(1))
+
+            # POST /api/projects/:name/version/branch
+            m = re.match(r"^/api/projects/([^/]+)/version/branch$", path)
+            if m:
+                return self._handle_version_branch(m.group(1))
+
+            # POST /api/projects/:name/version/delete-branch
+            m = re.match(r"^/api/projects/([^/]+)/version/delete-branch$", path)
+            if m:
+                return self._handle_version_delete_branch(m.group(1))
 
             self._error(404, "NOT_FOUND", f"No route: POST {path}")
 
@@ -1326,6 +1356,267 @@ def make_handler(work_dir: Path):
                         self.wfile.write(chunk)
             except (BrokenPipeError, ConnectionResetError):
                 pass
+
+        # ── Git Version Handlers ─────────────────────────────────
+
+        def _ensure_git_repo(self, project_dir: Path):
+            """Lazily initialize git repo in project directory."""
+            if not (project_dir / ".git").exists():
+                import subprocess as sp
+                sp.run(["git", "init"], cwd=project_dir, capture_output=True, check=True)
+                sp.run(["git", "add", "-A"], cwd=project_dir, capture_output=True, check=True)
+                sp.run(["git", "commit", "-m", "Initial project state"], cwd=project_dir, capture_output=True, check=True)
+
+        def _handle_version_commit(self, project_name: str):
+            """POST /api/projects/:name/version/commit"""
+            import subprocess as sp
+            body = self._read_json_body()
+            if body is None:
+                return
+            message = body.get("message", "Save")
+            project_dir = work_dir / project_name
+            if not project_dir.is_dir():
+                return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
+
+            self._ensure_git_repo(project_dir)
+
+            # Stage all changes
+            sp.run(["git", "add", "-A"], cwd=project_dir, capture_output=True, check=True)
+
+            # Check if there's anything to commit
+            status = sp.run(["git", "status", "--porcelain"], cwd=project_dir, capture_output=True, text=True)
+            if not status.stdout.strip():
+                return self._json_response({"success": True, "noChanges": True})
+
+            # Commit
+            result = sp.run(["git", "commit", "-m", message], cwd=project_dir, capture_output=True, text=True)
+            if result.returncode != 0:
+                return self._error(500, "GIT_ERROR", result.stderr.strip())
+
+            # Get SHA
+            sha = sp.run(["git", "rev-parse", "--short", "HEAD"], cwd=project_dir, capture_output=True, text=True)
+            self._json_response({"success": True, "sha": sha.stdout.strip(), "message": message})
+
+        def _handle_version_history(self, project_name: str):
+            """GET /api/projects/:name/version/history"""
+            import subprocess as sp
+            project_dir = work_dir / project_name
+            if not project_dir.is_dir():
+                return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
+
+            self._ensure_git_repo(project_dir)
+
+            # Parse limit from query
+            parsed = urlparse(self.path)
+            limit = 20
+            if parsed.query:
+                for param in parsed.query.split("&"):
+                    if param.startswith("limit="):
+                        try:
+                            limit = int(param[6:])
+                        except ValueError:
+                            pass
+
+            # Get log
+            log = sp.run(
+                ["git", "log", f"--max-count={limit}", "--format=%H|%h|%s|%aI"],
+                cwd=project_dir, capture_output=True, text=True,
+            )
+            commits = []
+            for line in log.stdout.strip().split("\n"):
+                if not line:
+                    continue
+                parts = line.split("|", 3)
+                if len(parts) >= 4:
+                    commits.append({
+                        "sha": parts[1],
+                        "fullSha": parts[0],
+                        "message": parts[2],
+                        "date": parts[3],
+                    })
+
+            # Get current branch
+            branch = sp.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=project_dir, capture_output=True, text=True,
+            )
+
+            # Get all branches
+            branches_result = sp.run(
+                ["git", "branch", "--list", "--format=%(refname:short)"],
+                cwd=project_dir, capture_output=True, text=True,
+            )
+            branches = [b.strip() for b in branches_result.stdout.strip().split("\n") if b.strip()]
+
+            self._json_response({
+                "commits": commits,
+                "branch": branch.stdout.strip(),
+                "branches": branches,
+            })
+
+        def _handle_version_checkout(self, project_name: str):
+            """POST /api/projects/:name/version/checkout — restore to commit as new commit."""
+            import subprocess as sp
+            body = self._read_json_body()
+            if body is None:
+                return
+            sha = body.get("sha")
+            if not sha:
+                return self._error(400, "BAD_REQUEST", "Missing 'sha'")
+
+            project_dir = work_dir / project_name
+            if not project_dir.is_dir():
+                return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
+
+            self._ensure_git_repo(project_dir)
+
+            # Get original commit message
+            msg_result = sp.run(
+                ["git", "log", "-1", "--format=%s", sha],
+                cwd=project_dir, capture_output=True, text=True,
+            )
+            original_msg = msg_result.stdout.strip() if msg_result.returncode == 0 else "unknown"
+
+            # Restore files from that commit
+            result = sp.run(
+                ["git", "checkout", sha, "--", "."],
+                cwd=project_dir, capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                return self._error(500, "GIT_ERROR", result.stderr.strip())
+
+            # Commit the restoration as a new commit
+            sp.run(["git", "add", "-A"], cwd=project_dir, capture_output=True, check=True)
+            restore_msg = f"Restored to: {original_msg}"
+            sp.run(["git", "commit", "-m", restore_msg], cwd=project_dir, capture_output=True, text=True)
+
+            new_sha = sp.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=project_dir, capture_output=True, text=True,
+            )
+            self._json_response({"success": True, "sha": new_sha.stdout.strip(), "message": restore_msg})
+
+        def _handle_version_branch(self, project_name: str):
+            """POST /api/projects/:name/version/branch — create or switch branch."""
+            import subprocess as sp
+            body = self._read_json_body()
+            if body is None:
+                return
+            name = body.get("name")
+            create = body.get("create", False)
+            if not name:
+                return self._error(400, "BAD_REQUEST", "Missing 'name'")
+
+            project_dir = work_dir / project_name
+            if not project_dir.is_dir():
+                return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
+
+            self._ensure_git_repo(project_dir)
+
+            if create:
+                result = sp.run(
+                    ["git", "checkout", "-b", name],
+                    cwd=project_dir, capture_output=True, text=True,
+                )
+            else:
+                result = sp.run(
+                    ["git", "checkout", name],
+                    cwd=project_dir, capture_output=True, text=True,
+                )
+
+            if result.returncode != 0:
+                return self._error(500, "GIT_ERROR", result.stderr.strip())
+
+            self._json_response({"success": True, "branch": name})
+
+        def _handle_version_diff(self, project_name: str):
+            """GET /api/projects/:name/version/diff — show uncommitted changes."""
+            import subprocess as sp
+            project_dir = work_dir / project_name
+            if not project_dir.is_dir():
+                return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
+
+            self._ensure_git_repo(project_dir)
+
+            # Parse optional from/to query params
+            parsed = urlparse(self.path)
+            from_ref = None
+            to_ref = None
+            if parsed.query:
+                for param in parsed.query.split("&"):
+                    if param.startswith("from="):
+                        from_ref = unquote(param[5:])
+                    elif param.startswith("to="):
+                        to_ref = unquote(param[3:])
+
+            if from_ref and to_ref:
+                # Diff between two commits
+                result = sp.run(
+                    ["git", "diff", "--name-status", from_ref, to_ref],
+                    cwd=project_dir, capture_output=True, text=True,
+                )
+            else:
+                # Uncommitted changes
+                result = sp.run(
+                    ["git", "status", "--porcelain"],
+                    cwd=project_dir, capture_output=True, text=True,
+                )
+
+            files = []
+            for line in result.stdout.strip().split("\n"):
+                if not line:
+                    continue
+                if from_ref and to_ref:
+                    # git diff --name-status format: "M\tfile.txt"
+                    parts = line.split("\t", 1)
+                    status_map = {"M": "modified", "A": "added", "D": "deleted", "R": "renamed"}
+                    status = status_map.get(parts[0].strip(), parts[0].strip())
+                    filepath = parts[1] if len(parts) > 1 else ""
+                else:
+                    # git status --porcelain format: "XY file.txt"
+                    status_code = line[:2].strip()
+                    filepath = line[3:].strip()
+                    status_map = {"M": "modified", "A": "added", "D": "deleted", "??": "untracked", "R": "renamed"}
+                    status = status_map.get(status_code, status_code)
+
+                is_binary = any(filepath.endswith(ext) for ext in
+                                (".png", ".jpg", ".jpeg", ".mp4", ".wav", ".mp3", ".zip"))
+                files.append({"path": filepath, "status": status, "binary": is_binary})
+
+            self._json_response({"files": files, "hasChanges": len(files) > 0})
+
+        def _handle_version_delete_branch(self, project_name: str):
+            """POST /api/projects/:name/version/delete-branch"""
+            import subprocess as sp
+            body = self._read_json_body()
+            if body is None:
+                return
+            name = body.get("name")
+            if not name:
+                return self._error(400, "BAD_REQUEST", "Missing 'name'")
+
+            project_dir = work_dir / project_name
+            if not project_dir.is_dir():
+                return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
+
+            self._ensure_git_repo(project_dir)
+
+            # Check not current branch
+            current = sp.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=project_dir, capture_output=True, text=True,
+            )
+            if current.stdout.strip() == name:
+                return self._error(400, "BAD_REQUEST", f"Cannot delete current branch: {name}")
+
+            result = sp.run(
+                ["git", "branch", "-D", name],
+                cwd=project_dir, capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                return self._error(500, "GIT_ERROR", result.stderr.strip())
+
+            self._json_response({"success": True})
 
         # ── Helpers ──────────────────────────────────────────────
 

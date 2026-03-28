@@ -464,9 +464,9 @@ def make_handler(work_dir: Path):
             if not selections:
                 return self._error(400, "BAD_REQUEST", "Missing 'selections' in body")
 
-            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
-            if not yaml_path.exists():
-                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+            yaml_path = self._require_yaml_path(project_name)
+            if yaml_path is None:
+                return
 
             try:
                 from beatlab.render.narrative import apply_keyframe_selection
@@ -485,9 +485,9 @@ def make_handler(work_dir: Path):
             if not selections:
                 return self._error(400, "BAD_REQUEST", "Missing 'selections' in body")
 
-            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
-            if not yaml_path.exists():
-                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+            yaml_path = self._require_yaml_path(project_name)
+            if yaml_path is None:
+                return
 
             try:
                 from beatlab.render.narrative import apply_slot_keyframe_selection
@@ -511,9 +511,9 @@ def make_handler(work_dir: Path):
             if not selections:
                 return self._error(400, "BAD_REQUEST", "Missing 'selections' in body")
 
-            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
-            if not yaml_path.exists():
-                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+            yaml_path = self._require_yaml_path(project_name)
+            if yaml_path is None:
+                return
 
             try:
                 from beatlab.render.narrative import apply_transition_selection
@@ -533,9 +533,9 @@ def make_handler(work_dir: Path):
             if not kf_id or new_timestamp is None:
                 return self._error(400, "BAD_REQUEST", "Missing 'keyframeId' or 'newTimestamp'")
 
-            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
-            if not yaml_path.exists():
-                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+            yaml_path = self._require_yaml_path(project_name)
+            if yaml_path is None:
+                return
 
             try:
                 # Read, find keyframe, update timestamp, write back
@@ -563,13 +563,11 @@ def make_handler(work_dir: Path):
 
         def _handle_get_bin(self, project_name: str):
             """GET /api/projects/:name/bin — list binned (soft-deleted) keyframes."""
-            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
-            if not yaml_path.exists():
+            from beatlab.project import load_project
+            project_dir = work_dir / project_name
+            if not project_dir.is_dir():
                 return self._json_response({"bin": []})
-
-            import yaml as pyyaml
-            with open(yaml_path) as f:
-                parsed = pyyaml.safe_load(f)
+            parsed = load_project(project_dir)
 
             project_dir = work_dir / project_name
             bin_entries = []
@@ -608,9 +606,9 @@ def make_handler(work_dir: Path):
             if not kf_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'keyframeId'")
 
-            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
-            if not yaml_path.exists():
-                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+            yaml_path = self._require_yaml_path(project_name)
+            if yaml_path is None:
+                return
 
             try:
                 import yaml as pyyaml
@@ -648,9 +646,9 @@ def make_handler(work_dir: Path):
             if not kf_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'keyframeId'")
 
-            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
-            if not yaml_path.exists():
-                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+            yaml_path = self._require_yaml_path(project_name)
+            if yaml_path is None:
+                return
 
             try:
                 import yaml as pyyaml
@@ -695,9 +693,9 @@ def make_handler(work_dir: Path):
             if not tr_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'transitionId'")
 
-            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
-            if not yaml_path.exists():
-                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+            yaml_path = self._require_yaml_path(project_name)
+            if yaml_path is None:
+                return
 
             try:
                 import yaml as pyyaml
@@ -735,9 +733,9 @@ def make_handler(work_dir: Path):
             if not tr_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'transitionId'")
 
-            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
-            if not yaml_path.exists():
-                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+            yaml_path = self._require_yaml_path(project_name)
+            if yaml_path is None:
+                return
 
             try:
                 import yaml as pyyaml
@@ -776,9 +774,9 @@ def make_handler(work_dir: Path):
             if not tr_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'transitionId'")
 
-            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
-            if not yaml_path.exists():
-                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+            yaml_path = self._require_yaml_path(project_name)
+            if yaml_path is None:
+                return
 
             try:
                 import yaml as pyyaml
@@ -813,9 +811,9 @@ def make_handler(work_dir: Path):
             if not tr_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'transitionId'")
 
-            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
-            if not yaml_path.exists():
-                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+            yaml_path = self._require_yaml_path(project_name)
+            if yaml_path is None:
+                return
 
             try:
                 import yaml as pyyaml
@@ -909,9 +907,9 @@ def make_handler(work_dir: Path):
             if not kf_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'keyframeId'")
 
-            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
-            if not yaml_path.exists():
-                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+            yaml_path = self._require_yaml_path(project_name)
+            if yaml_path is None:
+                return
 
             from beatlab.ws_server import job_manager
             n_candidates = count or 4
@@ -956,9 +954,9 @@ def make_handler(work_dir: Path):
             if not tr_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'transitionId'")
 
-            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
-            if not yaml_path.exists():
-                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+            yaml_path = self._require_yaml_path(project_name)
+            if yaml_path is None:
+                return
 
             from beatlab.ws_server import job_manager
             job_id = job_manager.create_job("transition_candidates", total=0, meta={"transitionId": tr_id, "project": project_name})
@@ -1000,9 +998,9 @@ def make_handler(work_dir: Path):
             if body is None:
                 return
 
-            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
-            if not yaml_path.exists():
-                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+            yaml_path = self._require_yaml_path(project_name)
+            if yaml_path is None:
+                return
 
             try:
                 import yaml as pyyaml
@@ -1025,12 +1023,9 @@ def make_handler(work_dir: Path):
 
         def _handle_get_watched_folders(self, project_name: str):
             """GET /api/projects/:name/watched-folders — list persisted watched folders."""
-            import yaml as pyyaml
-            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
-            if not yaml_path.exists():
-                return self._json_response({"watchedFolders": []})
-            with open(yaml_path) as f:
-                parsed = pyyaml.safe_load(f) or {}
+            from beatlab.project import load_project
+            project_dir = work_dir / project_name
+            parsed = load_project(project_dir) if project_dir.is_dir() else {}
             self._json_response({"watchedFolders": parsed.get("watched_folders", [])})
 
         def _handle_get_effects(self, project_name: str):
@@ -1097,17 +1092,14 @@ def make_handler(work_dir: Path):
                 result = folder_watcher.add_watch(project_name, folder_path)
 
                 # Persist to YAML
-                import yaml as pyyaml
-                yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
-                if yaml_path.exists():
-                    with open(yaml_path) as f:
-                        parsed = pyyaml.safe_load(f) or {}
-                    watched = parsed.get("watched_folders", [])
-                    if folder_path not in watched:
-                        watched.append(folder_path)
-                    parsed["watched_folders"] = watched
-                    with open(yaml_path, "w") as f:
-                        pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+                from beatlab.project import load_project, save_project
+                project_dir = work_dir / project_name
+                data = load_project(project_dir)
+                watched = data.get("watched_folders", [])
+                if folder_path not in watched:
+                    watched.append(folder_path)
+                data["watched_folders"] = watched
+                save_project(data, project_dir)
 
                 self._json_response({"success": True, **result})
             except Exception as e:
@@ -1128,17 +1120,15 @@ def make_handler(work_dir: Path):
                 folder_watcher.remove_watch(project_name, folder_path)
 
             # Remove from YAML
-            import yaml as pyyaml
-            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
-            if yaml_path.exists():
-                with open(yaml_path) as f:
-                    parsed = pyyaml.safe_load(f) or {}
-                watched = parsed.get("watched_folders", [])
+            from beatlab.project import load_project, save_project
+            project_dir = work_dir / project_name
+            if project_dir.is_dir():
+                data = load_project(project_dir)
+                watched = data.get("watched_folders", [])
                 if folder_path in watched:
                     watched.remove(folder_path)
-                parsed["watched_folders"] = watched
-                with open(yaml_path, "w") as f:
-                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+                data["watched_folders"] = watched
+                save_project(data, project_dir)
 
             self._json_response({"success": True})
 
@@ -1170,19 +1160,14 @@ def make_handler(work_dir: Path):
                 return self._error(404, "NOT_FOUND", f"Source path not found: {source_path}")
 
             try:
-                import yaml as pyyaml
+                from beatlab.project import load_project, save_project
                 import shutil
                 from datetime import datetime, timezone
 
-                yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
                 project_dir = work_dir / project_name
-
-                # Load or create YAML
-                if yaml_path.exists():
-                    with open(yaml_path) as f:
-                        parsed = pyyaml.safe_load(f) or {}
-                else:
-                    parsed = {"meta": {"title": project_name, "fps": 24, "resolution": [1920, 1080]}, "keyframes": [], "transitions": []}
+                parsed = load_project(project_dir)
+                if parsed.get("_format") == "empty":
+                    parsed = {"meta": {"title": project_name, "fps": 24, "resolution": [1920, 1080]}, "keyframes": [], "transitions": [], "_format": "legacy", "_work_dir": str(project_dir)}
 
                 keyframes = parsed.get("keyframes", [])
                 transitions = parsed.get("transitions", [])
@@ -1288,8 +1273,7 @@ def make_handler(work_dir: Path):
                 parsed["bin"] = kf_bin
                 parsed["transition_bin"] = tr_bin
 
-                with open(yaml_path, "w") as f:
-                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+                save_project(parsed, project_dir)
 
                 self._json_response({
                     "success": True,
@@ -1742,22 +1726,24 @@ def make_handler(work_dir: Path):
         # ── Helpers ──────────────────────────────────────────────
 
         def _get_yaml_path(self, project_name: str) -> Path | None:
-            """Get the YAML path for a project — split or legacy format.
+            """Get the narrative_keyframes.yaml path for a project.
 
-            Returns the legacy narrative_keyframes.yaml path for handlers that
-            still call render/narrative.py functions (which expect that path).
-            For split format, returns narrative_keyframes.yaml if it exists,
-            otherwise None (caller should use load_project instead).
+            For handlers that call render/narrative.py functions (which expect
+            the legacy YAML path). Returns the path if it exists, None otherwise.
             """
             project_dir = work_dir / project_name
             legacy = project_dir / "narrative_keyframes.yaml"
             if legacy.exists():
                 return legacy
-            # Check split format — some handlers need the legacy path for
-            # narrative.py compatibility. Return None to signal split format.
-            if (project_dir / "timeline.yaml").exists():
-                return None
             return None
+
+        def _require_yaml_path(self, project_name: str) -> Path | None:
+            """Get YAML path or send 404 error. Returns None if error was sent."""
+            path = self._get_yaml_path(project_name)
+            if path is None:
+                self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+                return None
+            return path
 
         def _has_project_yaml(self, project_name: str) -> bool:
             """Check if a project has any YAML data (split or legacy)."""
@@ -1826,17 +1812,15 @@ def run_server(host: str = "0.0.0.0", port: int = 8888, work_dir: str | None = N
     start_ws_server(host, ws_port)
 
     # Restore persisted folder watches from project YAMLs
-    import yaml as pyyaml
+    from beatlab.project import load_project
     restored_watches = 0
     for project_dir in wd.iterdir():
         if not project_dir.is_dir():
             continue
-        yaml_path = project_dir / "narrative_keyframes.yaml"
-        if not yaml_path.exists():
-            continue
         try:
-            with open(yaml_path) as f:
-                parsed = pyyaml.safe_load(f) or {}
+            parsed = load_project(project_dir)
+            if parsed.get("_format") == "empty":
+                continue
             for folder_path in parsed.get("watched_folders", []):
                 try:
                     _ws_mod.folder_watcher.add_watch(project_dir.name, folder_path)

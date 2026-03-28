@@ -55,6 +55,11 @@ def make_handler(work_dir: Path):
                             subpath = unquote(param[5:])
                 return self._handle_ls(m.group(1), subpath)
 
+            # GET /api/projects/:name/bin
+            m = re.match(r"^/api/projects/([^/]+)/bin$", path)
+            if m:
+                return self._handle_get_bin(m.group(1))
+
             # GET /api/projects/:name/files/(.*)
             m = re.match(r"^/api/projects/([^/]+)/files/(.+)$", path)
             if m:
@@ -80,6 +85,41 @@ def make_handler(work_dir: Path):
             m = re.match(r"^/api/projects/([^/]+)/update-timestamp$", path)
             if m:
                 return self._handle_update_timestamp(m.group(1))
+
+            # POST /api/projects/:name/delete-keyframe
+            m = re.match(r"^/api/projects/([^/]+)/delete-keyframe$", path)
+            if m:
+                return self._handle_delete_keyframe(m.group(1))
+
+            # POST /api/projects/:name/restore-keyframe
+            m = re.match(r"^/api/projects/([^/]+)/restore-keyframe$", path)
+            if m:
+                return self._handle_restore_keyframe(m.group(1))
+
+            # POST /api/projects/:name/delete-transition
+            m = re.match(r"^/api/projects/([^/]+)/delete-transition$", path)
+            if m:
+                return self._handle_delete_transition(m.group(1))
+
+            # POST /api/projects/:name/restore-transition
+            m = re.match(r"^/api/projects/([^/]+)/restore-transition$", path)
+            if m:
+                return self._handle_restore_transition(m.group(1))
+
+            # POST /api/projects/:name/update-transition-action
+            m = re.match(r"^/api/projects/([^/]+)/update-transition-action$", path)
+            if m:
+                return self._handle_update_transition_action(m.group(1))
+
+            # POST /api/projects/:name/generate-transition-action
+            m = re.match(r"^/api/projects/([^/]+)/generate-transition-action$", path)
+            if m:
+                return self._handle_generate_transition_action(m.group(1))
+
+            # POST /api/projects/:name/update-meta
+            m = re.match(r"^/api/projects/([^/]+)/update-meta$", path)
+            if m:
+                return self._handle_update_meta(m.group(1))
 
             self._error(404, "NOT_FOUND", f"No route: POST {path}")
 
@@ -139,6 +179,8 @@ def make_handler(work_dir: Path):
                 "title": meta.get("title", project_name),
                 "fps": meta.get("fps", 24),
                 "resolution": meta.get("resolution", [1920, 1080]),
+                "motionPrompt": meta.get("motion_prompt", ""),
+                "defaultTransitionPrompt": meta.get("default_transition_prompt", "Smooth cinematic transition"),
             }
 
             keyframes = []
@@ -183,9 +225,26 @@ def make_handler(work_dir: Path):
                     audio_file = candidate
                     break
 
+            # Parse transitions
+            transitions = []
+            for tr in parsed.get("transitions", []):
+                transitions.append({
+                    "id": tr.get("id", ""),
+                    "from": tr.get("from", ""),
+                    "to": tr.get("to", ""),
+                    "durationSeconds": tr.get("duration_seconds", 0),
+                    "slots": tr.get("slots", 1),
+                    "action": tr.get("action", ""),
+                    "useGlobalPrompt": tr.get("use_global_prompt", True),
+                    "candidates": tr.get("candidates", []),
+                    "selected": tr.get("selected", []),
+                    "remap": tr.get("remap", {"method": "linear", "target_duration": 0}),
+                })
+
             self._json_response({
                 "meta": result_meta,
                 "keyframes": keyframes,
+                "transitions": transitions,
                 "audioFile": audio_file,
                 "projectName": project_name,
             })
@@ -281,6 +340,372 @@ def make_handler(work_dir: Path):
             except Exception as e:
                 self._error(500, "INTERNAL_ERROR", str(e))
 
+        def _handle_get_bin(self, project_name: str):
+            """GET /api/projects/:name/bin — list binned (soft-deleted) keyframes."""
+            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
+            if not yaml_path.exists():
+                return self._json_response({"bin": []})
+
+            import yaml as pyyaml
+            with open(yaml_path) as f:
+                parsed = pyyaml.safe_load(f)
+
+            project_dir = work_dir / project_name
+            bin_entries = []
+            for kf in parsed.get("bin", []):
+                kf_id = kf.get("id", "")
+                img_path = project_dir / "selected_keyframes" / f"{kf_id}.png"
+                bin_entries.append({
+                    "id": kf_id,
+                    "deleted_at": kf.get("deleted_at", ""),
+                    "timestamp": kf.get("timestamp", "0:00"),
+                    "section": kf.get("section", ""),
+                    "prompt": kf.get("prompt", ""),
+                    "hasSelectedImage": img_path.exists(),
+                })
+
+            transition_bin = []
+            for tr in parsed.get("transition_bin", []):
+                transition_bin.append({
+                    "id": tr.get("id", ""),
+                    "deleted_at": tr.get("deleted_at", ""),
+                    "from": tr.get("from", ""),
+                    "to": tr.get("to", ""),
+                    "durationSeconds": tr.get("duration_seconds", 0),
+                    "slots": tr.get("slots", 1),
+                })
+
+            self._json_response({"bin": bin_entries, "transitionBin": transition_bin})
+
+        def _handle_delete_keyframe(self, project_name: str):
+            """POST /api/projects/:name/delete-keyframe — soft-delete a keyframe to bin."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            kf_id = body.get("keyframeId")
+            if not kf_id:
+                return self._error(400, "BAD_REQUEST", "Missing 'keyframeId'")
+
+            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
+            if not yaml_path.exists():
+                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+
+            try:
+                import yaml as pyyaml
+                from datetime import datetime, timezone
+                with open(yaml_path) as f:
+                    parsed = pyyaml.safe_load(f)
+
+                keyframes = parsed.get("keyframes", [])
+                idx = next((i for i, kf in enumerate(keyframes) if kf.get("id") == kf_id), -1)
+                if idx == -1:
+                    return self._error(404, "NOT_FOUND", f"Keyframe {kf_id} not found")
+
+                removed = keyframes.pop(idx)
+                removed["deleted_at"] = datetime.now(timezone.utc).isoformat()
+
+                bin_list = parsed.get("bin", [])
+                bin_list.append(removed)
+                parsed["bin"] = bin_list
+                parsed["keyframes"] = keyframes
+
+                with open(yaml_path, "w") as f:
+                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+
+                self._json_response({"success": True, "binned": {"id": kf_id, "deleted_at": removed["deleted_at"]}})
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_restore_keyframe(self, project_name: str):
+            """POST /api/projects/:name/restore-keyframe — restore a keyframe from bin."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            kf_id = body.get("keyframeId")
+            if not kf_id:
+                return self._error(400, "BAD_REQUEST", "Missing 'keyframeId'")
+
+            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
+            if not yaml_path.exists():
+                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+
+            try:
+                import yaml as pyyaml
+                with open(yaml_path) as f:
+                    parsed = pyyaml.safe_load(f)
+
+                bin_list = parsed.get("bin", [])
+                idx = next((i for i, kf in enumerate(bin_list) if kf.get("id") == kf_id), -1)
+                if idx == -1:
+                    return self._error(404, "NOT_FOUND", f"Keyframe {kf_id} not in bin")
+
+                restored = bin_list.pop(idx)
+                del restored["deleted_at"]
+
+                keyframes = parsed.get("keyframes", [])
+                keyframes.append(restored)
+                # Sort by timestamp
+                def parse_ts(ts):
+                    parts = str(ts).split(":")
+                    if len(parts) == 2:
+                        return int(parts[0]) * 60 + float(parts[1])
+                    return 0
+                keyframes.sort(key=lambda kf: parse_ts(kf.get("timestamp", "0:00")))
+
+                parsed["keyframes"] = keyframes
+                parsed["bin"] = bin_list
+
+                with open(yaml_path, "w") as f:
+                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+
+                self._json_response({"success": True, "keyframe": {"id": kf_id}})
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_delete_transition(self, project_name: str):
+            """POST /api/projects/:name/delete-transition — soft-delete a transition to bin."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            tr_id = body.get("transitionId")
+            if not tr_id:
+                return self._error(400, "BAD_REQUEST", "Missing 'transitionId'")
+
+            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
+            if not yaml_path.exists():
+                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+
+            try:
+                import yaml as pyyaml
+                from datetime import datetime, timezone
+                with open(yaml_path) as f:
+                    parsed = pyyaml.safe_load(f)
+
+                transitions = parsed.get("transitions", [])
+                idx = next((i for i, tr in enumerate(transitions) if tr.get("id") == tr_id), -1)
+                if idx == -1:
+                    return self._error(404, "NOT_FOUND", f"Transition {tr_id} not found")
+
+                removed = transitions.pop(idx)
+                removed["deleted_at"] = datetime.now(timezone.utc).isoformat()
+
+                tr_bin = parsed.get("transition_bin", [])
+                tr_bin.append(removed)
+                parsed["transition_bin"] = tr_bin
+                parsed["transitions"] = transitions
+
+                with open(yaml_path, "w") as f:
+                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+
+                self._json_response({"success": True, "binned": {"id": tr_id, "deleted_at": removed["deleted_at"]}})
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_restore_transition(self, project_name: str):
+            """POST /api/projects/:name/restore-transition — restore a transition from bin."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            tr_id = body.get("transitionId")
+            if not tr_id:
+                return self._error(400, "BAD_REQUEST", "Missing 'transitionId'")
+
+            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
+            if not yaml_path.exists():
+                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+
+            try:
+                import yaml as pyyaml
+                with open(yaml_path) as f:
+                    parsed = pyyaml.safe_load(f)
+
+                tr_bin = parsed.get("transition_bin", [])
+                idx = next((i for i, tr in enumerate(tr_bin) if tr.get("id") == tr_id), -1)
+                if idx == -1:
+                    return self._error(404, "NOT_FOUND", f"Transition {tr_id} not in bin")
+
+                restored = tr_bin.pop(idx)
+                del restored["deleted_at"]
+
+                transitions = parsed.get("transitions", [])
+                transitions.append(restored)
+                parsed["transitions"] = transitions
+                parsed["transition_bin"] = tr_bin
+
+                with open(yaml_path, "w") as f:
+                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+
+                self._json_response({"success": True, "transition": {"id": tr_id}})
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_update_transition_action(self, project_name: str):
+            """POST /api/projects/:name/update-transition-action — update a transition's action prompt."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            tr_id = body.get("transitionId")
+            action = body.get("action")
+            use_global = body.get("useGlobalPrompt")
+            if not tr_id:
+                return self._error(400, "BAD_REQUEST", "Missing 'transitionId'")
+
+            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
+            if not yaml_path.exists():
+                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+
+            try:
+                import yaml as pyyaml
+                with open(yaml_path) as f:
+                    parsed = pyyaml.safe_load(f)
+
+                transitions = parsed.get("transitions", [])
+                tr = next((t for t in transitions if t.get("id") == tr_id), None)
+                if not tr:
+                    return self._error(404, "NOT_FOUND", f"Transition {tr_id} not found")
+
+                if action is not None:
+                    tr["action"] = action
+                if use_global is not None:
+                    tr["use_global_prompt"] = use_global
+
+                parsed["transitions"] = transitions
+                with open(yaml_path, "w") as f:
+                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+
+                self._json_response({"success": True})
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_generate_transition_action(self, project_name: str):
+            """POST /api/projects/:name/generate-transition-action — LLM-generate action for a single transition."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            tr_id = body.get("transitionId")
+            if not tr_id:
+                return self._error(400, "BAD_REQUEST", "Missing 'transitionId'")
+
+            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
+            if not yaml_path.exists():
+                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+
+            try:
+                import yaml as pyyaml
+                import base64
+                import os
+
+                with open(yaml_path) as f:
+                    parsed = pyyaml.safe_load(f)
+
+                transitions = parsed.get("transitions", [])
+                tr = next((t for t in transitions if t.get("id") == tr_id), None)
+                if not tr:
+                    return self._error(404, "NOT_FOUND", f"Transition {tr_id} not found")
+
+                kf_by_id = {kf["id"]: kf for kf in parsed.get("keyframes", [])}
+                from_kf = kf_by_id.get(tr["from"])
+                to_kf = kf_by_id.get(tr["to"])
+                if not from_kf or not to_kf:
+                    return self._error(400, "BAD_REQUEST", f"Keyframes {tr['from']} or {tr['to']} not found")
+
+                project_dir = work_dir / project_name
+                selected_dir = project_dir / "selected_keyframes"
+                from_img = selected_dir / f"{tr['from']}.png"
+                to_img = selected_dir / f"{tr['to']}.png"
+
+                if not from_img.exists() or not to_img.exists():
+                    return self._error(400, "BAD_REQUEST", "Selected keyframe images not found — run keyframe selection first")
+
+                api_key = os.environ.get("ANTHROPIC_API_KEY")
+                if not api_key:
+                    return self._error(500, "INTERNAL_ERROR", "ANTHROPIC_API_KEY not set")
+
+                from anthropic import Anthropic
+                client = Anthropic(api_key=api_key)
+
+                from_b64 = base64.b64encode(from_img.read_bytes()).decode()
+                to_b64 = base64.b64encode(to_img.read_bytes()).decode()
+                from_ctx = from_kf.get("context", {})
+                to_ctx = to_kf.get("context", {})
+                master_prompt = parsed.get("meta", {}).get("prompt", "")
+                master_context = f"Overall creative direction: {master_prompt}\n\n" if master_prompt else ""
+
+                user_content = [
+                    {"type": "text", "text": f"You are a visual effects director for a music video. {master_context}Describe the ideal visual transition between these two keyframes.\n\n"},
+                    {"type": "text", "text": f"FROM keyframe ({tr['from']}):\n"
+                        f"  Timestamp: {from_kf['timestamp']}\n"
+                        f"  Mood: {from_ctx.get('mood', 'unknown')}\n"
+                        f"  Energy: {from_ctx.get('energy', 'unknown')}\n"
+                        f"  Instruments: {', '.join(from_ctx.get('instruments', []))}\n"
+                        f"  Visual direction: {from_ctx.get('visual_direction', '')}\n\n"},
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": from_b64}},
+                    {"type": "text", "text": f"\nTO keyframe ({tr['to']}):\n"
+                        f"  Timestamp: {to_kf['timestamp']}\n"
+                        f"  Mood: {to_ctx.get('mood', 'unknown')}\n"
+                        f"  Energy: {to_ctx.get('energy', 'unknown')}\n"
+                        f"  Instruments: {', '.join(to_ctx.get('instruments', []))}\n"
+                        f"  Visual direction: {to_ctx.get('visual_direction', '')}\n\n"},
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": to_b64}},
+                    {"type": "text", "text": f"\nTransition duration: {tr['duration_seconds']}s, {tr['slots']} slot(s).\n\n"
+                        "Write a concise cinematic transition description (1-3 sentences) that describes the visual journey "
+                        "from the first image to the second, considering the musical context. "
+                        "Focus on motion, transformation, and mood shift. "
+                        "This will be used as a prompt for Veo video generation.\n\n"
+                        "Reply with ONLY the transition description, no preamble."},
+                ]
+
+                response = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=300,
+                    messages=[{"role": "user", "content": user_content}],
+                )
+
+                action = response.content[0].text.strip()
+                tr["action"] = action
+
+                with open(yaml_path, "w") as f:
+                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+
+                self._json_response({"success": True, "action": action})
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_update_meta(self, project_name: str):
+            """POST /api/projects/:name/update-meta — update project meta fields."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            yaml_path = work_dir / project_name / "narrative_keyframes.yaml"
+            if not yaml_path.exists():
+                return self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
+
+            try:
+                import yaml as pyyaml
+                with open(yaml_path) as f:
+                    parsed = pyyaml.safe_load(f)
+
+                meta = parsed.get("meta", {})
+                # Only allow updating specific safe fields
+                for key in ("motion_prompt", "default_transition_prompt"):
+                    if key in body:
+                        meta[key] = body[key]
+
+                parsed["meta"] = meta
+                with open(yaml_path, "w") as f:
+                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+
+                self._json_response({"success": True, "meta": meta})
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
+
         def _handle_ls(self, project_name: str, subpath: str):
             """GET /api/projects/:name/ls?path=subdir — list directory contents."""
             project_root = (work_dir / project_name).resolve()
@@ -335,9 +760,12 @@ def make_handler(work_dir: Path):
                     self._cors_headers()
                     self.end_headers()
 
-                    with open(full_path, "rb") as f:
-                        f.seek(start)
-                        self.wfile.write(f.read(length))
+                    try:
+                        with open(full_path, "rb") as f:
+                            f.seek(start)
+                            self.wfile.write(f.read(length))
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
                     return
 
             # Full file response
@@ -348,13 +776,16 @@ def make_handler(work_dir: Path):
             self._cors_headers()
             self.end_headers()
 
-            with open(full_path, "rb") as f:
-                # Stream in 64KB chunks to avoid loading large files into memory
-                while True:
-                    chunk = f.read(65536)
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
+            try:
+                with open(full_path, "rb") as f:
+                    # Stream in 64KB chunks to avoid loading large files into memory
+                    while True:
+                        chunk = f.read(65536)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
         # ── Helpers ──────────────────────────────────────────────
 

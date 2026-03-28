@@ -163,6 +163,30 @@ def make_handler(work_dir: Path):
 
             self._error(404, "NOT_FOUND", f"No route: POST {path}")
 
+        def do_HEAD(self):
+            """Handle HEAD requests — browsers send these for video preload/metadata."""
+            parsed = urlparse(self.path)
+            path = unquote(parsed.path)
+            m = re.match(r"^/api/projects/([^/]+)/files/(.+)$", path)
+            if m:
+                project_name, file_path = m.group(1), m.group(2)
+                full_path = (work_dir / project_name / file_path).resolve()
+                if not str(full_path).startswith(str(work_dir.resolve())) or not full_path.exists():
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                file_size = full_path.stat().st_size
+                content_type = mimetypes.guess_type(str(full_path))[0] or "application/octet-stream"
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(file_size))
+                self.send_header("Accept-Ranges", "bytes")
+                self._cors_headers()
+                self.end_headers()
+                return
+            self.send_response(405)
+            self.end_headers()
+
         def do_OPTIONS(self):
             self.send_response(204)
             self._cors_headers()

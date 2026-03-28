@@ -1418,6 +1418,7 @@ def effects(video_file: str, beats: str | None, ai_events: str | None, output: s
     """
     # Load config if provided
     effect_offsets = None
+    config_bleed_threshold = None
     if config:
         import yaml as pyyaml
         with open(config) as f:
@@ -1431,6 +1432,9 @@ def effects(video_file: str, beats: str | None, ai_events: str | None, output: s
         effect_offsets = cfg.get("effect_offsets")
         if effect_offsets:
             _log(f"Config: effect offsets loaded from {config}")
+        config_bleed_threshold = settings.get("vocal_bleed_threshold")
+        if config_bleed_threshold is not None:
+            _log(f"Config: vocal_bleed_threshold={config_bleed_threshold}")
 
     if not beats and not ai_events:
         raise click.ClickException("Either --beats or --ai-events is required")
@@ -1451,7 +1455,27 @@ def effects(video_file: str, beats: str | None, ai_events: str | None, output: s
 
         with open(ai_events) as f:
             ai_data = json.load(f)
-        events = ai_data.get("layer3_events", ai_data if isinstance(ai_data, list) else [])
+
+        # Re-apply rules from config threshold if layer1 + rules are available
+        if config_bleed_threshold is not None and "layer1" in ai_data and "layer3_rules" in ai_data:
+            from beatlab.audio_intelligence import apply_rules_in_range
+            from collections import defaultdict
+            _log(f"Re-applying rules with vocal_bleed_threshold={config_bleed_threshold}...")
+            layer1 = ai_data["layer1"]
+            rules = ai_data["layer3_rules"]
+            sections = defaultdict(list)
+            for r in rules:
+                key = (r.get("_start", 0), r.get("_end", 9999))
+                sections[key].append(r)
+            events = []
+            for (start, end), section_rules in sorted(sections.items()):
+                events.extend(apply_rules_in_range(layer1, section_rules, start, end,
+                                                    vocal_bleed_threshold=config_bleed_threshold))
+            events.sort(key=lambda e: e["time"])
+            _log(f"  Re-applied: {len(events)} events")
+        else:
+            events = ai_data.get("layer3_events", ai_data if isinstance(ai_data, list) else [])
+
         _log(f"AI-directed effects: {len(events)} events")
         apply_effects_ai(video_file, output, events, fps=fps, time_offset=time_offset,
                          hard_cuts=hard_cuts, preview=preview, effect_offsets=effect_offsets)

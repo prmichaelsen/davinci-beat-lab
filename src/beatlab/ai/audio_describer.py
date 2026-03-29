@@ -67,15 +67,30 @@ class GeminiAudioDescriber(AudioDescriber):
                 types.Content(parts=[
                     types.Part.from_bytes(data=wav_bytes, mime_type="audio/wav"),
                     types.Part(text=(
-                        "Give a detailed description of this audio segment. Include:\n"
-                        "- Instruments heard (drums, synths, bass, vocals, guitar, pads, etc.)\n"
-                        "- Rhythm and tempo feel (driving, laid-back, syncopated, four-on-the-floor, etc.)\n"
-                        "- Energy level and how it changes through the segment\n"
-                        "- Mood and emotional sensation (dark, euphoric, tense, dreamy, aggressive, etc.)\n"
-                        "- Intensity — is it building, peaking, dropping, or sustaining?\n"
-                        "- Notable transitions, drops, breakdowns, or changes with approximate timestamps\n"
-                        "- Texture and production quality (sparse, layered, distorted, clean, reverb-heavy, etc.)\n"
-                        "Be thorough and specific. Use timestamps like [0:05] to call out moments."
+                        "You are a professional music producer with perfect pitch and rhythm. "
+                        "Analyze this audio segment and produce a DETAILED account of every audible musical event. "
+                        "Every second of audio must be accounted for — no gaps.\n\n"
+                        "## 1. EVENT LOG (most important — be exhaustive)\n"
+                        "List EVERY distinct audible event with its timestamp [M:SS]. Event types: "
+                        "kick, snare, hi-hat, cymbal_crash, tom, percussion_other, bass_note, bass_drop, "
+                        "bass_sustain_start, bass_sustain_end, synth_stab, synth_pad_start, synth_pad_end, "
+                        "synth_lead, arpeggio, riser_start, riser_peak, drop, breakdown_start, buildup_start, "
+                        "vocal_start, vocal_end, vocal_chop, fx_sweep, fx_impact, silence_start, silence_end.\n"
+                        "For repeating patterns, describe the pattern AND list first few timestamps with interval.\n"
+                        "For sustained sounds, give BOTH start and end timestamps.\n\n"
+                        "## 2. RHYTHM ANALYSIS\n"
+                        "- BPM estimate\n- Time signature\n- Kick/snare/hi-hat patterns\n\n"
+                        "## 3. ENERGY PROFILE\n"
+                        "Rate intensity 1-10 at: start, 25%, 50%, 75%, end. Note sudden energy changes with timestamps.\n\n"
+                        "## 4. SUSTAINED SOUNDS\n"
+                        "Every sustained sound with start time, end time, and character (pads, drones, reverb tails, risers, bass).\n\n"
+                        "## 5. KEY MOMENTS\n"
+                        "The 3-5 most visually impactful moments — timestamps and why they're impactful.\n\n"
+                        "## 6. INSTRUMENTS HEARD\n"
+                        "Complete list of instruments/sounds present.\n\n"
+                        "## 7. MOOD & TEXTURE\n"
+                        "Mood, emotional sensation, and production texture.\n\n"
+                        "Be EXHAUSTIVE. Every second must be covered. More detail = better visual sync."
                     )),
                 ]),
             ],
@@ -159,13 +174,12 @@ def describe_sections(
     y: np.ndarray,
     sr: int,
     sections: list[dict],
-    max_sections: int = 30,
     on_progress: callable | None = None,
 ) -> list[str]:
-    """Run audio description on each section, grouping similar adjacent sections.
+    """Run audio description on every section — no caps, no skipping.
 
-    When there are many sections, consecutive sections of the same type are
-    merged for description to keep the total number of model calls manageable.
+    Consecutive sections of the same type are merged into one description
+    to reduce API calls while still covering all audio.
     The returned list always has one description per original section.
 
     Args:
@@ -173,7 +187,6 @@ def describe_sections(
         y: Full audio time series.
         sr: Sample rate.
         sections: Section dicts with start_time/end_time/type.
-        max_sections: Maximum unique descriptions to generate.
         on_progress: Optional callback(completed, total, group_indices, description).
 
     Returns:
@@ -193,12 +206,8 @@ def describe_sections(
             current_group = [i]
     groups.append(current_group)
 
-    # If still too many groups, sample evenly and reuse descriptions for skipped groups
-    if len(groups) > max_sections:
-        step = len(groups) / max_sections
-        sampled_indices = {int(i * step) for i in range(max_sections)}
-    else:
-        sampled_indices = set(range(len(groups)))
+    # Describe ALL groups — no sampling, no caps
+    sampled_indices = set(range(len(groups)))
 
     total_calls = len(sampled_indices)
     completed = 0

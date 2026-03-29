@@ -194,9 +194,11 @@ class FolderWatcher:
         if not resolved.is_dir():
             raise ValueError(f"Not a directory: {folder_path}")
 
-        # Count existing importable files
-        existing_count = sum(1 for f in resolved.iterdir()
-                            if f.is_file() and f.suffix.lower() in (IMAGE_EXTS | VIDEO_EXTS))
+        # Collect existing importable files
+        existing_files = sorted([
+            f.name for f in resolved.iterdir()
+            if f.is_file() and f.suffix.lower() in (IMAGE_EXTS | VIDEO_EXTS)
+        ])
 
         # Add inotify watch: CREATE, MOVED_TO, CLOSE_WRITE
         mask = self.IN_CREATE | self.IN_MOVED_TO | self.IN_CLOSE_WRITE
@@ -217,8 +219,16 @@ class FolderWatcher:
         if not self._running:
             self._start()
 
-        _log(f"inotify watching: {resolved} for project {project} ({existing_count} existing files)")
-        return {"watching": str(resolved), "existingFiles": existing_count}
+        # Import all existing files immediately
+        imported_count = 0
+        if existing_files:
+            _log(f"inotify watching: {resolved} — importing {len(existing_files)} existing files...")
+            self._import_files(project, resolved, existing_files)
+            imported_count = len(existing_files)
+        else:
+            _log(f"inotify watching: {resolved} for project {project} (no existing files)")
+
+        return {"watching": str(resolved), "existingFiles": imported_count}
 
     def remove_watch(self, project: str, folder_path: str):
         key = f"{project}:{folder_path}"

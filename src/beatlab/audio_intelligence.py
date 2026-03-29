@@ -1196,6 +1196,7 @@ def apply_rules(layer1_data: dict, rules: list[dict],
     if bleed_enabled:
         _log(f"    Vocal bleed suppression enabled (threshold={vocal_bleed_threshold})")
 
+    exempt = bleed_exempt_stems or set()
     events = []
     suppressed_total = 0
 
@@ -1248,7 +1249,6 @@ def apply_rules(layer1_data: dict, rules: list[dict],
 
             # Confidence ratio: suppress bleed from non-vocal stems
             # Skip bleed check for stems derived from instrumental (already vocal-free)
-            exempt = bleed_exempt_stems or set()
             if bleed_enabled and stem != "vocals" and stem not in exempt:
                 v_energy = vocal_rms(t)
                 if v_energy > 0.01:

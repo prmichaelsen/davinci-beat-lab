@@ -136,6 +136,11 @@ def make_handler(work_dir: Path):
             if m:
                 return self._handle_update_timestamp(m.group(1))
 
+            # POST /api/projects/:name/add-keyframe
+            m = re.match(r"^/api/projects/([^/]+)/add-keyframe$", path)
+            if m:
+                return self._handle_add_keyframe(m.group(1))
+
             # POST /api/projects/:name/delete-keyframe
             m = re.match(r"^/api/projects/([^/]+)/delete-keyframe$", path)
             if m:
@@ -615,6 +620,72 @@ def make_handler(work_dir: Path):
                 })
 
             self._json_response({"bin": bin_entries, "transitionBin": transition_bin})
+
+        def _handle_add_keyframe(self, project_name: str):
+            """POST /api/projects/:name/add-keyframe — create a new keyframe at a given timestamp."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            timestamp = body.get("timestamp")
+            if not timestamp:
+                return self._error(400, "BAD_REQUEST", "Missing 'timestamp'")
+
+            section = body.get("section", "")
+            prompt = body.get("prompt", "")
+
+            yaml_path = self._require_yaml_path(project_name)
+            if yaml_path is None:
+                return
+
+            try:
+                import yaml as pyyaml
+                with open(yaml_path) as f:
+                    parsed = pyyaml.safe_load(f)
+
+                keyframes = parsed.get("keyframes", [])
+                bin_list = parsed.get("bin", [])
+
+                # Compute next sequential ID from keyframes + bin
+                max_num = 0
+                for kf in keyframes + bin_list:
+                    kf_id = kf.get("id", "")
+                    if kf_id.startswith("kf_"):
+                        try:
+                            num = int(kf_id[3:])
+                            if num > max_num:
+                                max_num = num
+                        except ValueError:
+                            pass
+                new_id = f"kf_{max_num + 1:03d}"
+
+                new_kf = {
+                    "id": new_id,
+                    "timestamp": timestamp,
+                    "section": section,
+                    "prompt": prompt,
+                    "candidates": [],
+                    "selected": None,
+                }
+
+                keyframes.append(new_kf)
+
+                # Sort by timestamp
+                def parse_ts(ts):
+                    parts = str(ts).split(":")
+                    if len(parts) == 2:
+                        return int(parts[0]) * 60 + float(parts[1])
+                    return 0
+                keyframes.sort(key=lambda kf: parse_ts(kf.get("timestamp", "0:00")))
+
+                parsed["keyframes"] = keyframes
+
+                with open(yaml_path, "w") as f:
+                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+
+                self._json_response({"success": True, "keyframe": {"id": new_id, "timestamp": timestamp, "section": section, "prompt": prompt}})
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
 
         def _handle_delete_keyframe(self, project_name: str):
             """POST /api/projects/:name/delete-keyframe — soft-delete a keyframe to bin."""

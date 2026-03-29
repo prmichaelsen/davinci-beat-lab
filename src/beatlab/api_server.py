@@ -677,8 +677,9 @@ def make_handler(work_dir: Path):
                 with open(yaml_path) as f:
                     parsed = pyyaml.safe_load(f)
 
-                keyframes = parsed.get("keyframes", [])
-                bin_list = parsed.get("bin", [])
+                tl = self._load_timeline_data(parsed)
+                keyframes = tl["keyframes"]
+                bin_list = tl["bin"]
 
                 # Compute next sequential ID from keyframes + bin
                 max_num = 0
@@ -712,7 +713,8 @@ def make_handler(work_dir: Path):
                     return 0
                 keyframes.sort(key=lambda kf: parse_ts(kf.get("timestamp", "0:00")))
 
-                parsed["keyframes"] = keyframes
+                tl["keyframes"] = keyframes
+                self._save_timeline_data(parsed, tl)
 
                 with open(yaml_path, "w") as f:
                     pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
@@ -741,7 +743,8 @@ def make_handler(work_dir: Path):
                 with open(yaml_path) as f:
                     parsed = pyyaml.safe_load(f)
 
-                keyframes = parsed.get("keyframes", [])
+                tl = self._load_timeline_data(parsed)
+                keyframes = tl["keyframes"]
                 idx = next((i for i, kf in enumerate(keyframes) if kf.get("id") == kf_id), -1)
                 if idx == -1:
                     return self._error(404, "NOT_FOUND", f"Keyframe {kf_id} not found")
@@ -749,10 +752,9 @@ def make_handler(work_dir: Path):
                 removed = keyframes.pop(idx)
                 removed["deleted_at"] = datetime.now(timezone.utc).isoformat()
 
-                bin_list = parsed.get("bin", [])
-                bin_list.append(removed)
-                parsed["bin"] = bin_list
-                parsed["keyframes"] = keyframes
+                tl["bin"].append(removed)
+                tl["keyframes"] = keyframes
+                self._save_timeline_data(parsed, tl)
 
                 with open(yaml_path, "w") as f:
                     pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
@@ -780,17 +782,18 @@ def make_handler(work_dir: Path):
                 with open(yaml_path) as f:
                     parsed = pyyaml.safe_load(f)
 
-                bin_list = parsed.get("bin", [])
+                tl = self._load_timeline_data(parsed)
+                bin_list = tl["bin"]
                 idx = next((i for i, kf in enumerate(bin_list) if kf.get("id") == kf_id), -1)
                 if idx == -1:
                     return self._error(404, "NOT_FOUND", f"Keyframe {kf_id} not in bin")
 
                 restored = bin_list.pop(idx)
-                del restored["deleted_at"]
+                if "deleted_at" in restored:
+                    del restored["deleted_at"]
 
-                keyframes = parsed.get("keyframes", [])
+                keyframes = tl["keyframes"]
                 keyframes.append(restored)
-                # Sort by timestamp
                 def parse_ts(ts):
                     parts = str(ts).split(":")
                     if len(parts) == 2:
@@ -798,8 +801,9 @@ def make_handler(work_dir: Path):
                     return 0
                 keyframes.sort(key=lambda kf: parse_ts(kf.get("timestamp", "0:00")))
 
-                parsed["keyframes"] = keyframes
-                parsed["bin"] = bin_list
+                tl["keyframes"] = keyframes
+                tl["bin"] = bin_list
+                self._save_timeline_data(parsed, tl)
 
                 with open(yaml_path, "w") as f:
                     pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
@@ -2159,16 +2163,57 @@ def make_handler(work_dir: Path):
         # ── Helpers ──────────────────────────────────────────────
 
         def _get_yaml_path(self, project_name: str) -> Path | None:
-            """Get the narrative_keyframes.yaml path for a project.
-
-            For handlers that call render/narrative.py functions (which expect
-            the legacy YAML path). Returns the path if it exists, None otherwise.
-            """
+            """Get the YAML path for a project — prefers timeline.yaml (split format), falls back to legacy."""
             project_dir = work_dir / project_name
+            split = project_dir / "timeline.yaml"
+            if split.exists():
+                return split
             legacy = project_dir / "narrative_keyframes.yaml"
             if legacy.exists():
                 return legacy
             return None
+
+        def _load_timeline_data(self, parsed: dict) -> dict:
+            """Extract the active timeline's data from either split or legacy format.
+            Returns a dict with 'keyframes', 'transitions', 'bin', 'transition_bin' keys.
+            Also sets '_split' flag and '_active' name if split format.
+            """
+            if "timelines" in parsed:
+                active = parsed.get("active_timeline", "default")
+                tl = parsed.get("timelines", {}).get(active, {})
+                return {
+                    "keyframes": tl.get("keyframes", []),
+                    "transitions": tl.get("transitions", []),
+                    "bin": tl.get("bin", []),
+                    "transition_bin": tl.get("transition_bin", []),
+                    "_split": True,
+                    "_active": active,
+                }
+            return {
+                "keyframes": parsed.get("keyframes", []),
+                "transitions": parsed.get("transitions", []),
+                "bin": parsed.get("bin", []),
+                "transition_bin": parsed.get("transition_bin", []),
+                "_split": False,
+            }
+
+        def _save_timeline_data(self, parsed: dict, tl_data: dict):
+            """Write timeline data back into the parsed YAML structure."""
+            if tl_data.get("_split"):
+                active = tl_data.get("_active", "default")
+                if "timelines" not in parsed:
+                    parsed["timelines"] = {}
+                parsed["timelines"][active] = {
+                    "keyframes": tl_data["keyframes"],
+                    "transitions": tl_data["transitions"],
+                    "bin": tl_data["bin"],
+                    "transition_bin": tl_data["transition_bin"],
+                }
+            else:
+                parsed["keyframes"] = tl_data["keyframes"]
+                parsed["transitions"] = tl_data["transitions"]
+                parsed["bin"] = tl_data["bin"]
+                parsed["transition_bin"] = tl_data["transition_bin"]
 
         def _require_yaml_path(self, project_name: str) -> Path | None:
             """Get YAML path or send 404 error. Returns None if error was sent."""

@@ -1780,15 +1780,15 @@ def make_handler(work_dir: Path):
                     return
 
             # Full file response
-            self.send_response(200)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(file_size))
-            self.send_header("Accept-Ranges", "bytes")
-            _cache_headers()
-            self._cors_headers()
-            self.end_headers()
-
             try:
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(file_size))
+                self.send_header("Accept-Ranges", "bytes")
+                _cache_headers()
+                self._cors_headers()
+                self.end_headers()
+
                 with open(full_path, "rb") as f:
                     while True:
                         chunk = f.read(65536)

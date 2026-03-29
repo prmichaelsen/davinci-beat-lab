@@ -389,6 +389,7 @@ class GoogleVideoClient:
 
         # Veo requires duration 6-8s; clamp to valid range
         clamped_duration = max(6, min(8, duration_seconds))
+        _log(f"    Generating {clamped_duration}s transition (requested {duration_seconds}s) | prompt: {prompt[:80]}...")
         if clamped_duration != duration_seconds:
             _log(f"    Duration clamped: {duration_seconds}s → {clamped_duration}s (Veo requires 6-8s)")
 

@@ -156,6 +156,11 @@ def make_handler(work_dir: Path):
             if m:
                 return self._handle_update_transition_action(m.group(1))
 
+            # POST /api/projects/:name/update-transition-remap
+            m = re.match(r"^/api/projects/([^/]+)/update-transition-remap$", path)
+            if m:
+                return self._handle_update_transition_remap(m.group(1))
+
             # POST /api/projects/:name/generate-transition-action
             m = re.match(r"^/api/projects/([^/]+)/generate-transition-action$", path)
             if m:
@@ -798,6 +803,47 @@ def make_handler(work_dir: Path):
                     pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
 
                 self._json_response({"success": True})
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_update_transition_remap(self, project_name: str):
+            """POST /api/projects/:name/update-transition-remap — update a transition's remap/duration."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            tr_id = body.get("transitionId")
+            target_duration = body.get("targetDuration")
+            method = body.get("method")
+            if not tr_id:
+                return self._error(400, "BAD_REQUEST", "Missing 'transitionId'")
+
+            yaml_path = self._require_yaml_path(project_name)
+            if yaml_path is None:
+                return
+
+            try:
+                import yaml as pyyaml
+                with open(yaml_path) as f:
+                    parsed = pyyaml.safe_load(f)
+
+                transitions = parsed.get("transitions", [])
+                tr = next((t for t in transitions if t.get("id") == tr_id), None)
+                if not tr:
+                    return self._error(404, "NOT_FOUND", f"Transition {tr_id} not found")
+
+                remap = tr.get("remap", {"method": "linear", "target_duration": 0})
+                if target_duration is not None:
+                    remap["target_duration"] = target_duration
+                if method is not None:
+                    remap["method"] = method
+                tr["remap"] = remap
+
+                parsed["transitions"] = transitions
+                with open(yaml_path, "w") as f:
+                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+
+                self._json_response({"success": True, "transitionId": tr_id, "remap": remap})
             except Exception as e:
                 self._error(500, "INTERNAL_ERROR", str(e))
 

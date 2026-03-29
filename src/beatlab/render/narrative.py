@@ -1045,6 +1045,7 @@ def generate_transition_candidates(
 
     for i, job in enumerate(jobs):
         _log(f"    [{i + 1}/{len(jobs)}] {job['tr_id']} slot_{job['slot_idx']} v{job['variant']}...")
+        _log(f"    Prompt: {job['prompt'][:150]}...")
         client.generate_video_transition(
             start_frame_path=job["start_img"],
             end_frame_path=job["end_img"],

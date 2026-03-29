@@ -36,67 +36,89 @@ def _retry_on_429(func, *args, max_retries: int = 5, **kwargs):
         time.sleep(60)
 
 
+class PromptRejectedError(Exception):
+    """Raised when Veo repeatedly returns None — likely a content safety rejection."""
+    pass
+
+
 def _retry_video_generation(generate_fn, client, output_path, max_retries: int = 5):
     """Retry video generation with backoff on NoneType/rejected responses.
 
     Handles: rate limits (429), prompt rejections (NoneType result),
-    and transient failures. After 5 backoffs, waits 60s and retries.
+    and transient failures. Raises PromptRejectedError after max_retries
+    consecutive None results (likely content filter).
     """
-    while True:
-        for attempt in range(max_retries):
-            try:
-                _log(f"    Submitting Veo request...")
-                operation = generate_fn()
-                _log(f"    Veo request accepted, polling for result...")
+    none_count = 0
 
-                # Poll until done (timeout after 10 minutes)
-                poll_start = time.time()
-                poll_count = 0
-                while not operation.done:
-                    elapsed = time.time() - poll_start
-                    if elapsed > 600:
-                        raise TimeoutError("Veo generation polling timed out after 10 minutes")
-                    poll_count += 1
-                    if poll_count % 3 == 0:  # Log every 30s
-                        _log(f"    Polling Veo... ({int(elapsed)}s elapsed)")
-                    time.sleep(10)
-                    operation = client.operations.get(operation)
-                _log(f"    Veo generation complete ({int(time.time() - poll_start)}s)")
+    for attempt in range(max_retries):
+        try:
+            _log(f"    Submitting Veo request...")
+            operation = generate_fn()
+            _log(f"    Veo request accepted, polling for result...")
 
-                # Check for valid result
-                _log(f"    Checking result...")
-                if operation.result is None:
-                    raise ValueError("Video generation returned None result (likely prompt rejection)")
-                if not operation.result.generated_videos:
-                    raise ValueError("Video generation returned empty generated_videos list")
+            # Poll until done (timeout after 10 minutes)
+            poll_start = time.time()
+            poll_count = 0
+            while not operation.done:
+                elapsed = time.time() - poll_start
+                if elapsed > 600:
+                    raise TimeoutError("Veo generation polling timed out after 10 minutes")
+                poll_count += 1
+                if poll_count % 3 == 0:  # Log every 30s
+                    _log(f"    Polling Veo... ({int(elapsed)}s elapsed)")
+                time.sleep(10)
+                operation = client.operations.get(operation)
+            _log(f"    Veo generation complete ({int(time.time() - poll_start)}s)")
 
-                generated = operation.result.generated_videos[0]
-                if generated is None:
-                    raise ValueError("First generated video is None")
+            # Check for valid result
+            _log(f"    Checking result...")
+            if operation.result is None:
+                none_count += 1
+                raise ValueError("Video generation returned None result (likely prompt rejection)")
+            if not operation.result.generated_videos:
+                none_count += 1
+                raise ValueError("Video generation returned empty generated_videos list")
 
-                return generated
+            generated = operation.result.generated_videos[0]
+            if generated is None:
+                none_count += 1
+                raise ValueError("First generated video is None")
 
-            except Exception as e:
-                err_str = str(e)
-                is_retryable = (
-                    "429" in err_str
-                    or "RESOURCE_EXHAUSTED" in err_str
-                    or "None" in err_str
-                    or "NoneType" in err_str
-                    or "timed out" in err_str.lower()
-                    or "prompt rejection" in err_str.lower()
-                    or "empty generated_videos" in err_str
+            return generated
+
+        except PromptRejectedError:
+            raise
+        except Exception as e:
+            err_str = str(e)
+
+            # If we've gotten None results multiple times in a row, it's a prompt rejection — stop retrying
+            if none_count >= 3:
+                raise PromptRejectedError(
+                    f"Prompt likely rejected by Veo content filter ({none_count} consecutive None results). "
+                    f"Edit the transition action to remove potentially flagged content."
                 )
 
-                if is_retryable:
-                    wait = 2 ** (attempt + 1)
-                    _log(f"  Generation failed: {err_str[:100]}. Retrying in {wait}s ({attempt + 1}/{max_retries})...")
-                    time.sleep(wait)
-                else:
-                    raise
+            is_retryable = (
+                "429" in err_str
+                or "RESOURCE_EXHAUSTED" in err_str
+                or "None" in err_str
+                or "NoneType" in err_str
+                or "timed out" in err_str.lower()
+                or "prompt rejection" in err_str.lower()
+                or "empty generated_videos" in err_str
+            )
 
-        _log(f"  Still failing after {max_retries} retries. Waiting 60s then resetting...")
-        time.sleep(60)
+            if is_retryable:
+                wait = 2 ** (attempt + 1)
+                _log(f"  Generation failed: {err_str[:100]}. Retrying in {wait}s ({attempt + 1}/{max_retries})...")
+                time.sleep(wait)
+            else:
+                raise
+
+    raise PromptRejectedError(
+        f"Video generation failed after {max_retries} retries. Last error involved None results — "
+        f"prompt is likely being rejected by Veo content filter."
+    )
 
 
 class GoogleVideoClient:

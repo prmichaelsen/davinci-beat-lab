@@ -1186,12 +1186,16 @@ def make_handler(work_dir: Path):
             def _run():
                 try:
                     from beatlab.render.narrative import generate_transition_candidates
-                    generate_transition_candidates(
-                        str(yaml_path),
-                        vertex=True,
-                        candidates_per_slot=total_count,
-                        segment_filter={tr_id},
-                    )
+                    from beatlab.render.google_video import PromptRejectedError
+                    try:
+                        generate_transition_candidates(
+                            str(yaml_path),
+                            vertex=True,
+                            candidates_per_slot=total_count,
+                            segment_filter={tr_id},
+                        )
+                    except PromptRejectedError:
+                        pass  # Handled inside — some candidates may still have been generated
 
                     # Collect results
                     project_dir = work_dir / project_name

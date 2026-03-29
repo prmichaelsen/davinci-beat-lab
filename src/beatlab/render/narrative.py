@@ -1059,17 +1059,30 @@ def generate_transition_candidates(
 
     _log(f"Generating {len(jobs)} Veo transition clips (sequential)...")
 
+    from beatlab.render.google_video import PromptRejectedError
+    rejected = []
+
     for i, job in enumerate(jobs):
+        if job['tr_id'] in rejected:
+            _log(f"    [{i + 1}/{len(jobs)}] {job['tr_id']} — skipping (prompt rejected)")
+            continue
         _log(f"    [{i + 1}/{len(jobs)}] {job['tr_id']} slot_{job['slot_idx']} v{job['variant']}...")
         _log(f"    Prompt: {job['prompt'][:150]}...")
-        client.generate_video_transition(
-            start_frame_path=job["start_img"],
-            end_frame_path=job["end_img"],
-            prompt=job["prompt"],
-            output_path=job["output"],
-            duration_seconds=int(job["duration"]),
-        )
-        _log(f"    [{i + 1}/{len(jobs)}] {job['tr_id']} slot_{job['slot_idx']} v{job['variant']} done")
+        try:
+            client.generate_video_transition(
+                start_frame_path=job["start_img"],
+                end_frame_path=job["end_img"],
+                prompt=job["prompt"],
+                output_path=job["output"],
+                duration_seconds=int(job["duration"]),
+            )
+            _log(f"    [{i + 1}/{len(jobs)}] {job['tr_id']} slot_{job['slot_idx']} v{job['variant']} done")
+        except PromptRejectedError as e:
+            _log(f"    ⚠ PROMPT REJECTED: {job['tr_id']} — {e}")
+            rejected.append(job['tr_id'])
+
+    if rejected:
+        _log(f"⚠ {len(set(rejected))} transitions had prompts rejected. Edit their actions and retry: {', '.join(set(rejected))}")
 
     _log("Transition candidate generation complete.")
 

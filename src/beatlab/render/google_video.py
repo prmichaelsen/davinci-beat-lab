@@ -321,7 +321,7 @@ class GoogleVideoClient:
             config = types.GenerateVideosConfig(
                 aspect_ratio=aspect_ratio,
                 number_of_videos=1,
-                duration_seconds=duration_seconds,
+                duration_seconds=8,
                 person_generation="allow_adult",
                 **({"reference_images": ref_images} if ref_images else {}),
             )
@@ -380,16 +380,15 @@ class GoogleVideoClient:
         ref_images = self._load_ingredient_images(ingredients) if ingredients else None
 
         # Veo requires duration 6-8s; clamp to valid range
-        clamped_duration = max(6, min(8, duration_seconds))
-        _log(f"    Generating {clamped_duration}s transition (requested {duration_seconds}s) | prompt: {prompt[:80]}...")
-        if clamped_duration != duration_seconds:
-            _log(f"    Duration clamped: {duration_seconds}s → {clamped_duration}s (Veo requires 6-8s)")
+        # Always request 8s — Veo charges the same regardless of duration,
+        # and shorter requests often get rejected. We trim to target duration in post.
+        _log(f"    Generating 8s transition (target {duration_seconds}s) | prompt: {prompt[:80]}...")
 
         def _generate():
             config = types.GenerateVideosConfig(
                 aspect_ratio="16:9",
                 number_of_videos=1,
-                duration_seconds=clamped_duration,
+                duration_seconds=8,
                 person_generation="allow_adult",
                 last_frame=end_img,
                 **({"reference_images": ref_images} if ref_images else {}),

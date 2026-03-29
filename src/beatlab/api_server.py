@@ -1311,7 +1311,7 @@ def make_handler(work_dir: Path):
             self._json_response(entries)
 
         def _handle_serve_file(self, project_name: str, file_path: str):
-            """GET /api/projects/:name/files/* — serve project files with Range support."""
+            """GET /api/projects/:name/files/* — serve project files with Range support and caching."""
             full_path = (work_dir / project_name / file_path).resolve()
 
             # Path traversal prevention
@@ -1321,8 +1321,43 @@ def make_handler(work_dir: Path):
             if not full_path.exists():
                 return self._error(404, "NOT_FOUND", f"File not found: {file_path}")
 
-            file_size = full_path.stat().st_size
+            file_stat = full_path.stat()
+            file_size = file_stat.st_size
             content_type = mimetypes.guess_type(str(full_path))[0] or "application/octet-stream"
+
+            # ETag and Last-Modified for cache validation
+            from email.utils import formatdate
+            etag = f'"{file_size:x}-{int(file_stat.st_mtime):x}"'
+            last_modified = formatdate(file_stat.st_mtime, usegmt=True)
+
+            # Check If-None-Match (ETag) → 304 Not Modified
+            if_none_match = self.headers.get("If-None-Match")
+            if if_none_match and if_none_match.strip('" ') == etag.strip('"'):
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self._cors_headers()
+                self.end_headers()
+                return
+
+            # Check If-Modified-Since → 304 Not Modified
+            if_modified = self.headers.get("If-Modified-Since")
+            if if_modified:
+                from email.utils import parsedate_to_datetime
+                try:
+                    cached_time = parsedate_to_datetime(if_modified).timestamp()
+                    if file_stat.st_mtime <= cached_time:
+                        self.send_response(304)
+                        self.send_header("ETag", etag)
+                        self._cors_headers()
+                        self.end_headers()
+                        return
+                except Exception:
+                    pass
+
+            def _cache_headers():
+                self.send_header("Cache-Control", "public, max-age=3600, immutable")
+                self.send_header("ETag", etag)
+                self.send_header("Last-Modified", last_modified)
 
             # Handle Range requests for audio/video streaming
             range_header = self.headers.get("Range")
@@ -1339,6 +1374,7 @@ def make_handler(work_dir: Path):
                     self.send_header("Content-Length", str(length))
                     self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
                     self.send_header("Accept-Ranges", "bytes")
+                    _cache_headers()
                     self._cors_headers()
                     self.end_headers()
 
@@ -1355,12 +1391,12 @@ def make_handler(work_dir: Path):
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(file_size))
             self.send_header("Accept-Ranges", "bytes")
+            _cache_headers()
             self._cors_headers()
             self.end_headers()
 
             try:
                 with open(full_path, "rb") as f:
-                    # Stream in 64KB chunks to avoid loading large files into memory
                     while True:
                         chunk = f.read(65536)
                         if not chunk:

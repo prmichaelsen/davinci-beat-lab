@@ -955,7 +955,7 @@ def generate_transition_candidates(
 
     data = load_narrative(yaml_path)
     work_dir = Path(data["_work_dir"])
-    n_candidates = candidates_per_slot or data["meta"]["candidates_per_slot"]
+    n_candidates = candidates_per_slot or 1
     max_seconds = data["meta"]["transition_max_seconds"]
 
     kf_by_id = {kf["id"]: kf for kf in data["keyframes"]}
@@ -1041,31 +1041,18 @@ def generate_transition_candidates(
         _log("All transition candidates already generated.")
         return
 
-    _log(f"Generating {len(jobs)} Veo transition clips (max 10 parallel)...")
+    _log(f"Generating {len(jobs)} Veo transition clips (sequential)...")
 
-    import threading
-    lock = threading.Lock()
-    completed = [0]
-
-    def _generate(job):
-        try:
-            client.generate_video_transition(
-                start_frame_path=job["start_img"],
-                end_frame_path=job["end_img"],
-                prompt=job["prompt"],
-                output_path=job["output"],
-                duration_seconds=int(job["duration"]),
-            )
-            with lock:
-                completed[0] += 1
-                _log(f"    [{completed[0]}/{len(jobs)}] {job['tr_id']} slot_{job['slot_idx']} v{job['variant']} done")
-        except Exception as e:
-            _log(f"    FAILED: {job['tr_id']} slot_{job['slot_idx']} v{job['variant']}: {e}")
-
-    with ThreadPoolExecutor(max_workers=10) as pool:
-        futures = [pool.submit(_generate, job) for job in jobs]
-        for f in as_completed(futures):
-            f.result()  # Raise exceptions
+    for i, job in enumerate(jobs):
+        _log(f"    [{i + 1}/{len(jobs)}] {job['tr_id']} slot_{job['slot_idx']} v{job['variant']}...")
+        client.generate_video_transition(
+            start_frame_path=job["start_img"],
+            end_frame_path=job["end_img"],
+            prompt=job["prompt"],
+            output_path=job["output"],
+            duration_seconds=int(job["duration"]),
+        )
+        _log(f"    [{i + 1}/{len(jobs)}] {job['tr_id']} slot_{job['slot_idx']} v{job['variant']} done")
 
     _log("Transition candidate generation complete.")
 

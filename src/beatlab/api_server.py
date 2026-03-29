@@ -949,7 +949,7 @@ def make_handler(work_dir: Path):
                 return
 
             kf_id = body.get("keyframeId")
-            count = body.get("count")
+            count = body.get("count", 4)  # how many NEW candidates to generate
             if not kf_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'keyframeId'")
 
@@ -957,9 +957,14 @@ def make_handler(work_dir: Path):
             if yaml_path is None:
                 return
 
+            # Count existing candidates so we generate beyond them (v5, v6, etc.)
+            project_dir = work_dir / project_name
+            candidates_dir = project_dir / "keyframe_candidates" / "candidates" / f"section_{kf_id}"
+            existing_count = len(list(candidates_dir.glob("v*.png"))) if candidates_dir.exists() else 0
+            total_count = existing_count + count
+
             from beatlab.ws_server import job_manager
-            n_candidates = count or 4
-            job_id = job_manager.create_job("keyframe_candidates", total=n_candidates, meta={"keyframeId": kf_id, "project": project_name})
+            job_id = job_manager.create_job("keyframe_candidates", total=count, meta={"keyframeId": kf_id, "project": project_name})
 
             def _run():
                 try:
@@ -967,7 +972,7 @@ def make_handler(work_dir: Path):
                     generate_keyframe_candidates(
                         str(yaml_path),
                         vertex=False,
-                        candidates_per_slot=count,
+                        candidates_per_slot=total_count,
                         segment_filter={kf_id},
                     )
 
@@ -996,7 +1001,7 @@ def make_handler(work_dir: Path):
                 return
 
             tr_id = body.get("transitionId")
-            count = body.get("count")
+            count = body.get("count", 4)  # how many NEW candidates to generate
             if not tr_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'transitionId'")
 
@@ -1004,8 +1009,18 @@ def make_handler(work_dir: Path):
             if yaml_path is None:
                 return
 
+            # Count existing candidates so we generate beyond them (v5, v6, etc.)
+            project_dir = work_dir / project_name
+            tr_candidates_dir = project_dir / "transition_candidates" / tr_id
+            existing_count = 0
+            if tr_candidates_dir.exists():
+                for slot_dir in tr_candidates_dir.iterdir():
+                    if slot_dir.is_dir():
+                        existing_count = max(existing_count, len(list(slot_dir.glob("v*.mp4"))))
+            total_count = existing_count + count
+
             from beatlab.ws_server import job_manager
-            job_id = job_manager.create_job("transition_candidates", total=0, meta={"transitionId": tr_id, "project": project_name})
+            job_id = job_manager.create_job("transition_candidates", total=count, meta={"transitionId": tr_id, "project": project_name})
 
             def _run():
                 try:
@@ -1013,7 +1028,7 @@ def make_handler(work_dir: Path):
                     generate_transition_candidates(
                         str(yaml_path),
                         vertex=False,
-                        candidates_per_slot=count,
+                        candidates_per_slot=total_count,
                         segment_filter={tr_id},
                     )
 

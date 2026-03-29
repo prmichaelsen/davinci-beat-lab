@@ -95,6 +95,11 @@ def make_handler(work_dir: Path):
             if m:
                 return self._handle_get_audio_intelligence(m.group(1))
 
+            # GET /api/projects/:name/descriptions
+            m = re.match(r"^/api/projects/([^/]+)/descriptions$", path)
+            if m:
+                return self._handle_get_descriptions(m.group(1))
+
             # GET /api/projects/:name/pool
             m = re.match(r"^/api/projects/([^/]+)/pool$", path)
             if m:
@@ -146,6 +151,11 @@ def make_handler(work_dir: Path):
             if m:
                 return self._handle_update_timestamp(m.group(1))
 
+            # POST /api/projects/:name/update-prompt
+            m = re.match(r"^/api/projects/([^/]+)/update-prompt$", path)
+            if m:
+                return self._handle_update_prompt(m.group(1))
+
             # POST /api/projects/:name/add-keyframe
             m = re.match(r"^/api/projects/([^/]+)/add-keyframe$", path)
             if m:
@@ -160,6 +170,11 @@ def make_handler(work_dir: Path):
             m = re.match(r"^/api/projects/([^/]+)/restore-keyframe$", path)
             if m:
                 return self._handle_restore_keyframe(m.group(1))
+
+            # POST /api/projects/:name/set-base-image
+            m = re.match(r"^/api/projects/([^/]+)/set-base-image$", path)
+            if m:
+                return self._handle_set_base_image(m.group(1))
 
             # POST /api/projects/:name/delete-transition
             m = re.match(r"^/api/projects/([^/]+)/delete-transition$", path)
@@ -190,6 +205,11 @@ def make_handler(work_dir: Path):
             m = re.match(r"^/api/projects/([^/]+)/enhance-transition-action$", path)
             if m:
                 return self._handle_enhance_transition_action(m.group(1))
+
+            # POST /api/projects/:name/insert-pool-item
+            m = re.match(r"^/api/projects/([^/]+)/insert-pool-item$", path)
+            if m:
+                return self._handle_insert_pool_item(m.group(1))
 
             # POST /api/projects/:name/generate-slot-keyframe-candidates
             m = re.match(r"^/api/projects/([^/]+)/generate-slot-keyframe-candidates$", path)
@@ -630,6 +650,44 @@ def make_handler(work_dir: Path):
             except Exception as e:
                 self._error(500, "INTERNAL_ERROR", str(e))
 
+        def _handle_update_prompt(self, project_name: str):
+            """POST /api/projects/:name/update-prompt — update a keyframe's prompt (ruamel round-trip)."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            kf_id = body.get("keyframeId")
+            prompt = body.get("prompt")
+            if not kf_id or prompt is None:
+                return self._error(400, "BAD_REQUEST", "Missing 'keyframeId' or 'prompt'")
+
+            yaml_path = self._require_yaml_path(project_name)
+            if yaml_path is None:
+                return
+
+            try:
+                from ruamel.yaml import YAML
+                ryaml = YAML()
+                ryaml.width = 1000
+                ryaml.preserve_quotes = True
+
+                with open(yaml_path) as f:
+                    parsed = ryaml.load(f)
+
+                tl_data = parsed.get("timelines", {}).get(parsed.get("active_timeline", "default"), parsed) if "timelines" in parsed else parsed
+                kf = next((k for k in tl_data.get("keyframes", []) if k.get("id") == kf_id), None)
+                if not kf:
+                    return self._error(404, "NOT_FOUND", f"Keyframe {kf_id} not found")
+
+                kf["prompt"] = prompt
+
+                with open(yaml_path, "w") as f:
+                    ryaml.dump(parsed, f)
+
+                self._json_response({"success": True, "keyframeId": kf_id})
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
+
         def _handle_get_bin(self, project_name: str):
             """GET /api/projects/:name/bin — list binned (soft-deleted) keyframes."""
             from beatlab.project import load_project
@@ -664,6 +722,43 @@ def make_handler(work_dir: Path):
                 })
 
             self._json_response({"bin": bin_entries, "transitionBin": transition_bin})
+
+        def _handle_get_descriptions(self, project_name: str):
+            """GET /api/projects/:name/descriptions — parse descriptions.md into structured sections."""
+            project_dir = work_dir / project_name
+            desc_path = project_dir / "descriptions.md"
+            if not desc_path.exists():
+                return self._json_response({"sections": []})
+
+            content = desc_path.read_text()
+            sections = []
+            # Split on ## Section N headers
+            import re as _re
+            parts = _re.split(r'^## (Section \d+.*?)$', content, flags=_re.MULTILINE)
+            # parts = [preamble, header1, body1, header2, body2, ...]
+            for i in range(1, len(parts), 2):
+                header = parts[i].strip()
+                body = parts[i + 1].strip() if i + 1 < len(parts) else ""
+
+                # Extract section index from header: "Section 0 (verse, low_energy)"
+                idx_match = _re.match(r'Section (\d+)', header)
+                section_index = int(idx_match.group(1)) if idx_match else -1
+                label = header
+
+                # Extract time range from body: "**Time**: 0.0s - 16.0s"
+                time_match = _re.search(r'\*\*Time\*\*:\s*([\d.]+)s\s*-\s*([\d.]+)s', body)
+                start_time = float(time_match.group(1)) if time_match else 0
+                end_time = float(time_match.group(2)) if time_match else 0
+
+                sections.append({
+                    "sectionIndex": section_index,
+                    "label": label,
+                    "startTime": start_time,
+                    "endTime": end_time,
+                    "content": body,
+                })
+
+            self._json_response({"sections": sections})
 
         def _handle_get_pool(self, project_name: str):
             """GET /api/projects/:name/pool — list pool assets (unassigned keyframe images and video segments)."""
@@ -715,9 +810,7 @@ def make_handler(work_dir: Path):
                 return
 
             try:
-                import yaml as pyyaml
-                with open(yaml_path) as f:
-                    parsed = pyyaml.safe_load(f)
+                ryaml, parsed = self._ruamel_load(yaml_path)
 
                 tl = self._load_timeline_data(parsed)
                 keyframes = tl["keyframes"]
@@ -740,6 +833,7 @@ def make_handler(work_dir: Path):
                     "id": new_id,
                     "timestamp": timestamp,
                     "section": section,
+                    "source": f"selected_keyframes/{new_id}.png",
                     "prompt": prompt,
                     "candidates": [],
                     "selected": None,
@@ -755,11 +849,56 @@ def make_handler(work_dir: Path):
                     return 0
                 keyframes.sort(key=lambda kf: parse_ts(kf.get("timestamp", "0:00")))
 
+                # Find where the new keyframe lands in the sorted order
+                new_time = parse_ts(timestamp)
+                kf_times = {kf.get("id"): parse_ts(kf.get("timestamp", "0:00")) for kf in keyframes}
+                new_idx = next(i for i, kf in enumerate(keyframes) if kf.get("id") == new_id)
+                prev_kf = keyframes[new_idx - 1] if new_idx > 0 else None
+                next_kf = keyframes[new_idx + 1] if new_idx < len(keyframes) - 1 else None
+
+                # If there's an existing transition spanning prev→next, split it
+                transitions = tl["transitions"]
+                if prev_kf and next_kf:
+                    old_tr_idx = next((i for i, tr in enumerate(transitions)
+                                       if tr.get("from") == prev_kf["id"] and tr.get("to") == next_kf["id"]), -1)
+                    if old_tr_idx >= 0:
+                        old_tr = transitions.pop(old_tr_idx)
+                        # Compute next tr IDs
+                        tr_bin = tl.get("transition_bin", [])
+                        max_tr = 0
+                        for tr in transitions + tr_bin:
+                            tr_id = tr.get("id", "")
+                            if tr_id.startswith("tr_"):
+                                try:
+                                    max_tr = max(max_tr, int(tr_id[3:]))
+                                except ValueError:
+                                    pass
+
+                        prev_time = kf_times.get(prev_kf["id"], 0)
+                        next_time = kf_times.get(next_kf["id"], 0)
+                        dur_before = round(new_time - prev_time, 2)
+                        dur_after = round(next_time - new_time, 2)
+
+                        max_tr += 1
+                        transitions.append({
+                            "id": f"tr_{max_tr:03d}", "from": prev_kf["id"], "to": new_id,
+                            "duration_seconds": dur_before, "slots": 1,
+                            "action": "", "use_global_prompt": False, "selected": [None],
+                            "remap": {"method": "linear", "target_duration": dur_before},
+                        })
+                        max_tr += 1
+                        transitions.append({
+                            "id": f"tr_{max_tr:03d}", "from": new_id, "to": next_kf["id"],
+                            "duration_seconds": dur_after, "slots": 1,
+                            "action": "", "use_global_prompt": False, "selected": [None],
+                            "remap": {"method": "linear", "target_duration": dur_after},
+                        })
+                        tl["transitions"] = transitions
+
                 tl["keyframes"] = keyframes
                 self._save_timeline_data(parsed, tl)
 
-                with open(yaml_path, "w") as f:
-                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+                self._ruamel_save(ryaml, parsed, yaml_path)
 
                 self._json_response({"success": True, "keyframe": {"id": new_id, "timestamp": timestamp, "section": section, "prompt": prompt}})
             except Exception as e:
@@ -782,15 +921,24 @@ def make_handler(work_dir: Path):
             try:
                 import yaml as pyyaml
                 from datetime import datetime, timezone
-                with open(yaml_path) as f:
-                    parsed = pyyaml.safe_load(f)
+                _log(f"[delete-kf] {kf_id}: loading YAML")
+                ryaml, parsed = self._ruamel_load(yaml_path)
+                _log(f"[delete-kf] {kf_id}: YAML loaded")
+
+                def parse_ts(ts):
+                    parts = str(ts).split(":")
+                    if len(parts) == 2:
+                        return int(parts[0]) * 60 + float(parts[1])
+                    return 0
 
                 tl = self._load_timeline_data(parsed)
                 keyframes = tl["keyframes"]
                 idx = next((i for i, kf in enumerate(keyframes) if kf.get("id") == kf_id), -1)
                 if idx == -1:
+                    _log(f"[delete-kf] {kf_id}: NOT FOUND")
                     return self._error(404, "NOT_FOUND", f"Keyframe {kf_id} not found")
 
+                _log(f"[delete-kf] {kf_id}: found at idx {idx}, removing")
                 removed = keyframes.pop(idx)
                 removed["deleted_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -800,18 +948,84 @@ def make_handler(work_dir: Path):
                 # Also soft-delete any transitions referencing this keyframe
                 now = removed["deleted_at"]
                 orphaned = [tr for tr in tl["transitions"] if tr.get("from") == kf_id or tr.get("to") == kf_id]
+                _log(f"[delete-kf] {kf_id}: {len(orphaned)} orphaned transitions")
+
+                # Collect video assets from orphaned transitions to inherit
+                import shutil as _shutil
+                inherited_tr_id = None  # the orphaned tr whose video we'll reuse
+                for tr in orphaned:
+                    sel = tr.get("selected", [None])
+                    if isinstance(sel, list) and sel and sel[0] is not None:
+                        inherited_tr_id = tr["id"]
+                        break
+                    elif isinstance(sel, (int, str)) and sel is not None:
+                        inherited_tr_id = tr["id"]
+                        break
+
                 for tr in orphaned:
                     tr["deleted_at"] = now
                     tl["transition_bin"].append(tr)
                 tl["transitions"] = [tr for tr in tl["transitions"] if tr.get("from") != kf_id and tr.get("to") != kf_id]
 
+                # Bridge the gap: find actual timeline neighbors by timestamp
+                removed_time = parse_ts(removed.get("timestamp", "0:00"))
+                sorted_kfs = sorted(keyframes, key=lambda k: parse_ts(k.get("timestamp", "0:00")))
+                prev_kf = None
+                next_kf = None
+                for kf in sorted_kfs:
+                    t = parse_ts(kf.get("timestamp", "0:00"))
+                    if t < removed_time:
+                        prev_kf = kf
+                    elif t > removed_time and next_kf is None:
+                        next_kf = kf
+                if prev_kf and next_kf:
+                    prev_kf_id = prev_kf.get("id")
+                    next_kf_id = next_kf.get("id")
+                    already = any(t.get("from") == prev_kf_id and t.get("to") == next_kf_id for t in tl["transitions"])
+                    if not already:
+                        import re as _re
+                        max_tr = max((int(m.group(1)) for t in tl["transitions"] + tl["transition_bin"] if (m := _re.match(r'tr_(\d+)', t.get('id', '')))), default=0)
+                        max_tr += 1
+                        new_tr_id = f"tr_{max_tr:03d}"
+                        pt = parse_ts(prev_kf.get("timestamp", "0:00"))
+                        nt = parse_ts(next_kf.get("timestamp", "0:00"))
+                        dur = round(nt - pt, 2)
+
+                        # Inherit video from orphaned transition if available
+                        selected = [None]
+                        if inherited_tr_id:
+                            project_dir = work_dir / project_name
+                            old_sel = project_dir / "selected_transitions" / f"{inherited_tr_id}_slot_0.mp4"
+                            old_cand_dir = project_dir / "transition_candidates" / inherited_tr_id / "slot_0"
+                            new_cand_dir = project_dir / "transition_candidates" / new_tr_id / "slot_0"
+                            if old_sel.exists():
+                                new_sel = project_dir / "selected_transitions" / f"{new_tr_id}_slot_0.mp4"
+                                _shutil.copy2(str(old_sel), str(new_sel))
+                                selected = [1]
+                                _log(f"[delete-kf] {kf_id}: inherited video from {inherited_tr_id}")
+                            if old_cand_dir.exists():
+                                new_cand_dir.mkdir(parents=True, exist_ok=True)
+                                for f in old_cand_dir.iterdir():
+                                    _shutil.copy2(str(f), str(new_cand_dir / f.name))
+
+                        tl["transitions"].append({
+                            "id": new_tr_id, "from": prev_kf_id, "to": next_kf_id,
+                            "duration_seconds": dur, "slots": 1,
+                            "action": "", "use_global_prompt": False,
+                            "selected": selected, "remap": {"method": "linear", "target_duration": dur},
+                        })
+                        _log(f"[delete-kf] {kf_id}: bridged {prev_kf_id} -> {next_kf_id} as {new_tr_id}")
+
+                _log(f"[delete-kf] {kf_id}: saving")
                 self._save_timeline_data(parsed, tl)
 
-                with open(yaml_path, "w") as f:
-                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+                _log(f"[delete-kf] {kf_id}: writing YAML")
+                self._ruamel_save(ryaml, parsed, yaml_path)
 
+                _log(f"[delete-kf] {kf_id}: done")
                 self._json_response({"success": True, "binned": {"id": kf_id, "deleted_at": removed["deleted_at"]}})
             except Exception as e:
+                _log(f"[delete-kf] {kf_id}: ERROR {e}")
                 self._error(500, "INTERNAL_ERROR", str(e))
 
         def _handle_restore_keyframe(self, project_name: str):
@@ -829,9 +1043,7 @@ def make_handler(work_dir: Path):
                 return
 
             try:
-                import yaml as pyyaml
-                with open(yaml_path) as f:
-                    parsed = pyyaml.safe_load(f)
+                ryaml, parsed = self._ruamel_load(yaml_path)
 
                 tl = self._load_timeline_data(parsed)
                 bin_list = tl["bin"]
@@ -856,11 +1068,283 @@ def make_handler(work_dir: Path):
                 tl["bin"] = bin_list
                 self._save_timeline_data(parsed, tl)
 
-                with open(yaml_path, "w") as f:
-                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+                self._ruamel_save(ryaml, parsed, yaml_path)
 
                 self._json_response({"success": True, "keyframe": {"id": kf_id}})
             except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_set_base_image(self, project_name: str):
+            """POST /api/projects/:name/set-base-image — copy a still from assets/stills/ as the selected keyframe image and set source."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            kf_id = body.get("keyframeId")
+            still_name = body.get("stillName")
+            if not kf_id or not still_name:
+                return self._error(400, "BAD_REQUEST", "Missing 'keyframeId' or 'stillName'")
+
+            try:
+                import shutil
+                import yaml as pyyaml
+                project_dir = work_dir / project_name
+                source = project_dir / "assets" / "stills" / still_name
+                if not source.exists():
+                    return self._error(404, "NOT_FOUND", f"Still not found: {still_name}")
+
+                dest_dir = project_dir / "selected_keyframes"
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                dest = dest_dir / f"{kf_id}.png"
+                shutil.copy2(str(source), str(dest))
+
+                # Update source field on the keyframe in YAML
+                yaml_path = self._require_yaml_path(project_name)
+                if yaml_path:
+                    ryaml, parsed = self._ruamel_load(yaml_path)
+                    tl = self._load_timeline_data(parsed)
+                    kf = next((k for k in tl["keyframes"] if k.get("id") == kf_id), None)
+                    if kf:
+                        kf["source"] = f"assets/stills/{still_name}"
+                        self._save_timeline_data(parsed, tl)
+                        self._ruamel_save(ryaml, parsed, yaml_path)
+
+                self._json_response({"success": True, "keyframeId": kf_id, "still": still_name})
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_insert_pool_item(self, project_name: str):
+            """POST /api/projects/:name/insert-pool-item — insert a pool keyframe or segment at a given time."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            item_type = body.get("type")  # "keyframe" or "segment"
+            pool_path = body.get("poolPath")  # e.g. "pool/keyframes/019.png"
+            at_time = body.get("atTime", 0)
+            if not item_type or not pool_path:
+                return self._error(400, "BAD_REQUEST", "Missing 'type' or 'poolPath'")
+
+            yaml_path = self._require_yaml_path(project_name)
+            if yaml_path is None:
+                return
+
+            try:
+                import shutil
+                import yaml as pyyaml
+                project_dir = work_dir / project_name
+                source = project_dir / pool_path
+                if not source.exists():
+                    return self._error(404, "NOT_FOUND", f"Pool item not found: {pool_path}")
+
+                ryaml, parsed = self._ruamel_load(yaml_path)
+                tl = self._load_timeline_data(parsed)
+
+                def parse_ts(ts):
+                    parts = str(ts).split(":")
+                    return int(parts[0]) * 60 + float(parts[1]) if len(parts) == 2 else 0
+
+                def to_ts(s):
+                    m = int(s) // 60
+                    return f"{m}:{s - m*60:05.2f}"
+
+                # Compute next IDs
+                import re as _re
+                keyframes = tl["keyframes"]
+                transitions = tl["transitions"]
+                kf_bin = tl.get("bin", [])
+                tr_bin = tl.get("transition_bin", [])
+
+                max_kf = max((int(m.group(1)) for k in keyframes + kf_bin if (m := _re.match(r'kf_(\d+)', k.get('id', '')))), default=0)
+                max_tr = max((int(m.group(1)) for t in transitions + tr_bin if (m := _re.match(r'tr_(\d+)', t.get('id', '')))), default=0)
+
+                timestamp = to_ts(at_time)
+
+                _log(f"insert-pool-item: type={item_type} path={pool_path} atTime={at_time}")
+
+                if item_type == "keyframe":
+                    max_kf += 1
+                    kf_id = f"kf_{max_kf:03d}"
+                    # Copy to selected_keyframes
+                    dest = project_dir / "selected_keyframes" / f"{kf_id}.png"
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(source), str(dest))
+                    # Also copy as candidate v1
+                    cand_dir = project_dir / "keyframe_candidates" / "candidates" / f"section_{kf_id}"
+                    cand_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(source), str(cand_dir / "v1.png"))
+
+                    new_kf = {
+                        "id": kf_id, "timestamp": timestamp, "section": "",
+                        "source": pool_path, "prompt": f"Inserted from pool: {source.name}",
+                        "candidates": [f"keyframe_candidates/candidates/section_{kf_id}/v1.png"],
+                        "selected": 1,
+                    }
+                    keyframes.append(new_kf)
+                    keyframes.sort(key=lambda k: parse_ts(k.get("timestamp", "0:00")))
+
+                    # Split any transition that spans this new keyframe
+                    new_idx = next(i for i, k in enumerate(keyframes) if k.get("id") == kf_id)
+                    prev_kf = keyframes[new_idx - 1] if new_idx > 0 else None
+                    next_kf = keyframes[new_idx + 1] if new_idx < len(keyframes) - 1 else None
+
+                    if prev_kf and next_kf:
+                        old_idx = next((i for i, tr in enumerate(transitions)
+                                        if tr.get("from") == prev_kf["id"] and tr.get("to") == next_kf["id"]), -1)
+                        if old_idx >= 0:
+                            transitions.pop(old_idx)
+                            pt = parse_ts(prev_kf.get("timestamp", "0:00"))
+                            nt = parse_ts(next_kf.get("timestamp", "0:00"))
+                            d1 = round(at_time - pt, 2)
+                            d2 = round(nt - at_time, 2)
+                            max_tr += 1
+                            transitions.append({"id": f"tr_{max_tr:03d}", "from": prev_kf["id"], "to": kf_id,
+                                "duration_seconds": d1, "action": "", "use_global_prompt": False,
+                                "selected": None, "remap": {"method": "linear", "target_duration": d1}})
+                            max_tr += 1
+                            transitions.append({"id": f"tr_{max_tr:03d}", "from": kf_id, "to": next_kf["id"],
+                                "duration_seconds": d2, "action": "", "use_global_prompt": False,
+                                "selected": None, "remap": {"method": "linear", "target_duration": d2}})
+
+                    # Sort transitions by their 'from' keyframe position
+                    kf_order = {k["id"]: i for i, k in enumerate(keyframes)}
+                    transitions.sort(key=lambda t: kf_order.get(t.get("from", ""), 9999))
+
+                    tl["keyframes"] = keyframes
+                    tl["transitions"] = transitions
+                    self._save_timeline_data(parsed, tl)
+                    self._ruamel_save(ryaml, parsed, yaml_path)
+                    self._json_response({"success": True, "type": "keyframe", "id": kf_id})
+
+                elif item_type == "segment":
+                    # Insert a video segment by splitting at the playhead:
+                    # 1. Create two new keyframes at playhead (start_kf) and playhead+video_dur (end_kf)
+                    # 2. Split any existing transition that spans the insert region
+                    # 3. Create a new transition between start_kf and end_kf with the pool video
+
+                    # Probe video duration
+                    import subprocess as sp
+                    probe = sp.run(
+                        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", str(source)],
+                        capture_output=True, text=True,
+                    )
+                    video_dur = float(probe.stdout.strip()) if probe.stdout.strip() else 8.0
+                    insert_end = at_time + video_dur
+
+                    _log(f"  Inserting {video_dur:.1f}s segment at {at_time:.2f}s-{insert_end:.2f}s")
+
+                    # Find keyframes sorted by time
+                    kf_times = [(k, parse_ts(k.get("timestamp", "0:00"))) for k in keyframes]
+                    kf_times.sort(key=lambda x: x[1])
+
+                    # Create start keyframe at playhead (copies from nearest preceding kf image if available)
+                    max_kf += 1
+                    start_kf_id = f"kf_{max_kf:03d}"
+                    start_kf = {
+                        "id": start_kf_id, "timestamp": to_ts(at_time), "section": "",
+                        "source": f"selected_keyframes/{start_kf_id}.png",
+                        "prompt": f"Insert point (start of pool segment)",
+                        "candidates": [], "selected": None,
+                    }
+
+                    # Create end keyframe at playhead + video duration
+                    max_kf += 1
+                    end_kf_id = f"kf_{max_kf:03d}"
+                    end_kf = {
+                        "id": end_kf_id, "timestamp": to_ts(insert_end), "section": "",
+                        "source": f"selected_keyframes/{end_kf_id}.png",
+                        "prompt": f"Insert point (end of pool segment)",
+                        "candidates": [], "selected": None,
+                    }
+
+                    keyframes.extend([start_kf, end_kf])
+                    keyframes.sort(key=lambda k: parse_ts(k.get("timestamp", "0:00")))
+
+                    # Find and split any transitions that overlap the insert region
+                    new_transitions = []
+                    to_remove = set()
+                    for tr in transitions:
+                        from_kf = next((k for k in keyframes if k["id"] == tr.get("from")), None)
+                        to_kf = next((k for k in keyframes if k["id"] == tr.get("to")), None)
+                        if not from_kf or not to_kf:
+                            continue
+                        ft = parse_ts(from_kf.get("timestamp", "0:00"))
+                        tt = parse_ts(to_kf.get("timestamp", "0:00"))
+
+                        # Does this transition span the insert start point?
+                        if ft < at_time < tt:
+                            to_remove.add(tr["id"])
+                            # Create: from_kf -> start_kf
+                            d1 = round(at_time - ft, 2)
+                            max_tr += 1
+                            new_transitions.append({
+                                "id": f"tr_{max_tr:03d}", "from": tr["from"], "to": start_kf_id,
+                                "duration_seconds": d1, "slots": 1, "action": "", "use_global_prompt": False,
+                                "selected": [None], "remap": {"method": "linear", "target_duration": d1},
+                            })
+                            # Create: end_kf -> to_kf (if end is before to_kf)
+                            if insert_end < tt:
+                                d2 = round(tt - insert_end, 2)
+                                max_tr += 1
+                                new_transitions.append({
+                                    "id": f"tr_{max_tr:03d}", "from": end_kf_id, "to": tr["to"],
+                                    "duration_seconds": d2, "slots": 1, "action": "", "use_global_prompt": False,
+                                    "selected": [None], "remap": {"method": "linear", "target_duration": d2},
+                                })
+
+                    # Remove split transitions, add new ones
+                    transitions = [tr for tr in transitions if tr["id"] not in to_remove]
+                    transitions.extend(new_transitions)
+
+                    # Create the inserted transition: start_kf -> end_kf with the pool video
+                    max_tr += 1
+                    insert_tr_id = f"tr_{max_tr:03d}"
+                    cand_dir = project_dir / "transition_candidates" / insert_tr_id / "slot_0"
+                    cand_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(source), str(cand_dir / "v1.mp4"))
+                    sel_dir = project_dir / "selected_transitions"
+                    sel_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(source), str(sel_dir / f"{insert_tr_id}_slot_0.mp4"))
+
+                    transitions.append({
+                        "id": insert_tr_id, "from": start_kf_id, "to": end_kf_id,
+                        "duration_seconds": round(video_dur, 2), "slots": 1,
+                        "action": "", "use_global_prompt": False,
+                        "selected": [1], "remap": {"method": "linear", "target_duration": round(video_dur, 2)},
+                    })
+
+                    # Extract first and last frames as keyframe images
+                    sel_kf_dir = project_dir / "selected_keyframes"
+                    sel_kf_dir.mkdir(parents=True, exist_ok=True)
+                    try:
+                        # First frame -> start keyframe
+                        sp.run(["ffmpeg", "-y", "-i", str(source), "-vframes", "1", "-q:v", "2",
+                                str(sel_kf_dir / f"{start_kf_id}.png")],
+                               capture_output=True, timeout=10)
+                        start_kf["selected"] = 1
+                        # Last frame -> end keyframe
+                        sp.run(["ffmpeg", "-y", "-sseof", "-0.1", "-i", str(source), "-vframes", "1", "-q:v", "2",
+                                str(sel_kf_dir / f"{end_kf_id}.png")],
+                               capture_output=True, timeout=10)
+                        end_kf["selected"] = 1
+                        _log(f"  Extracted first/last frames as {start_kf_id}.png, {end_kf_id}.png")
+                    except Exception as frame_err:
+                        _log(f"  Warning: frame extraction failed: {frame_err}")
+
+                    _log(f"  Created {start_kf_id}, {end_kf_id}, {insert_tr_id} ({video_dur:.1f}s)")
+
+                    tl["keyframes"] = keyframes
+                    tl["transitions"] = transitions
+                    self._save_timeline_data(parsed, tl)
+                    self._ruamel_save(ryaml, parsed, yaml_path)
+                    self._json_response({"success": True, "type": "segment", "transitionId": insert_tr_id,
+                        "startKeyframe": start_kf_id, "endKeyframe": end_kf_id})
+                else:
+                    return self._error(400, "BAD_REQUEST", f"Unknown type: {item_type}")
+
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
                 self._error(500, "INTERNAL_ERROR", str(e))
 
         def _handle_delete_transition(self, project_name: str):
@@ -880,8 +1364,7 @@ def make_handler(work_dir: Path):
             try:
                 import yaml as pyyaml
                 from datetime import datetime, timezone
-                with open(yaml_path) as f:
-                    parsed = pyyaml.safe_load(f)
+                ryaml, parsed = self._ruamel_load(yaml_path)
 
                 tl = self._load_timeline_data(parsed)
                 transitions = tl["transitions"]
@@ -895,8 +1378,7 @@ def make_handler(work_dir: Path):
                 tl["transition_bin"].append(removed)
                 self._save_timeline_data(parsed, tl)
 
-                with open(yaml_path, "w") as f:
-                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+                self._ruamel_save(ryaml, parsed, yaml_path)
 
                 self._json_response({"success": True, "binned": {"id": tr_id, "deleted_at": removed["deleted_at"]}})
             except Exception as e:
@@ -917,9 +1399,7 @@ def make_handler(work_dir: Path):
                 return
 
             try:
-                import yaml as pyyaml
-                with open(yaml_path) as f:
-                    parsed = pyyaml.safe_load(f)
+                ryaml, parsed = self._ruamel_load(yaml_path)
 
                 tl = self._load_timeline_data(parsed)
                 tr_bin = tl["transition_bin"]
@@ -933,51 +1413,52 @@ def make_handler(work_dir: Path):
                 tl["transitions"].append(restored)
                 self._save_timeline_data(parsed, tl)
 
-                with open(yaml_path, "w") as f:
-                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+                self._ruamel_save(ryaml, parsed, yaml_path)
 
                 self._json_response({"success": True, "transition": {"id": tr_id}})
             except Exception as e:
                 self._error(500, "INTERNAL_ERROR", str(e))
 
         def _handle_update_transition_action(self, project_name: str):
-            """POST /api/projects/:name/update-transition-action — update a transition's action prompt."""
+            """POST /api/projects/:name/update-transition-action — update a transition's action prompt (ruamel round-trip)."""
             body = self._read_json_body()
             if body is None:
                 return
 
             tr_id = body.get("transitionId")
             action = body.get("action")
-            slot_actions = body.get("slotActions")  # optional: per-slot prompts
             use_global = body.get("useGlobalPrompt")
             if not tr_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'transitionId'")
+
+            _log(f"update-transition-action: {project_name} {tr_id} action={repr(action[:50] if action else None)}")
 
             yaml_path = self._require_yaml_path(project_name)
             if yaml_path is None:
                 return
 
             try:
-                import yaml as pyyaml
-                with open(yaml_path) as f:
-                    parsed = pyyaml.safe_load(f)
+                from ruamel.yaml import YAML
+                ryaml = YAML()
+                ryaml.width = 1000
+                ryaml.preserve_quotes = True
 
-                tl = self._load_timeline_data(parsed)
-                transitions = tl["transitions"]
+                with open(yaml_path) as f:
+                    parsed = ryaml.load(f)
+
+                tl_data = parsed.get("timelines", {}).get(parsed.get("active_timeline", "default"), parsed) if "timelines" in parsed else parsed
+                transitions = tl_data.get("transitions", [])
                 tr = next((t for t in transitions if t.get("id") == tr_id), None)
                 if not tr:
                     return self._error(404, "NOT_FOUND", f"Transition {tr_id} not found")
 
                 if action is not None:
                     tr["action"] = action
-                if slot_actions is not None:
-                    tr["slot_actions"] = slot_actions
                 if use_global is not None:
                     tr["use_global_prompt"] = use_global
 
-                self._save_timeline_data(parsed, tl)
                 with open(yaml_path, "w") as f:
-                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+                    ryaml.dump(parsed, f)
 
                 self._json_response({"success": True})
             except Exception as e:
@@ -1000,9 +1481,7 @@ def make_handler(work_dir: Path):
                 return
 
             try:
-                import yaml as pyyaml
-                with open(yaml_path) as f:
-                    parsed = pyyaml.safe_load(f)
+                ryaml, parsed = self._ruamel_load(yaml_path)
 
                 tl = self._load_timeline_data(parsed)
                 transitions = tl["transitions"]
@@ -1018,8 +1497,7 @@ def make_handler(work_dir: Path):
                 tr["remap"] = remap
 
                 self._save_timeline_data(parsed, tl)
-                with open(yaml_path, "w") as f:
-                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+                self._ruamel_save(ryaml, parsed, yaml_path)
 
                 self._json_response({"success": True, "transitionId": tr_id, "remap": remap})
             except Exception as e:
@@ -1032,8 +1510,11 @@ def make_handler(work_dir: Path):
                 return
 
             tr_id = body.get("transitionId")
+            section_context = body.get("sectionContext")
             if not tr_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'transitionId'")
+
+            _log(f"generate-transition-action: {project_name} {tr_id} (section context: {'yes' if section_context else 'no'})")
 
             yaml_path = self._require_yaml_path(project_name)
             if yaml_path is None:
@@ -1044,8 +1525,7 @@ def make_handler(work_dir: Path):
                 import base64
                 import os
 
-                with open(yaml_path) as f:
-                    parsed = pyyaml.safe_load(f)
+                ryaml, parsed = self._ruamel_load(yaml_path)
 
                 tl = self._load_timeline_data(parsed)
                 transitions = tl.get("transitions", [])
@@ -1065,12 +1545,14 @@ def make_handler(work_dir: Path):
                 to_img = selected_dir / f"{tr['to']}.png"
 
                 if not from_img.exists() or not to_img.exists():
-                    return self._error(400, "BAD_REQUEST", "Selected keyframe images not found — run keyframe selection first")
+                    _log(f"  Missing images: from={from_img.exists()} to={to_img.exists()}")
+                    return self._error(400, "BAD_REQUEST", f"Selected keyframe images not found — from:{from_img.exists()} to:{to_img.exists()}")
 
                 api_key = os.environ.get("ANTHROPIC_API_KEY")
                 if not api_key:
                     return self._error(500, "INTERNAL_ERROR", "ANTHROPIC_API_KEY not set")
 
+                _log(f"  Calling Claude for {tr_id} ({tr['from']} -> {tr['to']})...")
                 from anthropic import Anthropic
                 client = Anthropic(api_key=api_key)
 
@@ -1091,10 +1573,12 @@ def make_handler(work_dir: Path):
                 n_slots = tr.get("slots", 1)
                 selected_slot_kf_dir = project_dir / "selected_slot_keyframes"
 
+                section_text = f"\n\nMusical context for this section:\n{section_context}\n" if section_context else ""
+
                 if n_slots <= 1:
                     # Single-slot: generate one action from the two keyframes
                     user_content = [
-                        {"type": "text", "text": f"You are a visual effects director for a music video. {master_context}Describe the ideal visual transition between these two keyframes.\n\n"},
+                        {"type": "text", "text": f"You are a visual effects director for a music video. {master_context}Describe the ideal visual transition between these two keyframes.{section_text}\n\n"},
                         {"type": "text", "text": f"FROM keyframe ({tr['from']}):\n"
                             f"  Timestamp: {from_kf['timestamp']}\n"
                             f"  Mood: {from_ctx.get('mood', 'unknown')}\n"
@@ -1176,8 +1660,7 @@ def make_handler(work_dir: Path):
                     if slot_actions:
                         tr["action"] = slot_actions[0]
 
-                with open(yaml_path, "w") as f:
-                    pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+                self._ruamel_save(ryaml, parsed, yaml_path)
 
                 self._json_response({"success": True, "action": tr.get("action", ""), "slotActions": tr.get("slot_actions", [])})
             except Exception as e:
@@ -1191,6 +1674,7 @@ def make_handler(work_dir: Path):
 
             tr_id = body.get("transitionId")
             current_action = body.get("action", "")
+            section_context = body.get("sectionContext")
             if not tr_id or not current_action:
                 return self._error(400, "BAD_REQUEST", "Missing 'transitionId' or 'action'")
 
@@ -1203,8 +1687,7 @@ def make_handler(work_dir: Path):
                 import base64
                 import os
 
-                with open(yaml_path) as f:
-                    parsed = pyyaml.safe_load(f)
+                ryaml, parsed = self._ruamel_load(yaml_path)
 
                 tl = self._load_timeline_data(parsed)
                 transitions = tl["transitions"]
@@ -1220,13 +1703,15 @@ def make_handler(work_dir: Path):
                 from_img = project_dir / "selected_keyframes" / f"{tr['from']}.png"
                 to_img = project_dir / "selected_keyframes" / f"{tr['to']}.png"
 
+                section_text = f"\n\nMusical context for this section:\n{section_context}\n" if section_context else ""
                 user_content = [
                     {"type": "text", "text":
                         "You are a visual effects director enhancing a transition prompt for Veo video generation. "
                         "Take the user's existing prompt and make it more vivid, specific, and cinematic. "
                         "Add details about camera movement, lighting, particle effects, color shifts, and timing. "
                         "Keep the core intent but make it significantly more descriptive for AI video generation.\n\n"
-                        f"Current prompt: \"{current_action}\"\n\n"},
+                        f"Current prompt: \"{current_action}\"\n\n"
+                        f"{section_text}"},
                 ]
 
                 # Include keyframe images if available for visual context
@@ -1362,6 +1847,7 @@ def make_handler(work_dir: Path):
             tr_id = body.get("transitionId")
             count = body.get("count", 4)  # how many NEW candidates to generate
             slot_index = body.get("slotIndex")  # optional: generate for a single slot only
+            duration = body.get("duration")  # optional: 4, 6, or 8 seconds
             if not tr_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'transitionId'")
 
@@ -1389,6 +1875,7 @@ def make_handler(work_dir: Path):
 
             def _run():
                 try:
+                    _log(f"[job {job_id}] Starting transition candidate generation for {tr_id}...")
                     from beatlab.render.narrative import generate_transition_candidates
                     from beatlab.render.google_video import PromptRejectedError
 
@@ -1405,6 +1892,7 @@ def make_handler(work_dir: Path):
                             segment_filter={tr_id},
                             slot_filter={slot_index} if slot_index is not None else None,
                             on_status=_on_status,
+                            duration_seconds=duration,
                         )
                     except PromptRejectedError as pre:
                         job_manager.update_progress(job_id, 0, f"Prompt issue: {str(pre)[:100]}")
@@ -1425,6 +1913,9 @@ def make_handler(work_dir: Path):
 
                     job_manager.complete_job(job_id, {"transitionId": tr_id, "candidates": candidates})
                 except Exception as e:
+                    _log(f"[job {job_id}] FAILED: {e}")
+                    import traceback
+                    traceback.print_exc()
                     err = str(e)
                     if "transient" in err.lower() or "None" in err:
                         job_manager.fail_job(job_id, f"Veo returned empty results after retries. This is usually transient — try again. ({err[:80]})")
@@ -1446,9 +1937,7 @@ def make_handler(work_dir: Path):
                 return
 
             try:
-                import yaml as pyyaml
-                with open(yaml_path) as f:
-                    parsed = pyyaml.safe_load(f)
+                ryaml, parsed = self._ruamel_load(yaml_path)
 
                 # For split format, meta lives in project.yaml
                 project_yaml = work_dir / project_name / "project.yaml"
@@ -1468,8 +1957,7 @@ def make_handler(work_dir: Path):
                         if key in body:
                             meta[key] = body[key]
                     parsed["meta"] = meta
-                    with open(yaml_path, "w") as f:
-                        pyyaml.dump(parsed, f, default_flow_style=False, allow_unicode=True, width=1000)
+                    self._ruamel_save(ryaml, parsed, yaml_path)
 
                 self._json_response({"success": True, "meta": meta})
             except Exception as e:
@@ -1515,6 +2003,7 @@ def make_handler(work_dir: Path):
                     "availableFiles": available,
                     "events": events,
                     "sections": sections,
+                    "rules": rules,
                     "ruleCount": len(rules),
                 })
             except Exception as e:
@@ -2367,6 +2856,20 @@ def make_handler(work_dir: Path):
                 self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
                 return None
             return path
+
+        def _ruamel_load(self, yaml_path):
+            """Load YAML with ruamel for round-trip editing."""
+            from ruamel.yaml import YAML
+            ryaml = YAML()
+            ryaml.width = 1000
+            ryaml.preserve_quotes = True
+            with open(yaml_path) as f:
+                return ryaml, ryaml.load(f)
+
+        def _ruamel_save(self, ryaml, parsed, yaml_path):
+            """Save YAML with ruamel, preserving formatting."""
+            with open(yaml_path, "w") as f:
+                ryaml.dump(parsed, f)
 
         def _has_project_yaml(self, project_name: str) -> bool:
             """Check if a project has any YAML data (split or legacy)."""

@@ -889,18 +889,18 @@ def generate_slot_keyframe_candidates(
             # generate_image_candidates stores in: {work_dir}/candidates/section_{key}/
             cand_dir = slot_kf_dir / "candidates" / f"section_{slot_key}"
             existing = list(cand_dir.glob("v*.png")) if cand_dir.exists() else []
-            if len(existing) >= n_candidates:
-                _log(f"    {slot_key}: {len(existing)} candidates exist, skipping")
-                all_slot_images.append(sorted(str(p) for p in existing)[:n_candidates])
-                continue
+            existing_count = len(existing)
 
-            _log(f"    {slot_key}: generating {n_candidates} candidates...")
+            # Always generate at least 1 more candidate (additive, not replace)
+            target_count = max(n_candidates, existing_count + 1)
+
+            _log(f"    {slot_key}: {existing_count} existing, generating up to {target_count} total...")
 
             paths = generate_image_candidates(
                 section_idx=slot_key,
                 source_image_path=source_img,
                 style_prompt=prompts[slot_idx],
-                count=n_candidates,
+                count=target_count,
                 work_dir=str(slot_kf_dir),
                 stylize_fn=stylize_fn,
             )
@@ -964,6 +964,8 @@ def generate_transition_candidates(
     vertex: bool = False,
     candidates_per_slot: int | None = None,
     segment_filter: set[str] | None = None,
+    slot_filter: set[int] | None = None,
+    on_status=None,
 ) -> None:
     """Generate Veo transition video candidates for each slot."""
     # First resolve boundary frames from any existing segments
@@ -1011,6 +1013,8 @@ def generate_transition_candidates(
         slot_duration = min(max_seconds, tr["duration_seconds"] / n_slots)
 
         for slot_idx in range(n_slots):
+            if slot_filter is not None and slot_idx not in slot_filter:
+                continue
             # Determine start/end images for this slot
             if n_slots == 1:
                 start_img = str(selected_kf_dir / f"{tr['from']}.png")
@@ -1034,7 +1038,8 @@ def generate_transition_candidates(
             slot_dir = tr_candidates_dir / tr["id"] / f"slot_{slot_idx}"
             slot_dir.mkdir(parents=True, exist_ok=True)
 
-            action = tr.get("action") or "Smooth cinematic transition"
+            slot_actions = tr.get("slot_actions", [])
+            action = slot_actions[slot_idx] if slot_idx < len(slot_actions) else (tr.get("action") or "Smooth cinematic transition")
             motion_prompt = data.get("meta", {}).get("motion_prompt", "")
             prompt = f"{action}. Camera and motion: {motion_prompt}" if motion_prompt else action
 
@@ -1075,6 +1080,7 @@ def generate_transition_candidates(
                 prompt=job["prompt"],
                 output_path=job["output"],
                 duration_seconds=int(job["duration"]),
+                on_status=on_status,
             )
             _log(f"    [{i + 1}/{len(jobs)}] {job['tr_id']} slot_{job['slot_idx']} v{job['variant']} done")
         except PromptRejectedError as e:

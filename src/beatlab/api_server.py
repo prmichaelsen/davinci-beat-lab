@@ -1256,6 +1256,9 @@ def make_handler(work_dir: Path):
 
                     job_manager.update_progress(job_id, 0, "Starting Veo generation...")
 
+                    def _on_status(msg):
+                        job_manager.update_progress(job_id, 0, msg)
+
                     try:
                         generate_transition_candidates(
                             str(yaml_path),
@@ -1263,6 +1266,7 @@ def make_handler(work_dir: Path):
                             candidates_per_slot=total_count,
                             segment_filter={tr_id},
                             slot_filter={slot_index} if slot_index is not None else None,
+                            on_status=_on_status,
                         )
                     except PromptRejectedError as pre:
                         job_manager.update_progress(job_id, 0, f"Prompt issue: {str(pre)[:100]}")

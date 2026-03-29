@@ -333,7 +333,7 @@ class GoogleVideoClient:
                 config=config,
             )
 
-        generated = _retry_video_generation(_generate, self.client, output_path)
+        generated = _retry_video_generation(_generate, self.client, output_path, on_status=on_status)
         self._save_generated_video(generated, output_path)
         return output_path
 
@@ -346,6 +346,7 @@ class GoogleVideoClient:
         duration_seconds: int = 2,
         model: str = "veo-3.0-generate-001",
         ingredients: list[str] | None = None,
+        on_status=None,
     ) -> str:
         """Generate a transition clip between two frames using Veo.
 

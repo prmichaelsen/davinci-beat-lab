@@ -50,10 +50,36 @@ class GeminiAudioDescriber(AudioDescriber):
         self.client = genai.Client(api_key=key)
         self.model = model
 
-    def describe(self, audio: np.ndarray, sr: int) -> str:
-        """Describe audio content using Gemini."""
+    def describe(self, audio: np.ndarray, sr: int, max_chunk_seconds: float = 30.0) -> str:
+        """Describe audio content using Gemini, chunking long segments.
+
+        Args:
+            audio: Audio samples.
+            sr: Sample rate.
+            max_chunk_seconds: Max seconds per Gemini API call (default 30s).
+        """
+        duration = len(audio) / sr
+        if duration > max_chunk_seconds:
+            # Split into chunks, describe each, concatenate
+            chunk_size = int(max_chunk_seconds * sr)
+            chunks = []
+            for start in range(0, len(audio), chunk_size):
+                chunks.append(audio[start:start + chunk_size])
+
+            descriptions = []
+            for i, chunk in enumerate(chunks):
+                chunk_start = i * max_chunk_seconds
+                chunk_end = min(chunk_start + max_chunk_seconds, duration)
+                desc = self._describe_chunk(chunk, sr, chunk_start, chunk_end)
+                descriptions.append(f"**[{chunk_start:.0f}s - {chunk_end:.0f}s]**\n{desc}")
+            return "\n\n".join(descriptions)
+        else:
+            return self._describe_chunk(audio, sr, 0, duration)
+
+    def _describe_chunk(self, audio: np.ndarray, sr: int,
+                         chunk_start: float = 0, chunk_end: float = 0) -> str:
+        """Describe a single audio chunk (max 30s)."""
         import soundfile as sf
-        from google import genai
         from google.genai import types
 
         # Write audio to a WAV buffer
@@ -67,8 +93,10 @@ class GeminiAudioDescriber(AudioDescriber):
                 types.Content(parts=[
                     types.Part.from_bytes(data=wav_bytes, mime_type="audio/wav"),
                     types.Part(text=(
-                        "You are a professional music producer with perfect pitch and rhythm. "
-                        "Analyze this audio segment and produce a DETAILED account of every audible musical event. "
+                        f"You are a professional music producer with perfect pitch and rhythm. "
+                        f"This audio spans {chunk_start:.0f}s to {chunk_end:.0f}s in the full track. "
+                        f"Use ABSOLUTE timestamps (starting at {chunk_start:.0f}s), not relative to this chunk.\n\n"
+                        "Produce a DETAILED account of every audible musical event. "
                         "Every second of audio must be accounted for — no gaps.\n\n"
                         "## 1. EVENT LOG (most important — be exhaustive)\n"
                         "List EVERY distinct audible event with its timestamp [M:SS]. Event types: "

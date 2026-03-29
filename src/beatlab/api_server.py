@@ -85,6 +85,11 @@ def make_handler(work_dir: Path):
             if m:
                 return self._handle_get_timelines(m.group(1))
 
+            # GET /api/projects/:name/settings
+            m = re.match(r"^/api/projects/([^/]+)/settings$", path)
+            if m:
+                return self._handle_get_settings(m.group(1))
+
             # GET /api/projects/:name/version/history
             m = re.match(r"^/api/projects/([^/]+)/version/history$", path)
             if m:
@@ -195,6 +200,11 @@ def make_handler(work_dir: Path):
             m = re.match(r"^/api/projects/([^/]+)/import$", path)
             if m:
                 return self._handle_import(m.group(1))
+
+            # POST /api/projects/:name/settings
+            m = re.match(r"^/api/projects/([^/]+)/settings$", path)
+            if m:
+                return self._handle_update_settings(m.group(1))
 
             # POST /api/projects/:name/watch-folder
             m = re.match(r"^/api/projects/([^/]+)/watch-folder$", path)
@@ -1129,6 +1139,53 @@ def make_handler(work_dir: Path):
                 self._json_response({"success": True, "meta": meta})
             except Exception as e:
                 self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_get_settings(self, project_name: str):
+            """GET /api/projects/:name/settings — read project settings from settings.yaml."""
+            import yaml as pyyaml
+            settings_path = work_dir / project_name / "settings.yaml"
+            defaults = {
+                "preview_quality": "medium",
+                "audio_intelligence_file": None,
+                "render_preview_fps": 24,
+            }
+            if settings_path.exists():
+                with open(settings_path) as f:
+                    saved = pyyaml.safe_load(f) or {}
+                defaults.update(saved)
+
+            # Also list available audio intelligence files
+            project_dir = work_dir / project_name
+            ai_files = sorted([
+                f.name for f in project_dir.glob("audio_intelligence*.json")
+            ], reverse=True)
+
+            self._json_response({**defaults, "available_audio_intelligence_files": ai_files})
+
+        def _handle_update_settings(self, project_name: str):
+            """POST /api/projects/:name/settings — update project settings in settings.yaml."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            import yaml as pyyaml
+            settings_path = work_dir / project_name / "settings.yaml"
+
+            existing = {}
+            if settings_path.exists():
+                with open(settings_path) as f:
+                    existing = pyyaml.safe_load(f) or {}
+
+            # Only allow known fields
+            allowed = {"preview_quality", "audio_intelligence_file", "render_preview_fps"}
+            for key in allowed:
+                if key in body:
+                    existing[key] = body[key]
+
+            with open(settings_path, "w") as f:
+                pyyaml.dump(existing, f, default_flow_style=False, allow_unicode=True)
+
+            self._json_response({"success": True, **existing})
 
         def _handle_get_watched_folders(self, project_name: str):
             """GET /api/projects/:name/watched-folders — list persisted watched folders."""

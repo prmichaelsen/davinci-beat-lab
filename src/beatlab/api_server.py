@@ -166,6 +166,11 @@ def make_handler(work_dir: Path):
             if m:
                 return self._handle_generate_transition_action(m.group(1))
 
+            # POST /api/projects/:name/generate-slot-keyframe-candidates
+            m = re.match(r"^/api/projects/([^/]+)/generate-slot-keyframe-candidates$", path)
+            if m:
+                return self._handle_generate_slot_keyframe_candidates(m.group(1))
+
             # POST /api/projects/:name/generate-keyframe-candidates
             m = re.match(r"^/api/projects/([^/]+)/generate-keyframe-candidates$", path)
             if m:
@@ -941,6 +946,49 @@ def make_handler(work_dir: Path):
                 self._json_response({"success": True, "action": action})
             except Exception as e:
                 self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_generate_slot_keyframe_candidates(self, project_name: str):
+            """POST /api/projects/:name/generate-slot-keyframe-candidates — generate intermediate keyframe images for multi-slot transitions."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            tr_id = body.get("transitionId")  # optional — generate for specific transition or all
+
+            yaml_path = self._require_yaml_path(project_name)
+            if yaml_path is None:
+                return
+
+            from beatlab.ws_server import job_manager
+            job_id = job_manager.create_job("slot_keyframe_candidates", total=0, meta={"transitionId": tr_id or "all", "project": project_name})
+
+            def _run():
+                try:
+                    from beatlab.render.narrative import generate_slot_keyframe_candidates
+                    generate_slot_keyframe_candidates(str(yaml_path), vertex=False)
+
+                    # Collect results
+                    project_dir = work_dir / project_name
+                    slot_kf_dir = project_dir / "slot_keyframe_candidates" / "candidates"
+                    candidates = {}
+                    if slot_kf_dir.exists():
+                        for section_dir in sorted(slot_kf_dir.iterdir()):
+                            if section_dir.is_dir() and section_dir.name.startswith("section_"):
+                                slot_key = section_dir.name.replace("section_", "")
+                                images = sorted([
+                                    f"slot_keyframe_candidates/candidates/{section_dir.name}/{f.name}"
+                                    for f in section_dir.glob("v*.png")
+                                ])
+                                if images:
+                                    candidates[slot_key] = images
+
+                    job_manager.complete_job(job_id, {"candidates": candidates})
+                except Exception as e:
+                    job_manager.fail_job(job_id, str(e))
+
+            import threading
+            threading.Thread(target=_run, daemon=True).start()
+            self._json_response({"jobId": job_id})
 
         def _handle_generate_keyframe_candidates(self, project_name: str):
             """POST /api/projects/:name/generate-keyframe-candidates — async Imagen generation with WebSocket progress."""

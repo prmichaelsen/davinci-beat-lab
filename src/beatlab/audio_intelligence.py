@@ -1170,7 +1170,8 @@ def _build_rms_lookup(rms_envelope: list[dict]) -> callable:
 
 def apply_rules(layer1_data: dict, rules: list[dict],
                 vocal_bleed_threshold: float = 0.25,
-                reverb_dedup: bool = False) -> list[dict]:
+                reverb_dedup: bool = False,
+                bleed_exempt_stems: set[str] | None = None) -> list[dict]:
     """Apply effect rules to all DSP onsets, producing frame-accurate events.
 
     This is the deterministic step — every onset that matches a rule gets an effect.
@@ -1183,6 +1184,8 @@ def apply_rules(layer1_data: dict, rules: list[dict],
             RMS energy at onset time is less than this fraction of the vocal stem's
             RMS, the onset is suppressed as likely bleed. Set to 0.0 to disable.
             Default: 0.15 (suppress when stem is <15% of vocal energy).
+        bleed_exempt_stems: Stem names exempt from bleed check. Stems derived from
+            the instrumental output are already vocal-free by construction.
     """
     _log("  Applying rules to DSP data...")
 
@@ -1242,7 +1245,9 @@ def apply_rules(layer1_data: dict, rules: list[dict],
                     continue
 
             # Confidence ratio: suppress bleed from non-vocal stems
-            if bleed_enabled and stem != "vocals":
+            # Skip bleed check for stems derived from instrumental (already vocal-free)
+            exempt = bleed_exempt_stems or set()
+            if bleed_enabled and stem != "vocals" and stem not in exempt:
                 v_energy = vocal_rms(t)
                 if v_energy > 0.01:
                     s_energy = stem_rms(t)
@@ -1739,7 +1744,10 @@ def run_audio_intelligence_multimodel(
         sensitivity=sensitivity,
         stats_mode=stats_mode,
     )
-    layer3 = apply_rules(layer1, rules, vocal_bleed_threshold=vocal_bleed_threshold)
+    # All drum + melodic stems are derived from the instrumental — exempt from vocal bleed check
+    exempt = set(drumsep_paths.keys()) | set(melodic_paths.keys())
+    _log(f"  Bleed-exempt stems (from instrumental): {exempt}")
+    layer3 = apply_rules(layer1, rules, vocal_bleed_threshold=vocal_bleed_threshold, bleed_exempt_stems=exempt)
 
     result = {
         "layer1_summary": {

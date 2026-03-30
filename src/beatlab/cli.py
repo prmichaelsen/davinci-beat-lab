@@ -2319,6 +2319,88 @@ def assemble(yaml_path, output):
     assemble_final(yaml_path, output)
 
 
+@main.command(name="crossfade")
+@click.argument("video_file", type=click.Path(exists=True))
+@click.option("--output", "-o", default=None, type=click.Path(), help="Output video path")
+@click.option("--crossfade-frames", default=8, type=int, help="Crossfade duration in frames (default: 8)")
+@click.option("--fps", default=24.0, type=float, help="Frame rate (default: 24)")
+@click.option("--chunk-size", default=10, type=int, help="Segments per ffmpeg call (default: 10)")
+@click.option("--audio", default=None, type=click.Path(exists=True), help="Audio file to mux into output")
+@click.option("--work-dir", default=".beatlab_work", type=str, help="Work directory")
+def crossfade_cmd(video_file: str, output: str | None, crossfade_frames: int,
+                  fps: float, chunk_size: int, audio: str | None, work_dir: str):
+    """Crossfade-stitch selected transitions from a project into a final video.
+
+    Reads the project YAML, collects remapped transition clips in timeline order,
+    crossfades them together, and muxes audio.
+
+    Examples:
+        beatlab crossfade assets/beyond_the_veil.mov
+        beatlab crossfade assets/beyond_the_veil.mov --crossfade-frames 12 --audio audio.wav
+    """
+    import subprocess
+    from pathlib import Path
+    from beatlab.render.workdir import WorkDir
+    from beatlab.project import load_project
+    from beatlab.render.crossfade import concat_with_crossfade
+
+    work = WorkDir(video_file, base_dir=work_dir)
+    data = load_project(work.root)
+
+    if not output:
+        output = str(work.root / "crossfade_output.mp4")
+
+    # Collect remapped clips in timeline order
+    remapped_dir = work.root / "remapped"
+    selected_tr_dir = work.root / "selected_transitions"
+
+    transitions = data.get("transitions", [])
+    if not transitions:
+        raise click.ClickException("No transitions found in project")
+
+    clips = []
+    for tr in transitions:
+        n_slots = tr.get("slots", 1)
+        for slot_idx in range(n_slots):
+            # Prefer remapped, fall back to selected
+            remapped = remapped_dir / f"{tr['id']}_slot_{slot_idx}.mp4"
+            selected = selected_tr_dir / f"{tr['id']}_slot_{slot_idx}.mp4"
+            if remapped.exists():
+                clips.append(str(remapped))
+            elif selected.exists():
+                clips.append(str(selected))
+            else:
+                _log(f"  Warning: missing {tr['id']} slot_{slot_idx}")
+
+    _log(f"Crossfading {len(clips)} clips (crossfade={crossfade_frames} frames, fps={fps})...")
+    noaudio_path = str(work.root / "crossfade_noaudio.mp4")
+    concat_with_crossfade(clips, noaudio_path, crossfade_frames=crossfade_frames, fps=fps, chunk_size=chunk_size)
+
+    # Mux audio
+    audio_path = audio
+    if not audio_path:
+        if work.has_audio():
+            audio_path = str(work.audio_path)
+
+    if audio_path:
+        _log(f"  Muxing audio from {Path(audio_path).name}...")
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-i", noaudio_path,
+            "-i", audio_path,
+            "-map", "0:v", "-map", "1:a",
+            "-c:v", "copy", "-c:a", "aac",
+            "-shortest",
+            output,
+        ], capture_output=True, check=True)
+        Path(noaudio_path).unlink(missing_ok=True)
+    else:
+        import shutil
+        shutil.move(noaudio_path, output)
+
+    _log(f"  Done: {output}")
+
+
 def _parse_kf_filter(spec: str) -> set[str]:
     """Parse a segment filter spec like 'kf_001,kf_005-kf_010' into a set of IDs."""
     result = set()

@@ -1026,7 +1026,12 @@ def generate_transition_candidates(
         if tr.get("_existing_segment_resolved"):
             continue
         n_slots = tr["slots"]
-        slot_duration = min(max_seconds, tr["duration_seconds"] / n_slots)
+        # If caller explicitly requested a duration, use it directly;
+        # otherwise cap at the transition's timeline duration per slot
+        if duration_seconds:
+            slot_duration = duration_seconds
+        else:
+            slot_duration = min(max_seconds, tr["duration_seconds"] / n_slots) if tr["duration_seconds"] > 0 else max_seconds
 
         for slot_idx in range(n_slots):
             if slot_filter is not None and slot_idx not in slot_filter:
@@ -1342,7 +1347,7 @@ def assemble_final(yaml_path: str, output_path: str) -> str:
     final_concat_list = remapped_dir / "final_concat.txt"
     with open(final_concat_list, "w") as f:
         for clip in remapped_clips:
-            f.write(f"file '{clip}'\n")
+            f.write(f"file '{Path(clip).resolve()}'\n")
 
     no_audio = str(work_dir / "narrative_noaudio.mp4")
     subprocess.run([

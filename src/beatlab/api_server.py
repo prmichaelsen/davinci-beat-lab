@@ -145,6 +145,15 @@ def make_handler(work_dir: Path):
             if m:
                 return self._handle_download_preview(m.group(1))
 
+            # GET /api/projects/:name/markers
+            m = re.match(r"^/api/projects/([^/]+)/markers$", path)
+            if m:
+                project_dir = self._require_project_dir(m.group(1))
+                if project_dir is None:
+                    return
+                from beatlab.db import get_markers
+                return self._json_response({"markers": get_markers(project_dir)})
+
             # GET /api/projects/:name/pool
             m = re.match(r"^/api/projects/([^/]+)/pool$", path)
             if m:
@@ -314,6 +323,42 @@ def make_handler(work_dir: Path):
             m = re.match(r"^/api/projects/([^/]+)/bench/remove$", path)
             if m:
                 return self._handle_bench_remove(m.group(1))
+
+            # POST /api/projects/:name/markers/add
+            m = re.match(r"^/api/projects/([^/]+)/markers/add$", path)
+            if m:
+                body = self._read_json_body()
+                if body is None: return
+                project_dir = self._require_project_dir(m.group(1))
+                if project_dir is None: return
+                from beatlab.db import add_marker
+                marker_id = body.get("id", f"m_{int(__import__('time').time() * 1000)}")
+                add_marker(project_dir, marker_id, body.get("time", 0), body.get("label", ""))
+                return self._json_response({"success": True, "id": marker_id})
+
+            # POST /api/projects/:name/markers/update
+            m = re.match(r"^/api/projects/([^/]+)/markers/update$", path)
+            if m:
+                body = self._read_json_body()
+                if body is None: return
+                project_dir = self._require_project_dir(m.group(1))
+                if project_dir is None: return
+                from beatlab.db import update_marker
+                marker_id = body.pop("id", None)
+                if not marker_id: return self._error(400, "BAD_REQUEST", "Missing 'id'")
+                update_marker(project_dir, marker_id, **{k: v for k, v in body.items() if k in ("time", "label")})
+                return self._json_response({"success": True})
+
+            # POST /api/projects/:name/markers/remove
+            m = re.match(r"^/api/projects/([^/]+)/markers/remove$", path)
+            if m:
+                body = self._read_json_body()
+                if body is None: return
+                project_dir = self._require_project_dir(m.group(1))
+                if project_dir is None: return
+                from beatlab.db import delete_marker
+                delete_marker(project_dir, body.get("id", ""))
+                return self._json_response({"success": True})
 
             # POST /api/projects/:name/split-transition
             m = re.match(r"^/api/projects/([^/]+)/split-transition$", path)
@@ -559,7 +604,7 @@ def make_handler(work_dir: Path):
                     candidate_files = sorted([
                         f"keyframe_candidates/candidates/section_{kf_id}/{f.name}"
                         for f in candidates_dir.glob("v*.png")
-                    ])
+                    ], key=lambda p: int(p.rsplit("v", 1)[-1].split(".")[0]))
 
                 ctx = kf.get("context")
                 keyframes.append({
@@ -602,7 +647,7 @@ def make_handler(work_dir: Path):
                             videos = sorted([
                                 f"transition_candidates/{tr_id}/{slot_dir.name}/{f.name}"
                                 for f in slot_dir.glob("v*.mp4")
-                            ])
+                            ], key=lambda p: int(p.rsplit("v", 1)[-1].split(".")[0]))
                             if videos:
                                 slot_candidates[slot_dir.name] = videos
 

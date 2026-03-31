@@ -113,6 +113,12 @@ def _ensure_schema(conn: sqlite3.Connection):
             added_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS markers (
+            id TEXT PRIMARY KEY,
+            time REAL NOT NULL,
+            label TEXT NOT NULL DEFAULT ''
+        );
+
         CREATE INDEX IF NOT EXISTS idx_keyframes_timestamp ON keyframes(timestamp);
         CREATE INDEX IF NOT EXISTS idx_keyframes_deleted ON keyframes(deleted_at);
         CREATE INDEX IF NOT EXISTS idx_transitions_from ON transitions(from_kf);
@@ -493,6 +499,38 @@ def get_bench_item(project_dir: Path, bench_id: str) -> dict | None:
         "sourcePath": row["source_path"], "label": row["label"],
         "addedAt": row["added_at"],
     }
+
+
+# ── Marker operations ──────────────────────────────────────────────
+
+def get_markers(project_dir: Path) -> list[dict]:
+    conn = get_db(project_dir)
+    rows = conn.execute("SELECT id, time, label FROM markers ORDER BY time").fetchall()
+    return [{"id": r["id"], "time": r["time"], "label": r["label"]} for r in rows]
+
+
+def add_marker(project_dir: Path, marker_id: str, time: float, label: str = ""):
+    conn = get_db(project_dir)
+    conn.execute("INSERT OR REPLACE INTO markers (id, time, label) VALUES (?, ?, ?)", (marker_id, time, label))
+    conn.commit()
+
+
+def update_marker(project_dir: Path, marker_id: str, **fields):
+    conn = get_db(project_dir)
+    sets = []
+    values = []
+    for key, val in fields.items():
+        sets.append(f"{key} = ?")
+        values.append(val)
+    values.append(marker_id)
+    conn.execute(f"UPDATE markers SET {', '.join(sets)} WHERE id = ?", values)
+    conn.commit()
+
+
+def delete_marker(project_dir: Path, marker_id: str):
+    conn = get_db(project_dir)
+    conn.execute("DELETE FROM markers WHERE id = ?", (marker_id,))
+    conn.commit()
 
 
 # ── Timeline Validation ─────────────────────────────────────────────

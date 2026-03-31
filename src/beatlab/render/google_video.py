@@ -231,24 +231,48 @@ class GoogleVideoClient:
             ),
         )
 
-        # Find the image part in the response
-        candidates = response.candidates or []
-        if not candidates:
-            # Content filter likely blocked it — retry with sanitized prompt
-            finish_reason = getattr(response, "prompt_feedback", None)
-            raise RuntimeError(
-                f"Nano Banana returned no candidates (likely content filter). "
-                f"Feedback: {finish_reason}. Style prompt was: {style_prompt[:100]}"
-            )
+        # Find the image part in the response, retry up to 2 times on transient failures
+        import time as _time
+        for attempt in range(3):
+            if attempt > 0:
+                _log(f"    Retrying image generation (attempt {attempt + 1})...")
+                _time.sleep(2)
+                response = _retry_on_429(
+                    self.client.models.generate_content,
+                    model=model,
+                    contents=[
+                        types.Content(role="user", parts=[
+                            types.Part.from_bytes(data=image_bytes, mime_type=mime),
+                            types.Part(text=f"Restyle this image in the following style, keeping the composition and subject intact. Hyper-realistic, photorealistic quality. Like a still from a big-budget film shot on 35mm. Rich intricate detail, complex natural textures, sophisticated cinematic lighting, depth of field. Every surface has realistic material properties — metal looks like metal, skin looks like skin, glass refracts light. Style: {style_prompt}"),
+                        ]),
+                    ],
+                    config=types.GenerateContentConfig(
+                        response_modalities=["image", "text"],
+                    ),
+                )
 
-        parts = candidates[0].content.parts if candidates[0].content else []
-        for part in parts or []:
-            if part.inline_data and part.inline_data.mime_type.startswith("image/"):
-                with open(output_path, "wb") as f:
-                    f.write(part.inline_data.data)
-                return output_path
+            candidates = response.candidates or []
+            if not candidates:
+                finish_reason = getattr(response, "prompt_feedback", None)
+                if attempt < 2:
+                    continue
+                raise RuntimeError(
+                    f"Nano Banana returned no candidates (likely content filter). "
+                    f"Feedback: {finish_reason}. Style prompt was: {style_prompt[:100]}"
+                )
 
-        raise RuntimeError("Nano Banana did not return an image")
+            parts = candidates[0].content.parts if candidates[0].content else []
+            for part in parts or []:
+                if part.inline_data and part.inline_data.mime_type.startswith("image/"):
+                    with open(output_path, "wb") as f:
+                        f.write(part.inline_data.data)
+                    return output_path
+
+            # Got candidates but no image part — text-only response, retry
+            if attempt < 2:
+                continue
+
+        raise RuntimeError("Nano Banana did not return an image after 3 attempts")
 
     @staticmethod
     def _load_ingredient_images(ingredient_paths: list[str]) -> list:
@@ -380,16 +404,17 @@ class GoogleVideoClient:
 
         ref_images = self._load_ingredient_images(ingredients) if ingredients else None
 
-        # Veo requires duration 6-8s; clamp to valid range
-        # Always request 8s — Veo charges the same regardless of duration,
-        # and shorter requests often get rejected. We trim to target duration in post.
-        _log(f"    Generating 8s transition (target {duration_seconds}s) | prompt: {prompt[:80]}...")
+        # Veo 3.1 supports 4, 6, or 8 second durations
+        veo_duration = max(4, min(8, duration_seconds))
+        # Snap to nearest valid value
+        veo_duration = min([4, 6, 8], key=lambda x: abs(x - veo_duration))
+        _log(f"    Generating {veo_duration}s transition (target {duration_seconds}s) | prompt: {prompt[:80]}...")
 
         def _generate():
             config = types.GenerateVideosConfig(
                 aspect_ratio="16:9",
                 number_of_videos=1,
-                duration_seconds=8,
+                duration_seconds=veo_duration,
                 person_generation="allow_adult",
                 last_frame=end_img,
                 **({"reference_images": ref_images} if ref_images else {}),

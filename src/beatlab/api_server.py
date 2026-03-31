@@ -9,6 +9,7 @@ import re
 import sys
 from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, unquote
 
 
@@ -20,6 +21,20 @@ def _log(msg: str):
 
 def make_handler(work_dir: Path):
     """Create a request handler class with the work_dir baked in."""
+    import threading
+    _project_locks: dict[str, threading.Lock] = {}
+    _locks_lock = threading.Lock()
+
+    def _get_project_lock(project_name: str) -> threading.Lock:
+        """Get a per-project lock for serializing YAML and git operations."""
+        with _locks_lock:
+            if project_name not in _project_locks:
+                _project_locks[project_name] = threading.Lock()
+            return _project_locks[project_name]
+
+    def _yaml_lock(project_name: str):
+        """Context manager for serializing YAML read-modify-write operations on a project."""
+        return _get_project_lock(project_name)
 
     class SceneCraftHandler(BaseHTTPRequestHandler):
         """REST API handler for SceneCraft pipeline operations."""
@@ -90,6 +105,16 @@ def make_handler(work_dir: Path):
             if m:
                 return self._handle_get_settings(m.group(1))
 
+            # GET /api/projects/:name/bench
+            m = re.match(r"^/api/projects/([^/]+)/bench$", path)
+            if m:
+                return self._handle_get_bench(m.group(1))
+
+            # GET /api/projects/:name/section-settings?section=...
+            m = re.match(r"^/api/projects/([^/]+)/section-settings$", path)
+            if m:
+                return self._handle_get_section_settings(m.group(1))
+
             # GET /api/projects/:name/audio-intelligence
             m = re.match(r"^/api/projects/([^/]+)/audio-intelligence$", path)
             if m:
@@ -99,6 +124,26 @@ def make_handler(work_dir: Path):
             m = re.match(r"^/api/projects/([^/]+)/descriptions$", path)
             if m:
                 return self._handle_get_descriptions(m.group(1))
+
+            # GET /api/projects/:name/staging/:stagingId
+            m = re.match(r"^/api/projects/([^/]+)/staging/([^/]+)$", path)
+            if m:
+                project_dir = self._require_project_dir(m.group(1))
+                if project_dir is None:
+                    return
+                staging_dir = project_dir / "staging" / m.group(2)
+                if not staging_dir.is_dir():
+                    return self._json_response({"candidates": []})
+                candidates = sorted([
+                    f"staging/{m.group(2)}/{f.name}"
+                    for f in staging_dir.glob("v*.png")
+                ], key=lambda p: int(p.rsplit("v", 1)[-1].split(".")[0]))
+                return self._json_response({"candidates": candidates})
+
+            # GET /api/projects/:name/download-preview?start=X&end=Y
+            m = re.match(r"^/api/projects/([^/]+)/download-preview$", path)
+            if m:
+                return self._handle_download_preview(m.group(1))
 
             # GET /api/projects/:name/pool
             m = re.match(r"^/api/projects/([^/]+)/pool$", path)
@@ -131,6 +176,50 @@ def make_handler(work_dir: Path):
             parsed = urlparse(self.path)
             path = unquote(parsed.path)
 
+            # Structural timeline mutations need a per-project lock to prevent
+            # read-modify-write races (e.g., two concurrent deletes creating duplicate bridges).
+            # Simple field updates (prompt, action, remap, select) and long-running ops don't need it.
+            _proj_match = re.match(r"^/api/projects/([^/]+)/", path)
+            _proj_name = _proj_match.group(1) if _proj_match else None
+            _route_name = path.rsplit("/", 1)[-1] if "/" in path else ""
+            _structural_routes = {
+                "add-keyframe", "duplicate-keyframe", "delete-keyframe", "restore-keyframe",
+                "delete-transition", "restore-transition",
+                "split-transition", "insert-pool-item",
+                "version/commit",
+            }
+            _use_lock = _proj_name and _route_name in _structural_routes
+
+            if _use_lock:
+                _get_project_lock(_proj_name).acquire()
+            try:
+                result = self._do_POST(path)
+                # Validate timeline after structural mutations
+                if _use_lock and _proj_name:
+                    try:
+                        from beatlab.db import validate_timeline
+                        project_dir = work_dir / _proj_name
+                        if (project_dir / "project.db").exists():
+                            warnings = validate_timeline(project_dir)
+                            if warnings:
+                                _log(f"⚠ Timeline validation ({_route_name}): {len(warnings)} issues")
+                                for w in warnings[:10]:
+                                    _log(f"  - {w}")
+                                # Send warnings via WebSocket
+                                try:
+                                    from beatlab.ws_server import job_manager as _jm
+                                    _jm._broadcast({"type": "timeline_warning", "route": _route_name, "warnings": warnings})
+                                except Exception:
+                                    pass
+                    except Exception as ve:
+                        _log(f"  Validation error: {ve}")
+                return result
+            finally:
+                if _use_lock:
+                    _get_project_lock(_proj_name).release()
+
+        def _do_POST(self, path):
+
             # POST /api/projects/:name/select-keyframes
             m = re.match(r"^/api/projects/([^/]+)/select-keyframes$", path)
             if m:
@@ -160,6 +249,11 @@ def make_handler(work_dir: Path):
             m = re.match(r"^/api/projects/([^/]+)/add-keyframe$", path)
             if m:
                 return self._handle_add_keyframe(m.group(1))
+
+            # POST /api/projects/:name/duplicate-keyframe
+            m = re.match(r"^/api/projects/([^/]+)/duplicate-keyframe$", path)
+            if m:
+                return self._handle_duplicate_keyframe(m.group(1))
 
             # POST /api/projects/:name/delete-keyframe
             m = re.match(r"^/api/projects/([^/]+)/delete-keyframe$", path)
@@ -205,6 +299,26 @@ def make_handler(work_dir: Path):
             m = re.match(r"^/api/projects/([^/]+)/enhance-transition-action$", path)
             if m:
                 return self._handle_enhance_transition_action(m.group(1))
+
+            # POST /api/projects/:name/assign-pool-video
+            m = re.match(r"^/api/projects/([^/]+)/assign-pool-video$", path)
+            if m:
+                return self._handle_assign_pool_video(m.group(1))
+
+            # POST /api/projects/:name/bench/add
+            m = re.match(r"^/api/projects/([^/]+)/bench/add$", path)
+            if m:
+                return self._handle_bench_add(m.group(1))
+
+            # POST /api/projects/:name/bench/remove
+            m = re.match(r"^/api/projects/([^/]+)/bench/remove$", path)
+            if m:
+                return self._handle_bench_remove(m.group(1))
+
+            # POST /api/projects/:name/split-transition
+            m = re.match(r"^/api/projects/([^/]+)/split-transition$", path)
+            if m:
+                return self._handle_split_transition(m.group(1))
 
             # POST /api/projects/:name/insert-pool-item
             m = re.match(r"^/api/projects/([^/]+)/insert-pool-item$", path)
@@ -296,6 +410,31 @@ def make_handler(work_dir: Path):
             if m:
                 return self._handle_version_delete_branch(m.group(1))
 
+            # POST /api/projects/:name/promote-staged-candidate
+            m = re.match(r"^/api/projects/([^/]+)/promote-staged-candidate$", path)
+            if m:
+                return self._handle_promote_staged_candidate(m.group(1))
+
+            # POST /api/projects/:name/generate-staged-candidate
+            m = re.match(r"^/api/projects/([^/]+)/generate-staged-candidate$", path)
+            if m:
+                return self._handle_generate_staged_candidate(m.group(1))
+
+            # POST /api/projects/:name/suggest-keyframe-prompts
+            m = re.match(r"^/api/projects/([^/]+)/suggest-keyframe-prompts$", path)
+            if m:
+                return self._handle_suggest_keyframe_prompts(m.group(1))
+
+            # POST /api/projects/:name/enhance-keyframe-prompt
+            m = re.match(r"^/api/projects/([^/]+)/enhance-keyframe-prompt$", path)
+            if m:
+                return self._handle_enhance_keyframe_prompt(m.group(1))
+
+            # POST /api/projects/:name/section-settings
+            m = re.match(r"^/api/projects/([^/]+)/section-settings$", path)
+            if m:
+                return self._handle_section_settings(m.group(1))
+
             self._error(404, "NOT_FOUND", f"No route: POST {path}")
 
         def do_HEAD(self):
@@ -386,22 +525,20 @@ def make_handler(work_dir: Path):
 
         def _handle_get_keyframes(self, project_name: str):
             """GET /api/projects/:name/keyframes — load keyframe data for editor."""
-            from beatlab.project import load_project
-            project_dir = work_dir / project_name
-            if not project_dir.is_dir():
+            project_dir = self._get_project_dir(project_name)
+            if project_dir is None:
                 return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
 
-            if not self._has_project_yaml(project_name):
+            from beatlab.db import get_meta, get_keyframes as db_get_keyframes, get_transitions as db_get_transitions
+
+            # Check if DB exists (auto-import happens in _get_project_dir)
+            if not (project_dir / "project.db").exists():
                 return self._json_response({
                     "meta": {"title": project_name, "fps": 24, "resolution": [1920, 1080]},
-                    "keyframes": [],
-                    "audioFile": None,
-                    "projectName": project_name,
+                    "keyframes": [], "transitions": [], "audioFile": None, "projectName": project_name,
                 })
 
-            parsed = load_project(project_dir)
-
-            meta = parsed.get("meta", {})
+            meta = get_meta(project_dir)
             result_meta = {
                 "title": meta.get("title", project_name),
                 "fps": meta.get("fps", 24),
@@ -411,12 +548,11 @@ def make_handler(work_dir: Path):
             }
 
             keyframes = []
-            for kf in parsed.get("keyframes", []):
-                kf_id = kf.get("id", "")
+            for kf in db_get_keyframes(project_dir):
+                kf_id = kf["id"]
                 img_path = project_dir / "selected_keyframes" / f"{kf_id}.png"
                 has_selected = img_path.exists()
 
-                # Find candidates
                 candidates_dir = project_dir / "keyframe_candidates" / "candidates" / f"section_{kf_id}"
                 candidate_files = []
                 if candidates_dir.exists():
@@ -425,7 +561,7 @@ def make_handler(work_dir: Path):
                         for f in candidates_dir.glob("v*.png")
                     ])
 
-                ctx = kf.get("context", {})
+                ctx = kf.get("context")
                 keyframes.append({
                     "id": kf_id,
                     "timestamp": kf.get("timestamp", "0:00"),
@@ -452,10 +588,10 @@ def make_handler(work_dir: Path):
                     audio_file = candidate
                     break
 
-            # Parse transitions
+            # Parse transitions from DB
             transitions = []
             tr_candidates_root = project_dir / "transition_candidates"
-            for tr in parsed.get("transitions", []):
+            for tr in db_get_transitions(project_dir):
                 tr_id = tr.get("id", "")
                 # Scan disk for video candidates per slot
                 slot_candidates = {}
@@ -477,10 +613,9 @@ def make_handler(work_dir: Path):
                     sel_path = selected_tr_dir / f"{tr_id}_slot_{slot_idx}.mp4"
                     has_selected_videos.append(sel_path.exists())
 
-                # selected is a list: [variant_or_path_per_slot]
-                selected_list = tr.get("selected", [])
-                if not isinstance(selected_list, list):
-                    selected_list = []
+                # selected: from DB it's already flattened; wrap back to list for API compat
+                sel = tr.get("selected")
+                selected_list = sel if isinstance(sel, list) else [sel]
 
                 # Scan for slot keyframe candidates (intermediate keyframe images for multi-slot transitions)
                 slot_kf_candidates = {}
@@ -552,19 +687,33 @@ def make_handler(work_dir: Path):
             if not selections:
                 return self._error(400, "BAD_REQUEST", "Missing 'selections' in body")
 
-            yaml_path = self._require_yaml_path(project_name)
-            if yaml_path is None:
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
                 return
 
             try:
-                from beatlab.render.narrative import apply_keyframe_selection
-                apply_keyframe_selection(str(yaml_path), selections)
+                import shutil
+                from beatlab.db import update_keyframe
+                selected_dir = project_dir / "selected_keyframes"
+                selected_dir.mkdir(parents=True, exist_ok=True)
+
+                for kf_id, variant in selections.items():
+                    _log(f"select-keyframes: {kf_id} v{variant}")
+                    cand_dir = project_dir / "keyframe_candidates" / "candidates" / f"section_{kf_id}"
+                    source = cand_dir / f"v{variant}.png"
+                    if source.exists():
+                        shutil.copy2(str(source), str(selected_dir / f"{kf_id}.png"))
+                        _log(f"  copied {source} -> {selected_dir / f'{kf_id}.png'}")
+                    else:
+                        _log(f"  WARNING: candidate not found: {source}")
+                    update_keyframe(project_dir, kf_id, selected=variant)
+
                 self._json_response({"success": True, "applied": len(selections)})
             except Exception as e:
                 self._error(500, "INTERNAL_ERROR", str(e))
 
         def _handle_select_slot_keyframes(self, project_name: str):
-            """POST /api/projects/:name/select-slot-keyframes — apply slot selections."""
+            """POST /api/projects/:name/select-slot-keyframes — apply slot keyframe selections."""
             body = self._read_json_body()
             if body is None:
                 return
@@ -573,13 +722,21 @@ def make_handler(work_dir: Path):
             if not selections:
                 return self._error(400, "BAD_REQUEST", "Missing 'selections' in body")
 
-            yaml_path = self._require_yaml_path(project_name)
-            if yaml_path is None:
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
                 return
 
             try:
-                from beatlab.render.narrative import apply_slot_keyframe_selection
-                apply_slot_keyframe_selection(str(yaml_path), selections)
+                import shutil
+                selected_dir = project_dir / "selected_slot_keyframes"
+                selected_dir.mkdir(parents=True, exist_ok=True)
+                slot_kf_root = project_dir / "slot_keyframe_candidates" / "candidates"
+
+                for slot_key, variant in selections.items():
+                    source = slot_kf_root / f"section_{slot_key}" / f"v{variant}.png"
+                    if source.exists():
+                        shutil.copy2(str(source), str(selected_dir / f"{slot_key}.png"))
+
                 self._json_response({"success": True, "applied": len(selections)})
             except Exception as e:
                 self._error(500, "INTERNAL_ERROR", str(e))
@@ -599,13 +756,32 @@ def make_handler(work_dir: Path):
             if not selections:
                 return self._error(400, "BAD_REQUEST", "Missing 'selections' in body")
 
-            yaml_path = self._require_yaml_path(project_name)
-            if yaml_path is None:
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
                 return
 
             try:
-                from beatlab.render.narrative import apply_transition_selection
-                apply_transition_selection(str(yaml_path), selections)
+                import shutil
+                from beatlab.db import update_transition
+                selected_dir = project_dir / "selected_transitions"
+                selected_dir.mkdir(parents=True, exist_ok=True)
+                tr_candidates_root = project_dir / "transition_candidates"
+
+                for key, variant in selections.items():
+                    if "_slot_" in key:
+                        tr_id, slot_part = key.rsplit("_slot_", 1)
+                        slot_idx = int(slot_part)
+                    else:
+                        tr_id = key
+                        slot_idx = 0
+
+                    source = tr_candidates_root / tr_id / f"slot_{slot_idx}" / f"v{variant}.mp4"
+                    dest = selected_dir / f"{tr_id}_slot_{slot_idx}.mp4"
+                    if source.exists():
+                        shutil.copy2(str(source), str(dest))
+
+                    update_transition(project_dir, tr_id, selected=variant)
+
                 self._json_response({"success": True, "applied": len(selections)})
             except Exception as e:
                 self._error(500, "INTERNAL_ERROR", str(e))
@@ -621,37 +797,40 @@ def make_handler(work_dir: Path):
             if not kf_id or new_timestamp is None:
                 return self._error(400, "BAD_REQUEST", "Missing 'keyframeId' or 'newTimestamp'")
 
-            yaml_path = self._require_yaml_path(project_name)
-            if yaml_path is None:
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
                 return
 
             try:
-                # Read, find keyframe, update timestamp, write back
-                content = yaml_path.read_text()
-                # Match both "- id: kf_001" and "  id: kf_001" (pyyaml sorts keys, so id may not be first)
-                id_match = re.search(rf"^[ -]+id: {re.escape(kf_id)}\s*$", content, re.MULTILINE)
-                if not id_match:
-                    return self._error(404, "NOT_FOUND", f"Keyframe {kf_id} not found")
-                idx = id_match.start()
+                from beatlab.db import update_keyframe, get_transitions, update_transition
 
-                ts_pattern = re.compile(r"\n(\s+)timestamp:\s*'?([^'\n]+)'?")
-                after = content[idx:]
-                match = ts_pattern.search(after)
-                if not match:
-                    return self._error(500, "INTERNAL_ERROR", "Timestamp field not found")
+                def parse_ts(ts):
+                    parts = str(ts).split(":")
+                    if len(parts) == 2:
+                        return int(parts[0]) * 60 + float(parts[1])
+                    return float(ts) if isinstance(ts, (int, float)) else 0
 
-                full_match = match.group(0)
-                indent = match.group(1)
-                replacement = f"\n{indent}timestamp: '{new_timestamp}'"
-                updated = content[:idx] + after.replace(full_match, replacement, 1)
-                yaml_path.write_text(updated)
+                update_keyframe(project_dir, kf_id, timestamp=new_timestamp)
+
+                # Update duration_seconds on adjacent transitions
+                new_time = parse_ts(new_timestamp)
+                all_trs = get_transitions(project_dir)
+                for tr in all_trs:
+                    if tr["from"] == kf_id or tr["to"] == kf_id:
+                        other_id = tr["to"] if tr["from"] == kf_id else tr["from"]
+                        from beatlab.db import get_keyframe
+                        other_kf = get_keyframe(project_dir, other_id)
+                        if other_kf:
+                            other_time = parse_ts(other_kf["timestamp"])
+                            dur = round(abs(new_time - other_time), 2)
+                            update_transition(project_dir, tr["id"], duration_seconds=dur)
 
                 self._json_response({"success": True, "keyframeId": kf_id, "newTimestamp": new_timestamp})
             except Exception as e:
                 self._error(500, "INTERNAL_ERROR", str(e))
 
         def _handle_update_prompt(self, project_name: str):
-            """POST /api/projects/:name/update-prompt — update a keyframe's prompt (ruamel round-trip)."""
+            """POST /api/projects/:name/update-prompt — update a keyframe's prompt."""
             body = self._read_json_body()
             if body is None:
                 return
@@ -661,48 +840,38 @@ def make_handler(work_dir: Path):
             if not kf_id or prompt is None:
                 return self._error(400, "BAD_REQUEST", "Missing 'keyframeId' or 'prompt'")
 
-            yaml_path = self._require_yaml_path(project_name)
-            if yaml_path is None:
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
                 return
 
             try:
-                from ruamel.yaml import YAML
-                ryaml = YAML()
-                ryaml.width = 1000
-                ryaml.preserve_quotes = True
-
-                with open(yaml_path) as f:
-                    parsed = ryaml.load(f)
-
-                tl_data = parsed.get("timelines", {}).get(parsed.get("active_timeline", "default"), parsed) if "timelines" in parsed else parsed
-                kf = next((k for k in tl_data.get("keyframes", []) if k.get("id") == kf_id), None)
+                from beatlab.db import update_keyframe, get_keyframe
+                _log(f"update-prompt: {kf_id} prompt={repr(prompt[:60])}")
+                kf = get_keyframe(project_dir, kf_id)
                 if not kf:
+                    _log(f"  NOT FOUND: {kf_id}")
                     return self._error(404, "NOT_FOUND", f"Keyframe {kf_id} not found")
 
-                kf["prompt"] = prompt
-
-                with open(yaml_path, "w") as f:
-                    ryaml.dump(parsed, f)
-
+                update_keyframe(project_dir, kf_id, prompt=prompt)
+                _log(f"  saved prompt for {kf_id}")
                 self._json_response({"success": True, "keyframeId": kf_id})
             except Exception as e:
+                _log(f"  FAILED: {e}")
                 self._error(500, "INTERNAL_ERROR", str(e))
 
         def _handle_get_bin(self, project_name: str):
-            """GET /api/projects/:name/bin — list binned (soft-deleted) keyframes."""
-            from beatlab.project import load_project
-            project_dir = work_dir / project_name
-            if not project_dir.is_dir():
-                return self._json_response({"bin": []})
-            parsed = load_project(project_dir)
+            """GET /api/projects/:name/bin — list binned (soft-deleted) keyframes and transitions."""
+            project_dir = self._get_project_dir(project_name)
+            if project_dir is None:
+                return self._json_response({"bin": [], "transitionBin": []})
 
-            project_dir = work_dir / project_name
+            from beatlab.db import get_binned_keyframes, get_binned_transitions
+
             bin_entries = []
-            for kf in parsed.get("bin", []):
-                kf_id = kf.get("id", "")
-                img_path = project_dir / "selected_keyframes" / f"{kf_id}.png"
+            for kf in get_binned_keyframes(project_dir):
+                img_path = project_dir / "selected_keyframes" / f"{kf['id']}.png"
                 bin_entries.append({
-                    "id": kf_id,
+                    "id": kf["id"],
                     "deleted_at": kf.get("deleted_at", ""),
                     "timestamp": kf.get("timestamp", "0:00"),
                     "section": kf.get("section", ""),
@@ -711,9 +880,9 @@ def make_handler(work_dir: Path):
                 })
 
             transition_bin = []
-            for tr in parsed.get("transition_bin", []):
+            for tr in get_binned_transitions(project_dir):
                 transition_bin.append({
-                    "id": tr.get("id", ""),
+                    "id": tr["id"],
                     "deleted_at": tr.get("deleted_at", ""),
                     "from": tr.get("from", ""),
                     "to": tr.get("to", ""),
@@ -802,106 +971,217 @@ def make_handler(work_dir: Path):
             if not timestamp:
                 return self._error(400, "BAD_REQUEST", "Missing 'timestamp'")
 
+            # Validate timestamp format and range
+            def _parse_ts_val(ts):
+                parts = str(ts).split(":")
+                if len(parts) == 2:
+                    return int(parts[0]) * 60 + float(parts[1])
+                return float(ts) if isinstance(ts, (int, float)) else -1
+
+            ts_seconds = _parse_ts_val(timestamp)
+            if ts_seconds < 0 or ts_seconds > 7200:  # max 2 hours
+                return self._error(400, "BAD_REQUEST", f"Invalid timestamp: {timestamp} ({ts_seconds}s)")
+
+            _log(f"add-keyframe: {project_name} at {timestamp} ({ts_seconds:.2f}s)")
+
             section = body.get("section", "")
             prompt = body.get("prompt", "")
 
-            yaml_path = self._require_yaml_path(project_name)
-            if yaml_path is None:
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
                 return
 
             try:
-                ryaml, parsed = self._ruamel_load(yaml_path)
+                from beatlab.db import (
+                    add_keyframe as db_add_kf, get_keyframes as db_get_kfs,
+                    next_keyframe_id, next_transition_id,
+                    add_transition as db_add_tr, delete_transition as db_del_tr,
+                    get_transitions as db_get_trs, transaction,
+                )
 
-                tl = self._load_timeline_data(parsed)
-                keyframes = tl["keyframes"]
-                bin_list = tl["bin"]
-
-                # Compute next sequential ID from keyframes + bin
-                max_num = 0
-                for kf in keyframes + bin_list:
-                    kf_id = kf.get("id", "")
-                    if kf_id.startswith("kf_"):
-                        try:
-                            num = int(kf_id[3:])
-                            if num > max_num:
-                                max_num = num
-                        except ValueError:
-                            pass
-                new_id = f"kf_{max_num + 1:03d}"
-
-                new_kf = {
-                    "id": new_id,
-                    "timestamp": timestamp,
-                    "section": section,
-                    "source": f"selected_keyframes/{new_id}.png",
-                    "prompt": prompt,
-                    "candidates": [],
-                    "selected": None,
-                }
-
-                keyframes.append(new_kf)
-
-                # Sort by timestamp
                 def parse_ts(ts):
                     parts = str(ts).split(":")
                     if len(parts) == 2:
                         return int(parts[0]) * 60 + float(parts[1])
-                    return 0
-                keyframes.sort(key=lambda kf: parse_ts(kf.get("timestamp", "0:00")))
+                    return float(ts) if isinstance(ts, (int, float)) else 0
 
-                # Find where the new keyframe lands in the sorted order
+                new_id = next_keyframe_id(project_dir)
                 new_time = parse_ts(timestamp)
-                kf_times = {kf.get("id"): parse_ts(kf.get("timestamp", "0:00")) for kf in keyframes}
-                new_idx = next(i for i, kf in enumerate(keyframes) if kf.get("id") == new_id)
-                prev_kf = keyframes[new_idx - 1] if new_idx > 0 else None
-                next_kf = keyframes[new_idx + 1] if new_idx < len(keyframes) - 1 else None
 
-                # If there's an existing transition spanning prev→next, split it
-                transitions = tl["transitions"]
+                new_kf = {
+                    "id": new_id, "timestamp": timestamp, "section": section,
+                    "source": f"selected_keyframes/{new_id}.png", "prompt": prompt,
+                    "candidates": [], "selected": None,
+                }
+                db_add_kf(project_dir, new_kf)
+
+                # Find timeline neighbors
+                all_kfs = db_get_kfs(project_dir)
+                sorted_kfs = sorted(all_kfs, key=lambda k: parse_ts(k["timestamp"]))
+                new_idx = next((i for i, k in enumerate(sorted_kfs) if k["id"] == new_id), -1)
+                prev_kf = sorted_kfs[new_idx - 1] if new_idx > 0 else None
+                next_kf = sorted_kfs[new_idx + 1] if new_idx < len(sorted_kfs) - 1 else None
+
+                # Wire transitions: split spanning transition or create new ones
+                from datetime import datetime, timezone
                 if prev_kf and next_kf:
-                    old_tr_idx = next((i for i, tr in enumerate(transitions)
-                                       if tr.get("from") == prev_kf["id"] and tr.get("to") == next_kf["id"]), -1)
-                    if old_tr_idx >= 0:
-                        old_tr = transitions.pop(old_tr_idx)
-                        # Compute next tr IDs
-                        tr_bin = tl.get("transition_bin", [])
-                        max_tr = 0
-                        for tr in transitions + tr_bin:
-                            tr_id = tr.get("id", "")
-                            if tr_id.startswith("tr_"):
-                                try:
-                                    max_tr = max(max_tr, int(tr_id[3:]))
-                                except ValueError:
-                                    pass
+                    all_trs = db_get_trs(project_dir)
+                    old_tr = next((t for t in all_trs if t["from"] == prev_kf["id"] and t["to"] == next_kf["id"]), None)
+                    if old_tr:
+                        db_del_tr(project_dir, old_tr["id"], datetime.now(timezone.utc).isoformat())
 
-                        prev_time = kf_times.get(prev_kf["id"], 0)
-                        next_time = kf_times.get(next_kf["id"], 0)
-                        dur_before = round(new_time - prev_time, 2)
-                        dur_after = round(next_time - new_time, 2)
+                prev_time = parse_ts(prev_kf["timestamp"]) if prev_kf else None
+                next_time = parse_ts(next_kf["timestamp"]) if next_kf else None
 
-                        max_tr += 1
-                        transitions.append({
-                            "id": f"tr_{max_tr:03d}", "from": prev_kf["id"], "to": new_id,
-                            "duration_seconds": dur_before, "slots": 1,
-                            "action": "", "use_global_prompt": False, "selected": [None],
-                            "remap": {"method": "linear", "target_duration": dur_before},
-                        })
-                        max_tr += 1
-                        transitions.append({
-                            "id": f"tr_{max_tr:03d}", "from": new_id, "to": next_kf["id"],
-                            "duration_seconds": dur_after, "slots": 1,
-                            "action": "", "use_global_prompt": False, "selected": [None],
-                            "remap": {"method": "linear", "target_duration": dur_after},
-                        })
-                        tl["transitions"] = transitions
+                if prev_kf:
+                    dur_before = round(new_time - prev_time, 2)
+                    tr1_id = next_transition_id(project_dir)
+                    db_add_tr(project_dir, {
+                        "id": tr1_id, "from": prev_kf["id"], "to": new_id,
+                        "duration_seconds": dur_before, "slots": 1,
+                        "action": "", "use_global_prompt": False, "selected": None,
+                        "remap": {"method": "linear", "target_duration": dur_before},
+                    })
+                if next_kf:
+                    dur_after = round(next_time - new_time, 2)
+                    tr2_id = next_transition_id(project_dir)
+                    db_add_tr(project_dir, {
+                        "id": tr2_id, "from": new_id, "to": next_kf["id"],
+                        "duration_seconds": dur_after, "slots": 1,
+                        "action": "", "use_global_prompt": False, "selected": None,
+                        "remap": {"method": "linear", "target_duration": dur_after},
+                    })
+                _log(f"  Wired: {prev_kf['id'] if prev_kf else '(start)'} -> {new_id} -> {next_kf['id'] if next_kf else '(end)'}")
 
-                tl["keyframes"] = keyframes
-                self._save_timeline_data(parsed, tl)
-
-                self._ruamel_save(ryaml, parsed, yaml_path)
-
+                _log(f"  Created {new_id} at {timestamp}")
                 self._json_response({"success": True, "keyframe": {"id": new_id, "timestamp": timestamp, "section": section, "prompt": prompt}})
             except Exception as e:
+                _log(f"  FAILED: {e}")
+                import traceback
+                traceback.print_exc()
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_duplicate_keyframe(self, project_name: str):
+            """POST /api/projects/:name/duplicate-keyframe — duplicate a keyframe with candidates at a new timestamp."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            source_id = body.get("keyframeId")
+            timestamp = body.get("timestamp")
+            if not source_id or not timestamp:
+                return self._error(400, "BAD_REQUEST", "Missing 'keyframeId' or 'timestamp'")
+
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
+                return
+
+            try:
+                from beatlab.db import (
+                    add_keyframe as db_add_kf, get_keyframes as db_get_kfs,
+                    get_keyframe as db_get_kf,
+                    next_keyframe_id, next_transition_id,
+                    add_transition as db_add_tr, delete_transition as db_del_tr,
+                    get_transitions as db_get_trs,
+                )
+                import shutil
+
+                source_kf = db_get_kf(project_dir, source_id)
+                if not source_kf:
+                    return self._error(404, "NOT_FOUND", f"Keyframe {source_id} not found")
+
+                def parse_ts(ts):
+                    parts = str(ts).split(":")
+                    if len(parts) == 2:
+                        return int(parts[0]) * 60 + float(parts[1])
+                    return float(ts) if isinstance(ts, (int, float)) else 0
+
+                new_id = next_keyframe_id(project_dir)
+                new_time = parse_ts(timestamp)
+
+                # Copy candidate files from disk
+                src_candidates_dir = project_dir / "keyframe_candidates" / "candidates" / f"section_{source_id}"
+                dst_candidates_dir = project_dir / "keyframe_candidates" / "candidates" / f"section_{new_id}"
+                new_candidates = []
+                if src_candidates_dir.exists():
+                    dst_candidates_dir.mkdir(parents=True, exist_ok=True)
+                    for f in sorted(src_candidates_dir.iterdir()):
+                        if f.suffix.lower() in ('.png', '.jpg', '.jpeg'):
+                            dest = dst_candidates_dir / f.name
+                            shutil.copy2(str(f), str(dest))
+                            new_candidates.append(f"keyframe_candidates/candidates/section_{new_id}/{f.name}")
+
+                # If no files on disk, use DB candidates (rewrite paths to new id)
+                if not new_candidates and source_kf.get("candidates"):
+                    src_prefix = f"section_{source_id}/"
+                    dst_prefix = f"section_{new_id}/"
+                    for cand_path in source_kf["candidates"]:
+                        src_file = project_dir / cand_path
+                        if src_file.exists():
+                            dst_path = cand_path.replace(src_prefix, dst_prefix)
+                            dst_file = project_dir / dst_path
+                            dst_file.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(str(src_file), str(dst_file))
+                            new_candidates.append(dst_path)
+
+                # Copy selected keyframe image
+                src_selected = project_dir / "selected_keyframes" / f"{source_id}.png"
+                dst_selected = project_dir / "selected_keyframes" / f"{new_id}.png"
+                if src_selected.exists():
+                    shutil.copy2(str(src_selected), str(dst_selected))
+
+                new_kf = {
+                    "id": new_id, "timestamp": timestamp,
+                    "section": source_kf.get("section", ""),
+                    "source": f"selected_keyframes/{new_id}.png",
+                    "prompt": source_kf.get("prompt", ""),
+                    "candidates": new_candidates,
+                    "selected": source_kf.get("selected"),
+                }
+                db_add_kf(project_dir, new_kf)
+
+                # Wire up transitions (same logic as add-keyframe)
+                all_kfs = db_get_kfs(project_dir)
+                sorted_kfs = sorted(all_kfs, key=lambda k: parse_ts(k["timestamp"]))
+                new_idx = next((i for i, k in enumerate(sorted_kfs) if k["id"] == new_id), -1)
+                prev_kf = sorted_kfs[new_idx - 1] if new_idx > 0 else None
+                next_kf = sorted_kfs[new_idx + 1] if new_idx < len(sorted_kfs) - 1 else None
+
+                from datetime import datetime, timezone
+                if prev_kf and next_kf:
+                    all_trs = db_get_trs(project_dir)
+                    old_tr = next((t for t in all_trs if t["from"] == prev_kf["id"] and t["to"] == next_kf["id"]), None)
+                    if old_tr:
+                        db_del_tr(project_dir, old_tr["id"], datetime.now(timezone.utc).isoformat())
+
+                prev_time = parse_ts(prev_kf["timestamp"]) if prev_kf else None
+                next_time = parse_ts(next_kf["timestamp"]) if next_kf else None
+
+                if prev_kf:
+                    dur_before = round(new_time - prev_time, 2)
+                    tr1_id = next_transition_id(project_dir)
+                    db_add_tr(project_dir, {
+                        "id": tr1_id, "from": prev_kf["id"], "to": new_id,
+                        "duration_seconds": dur_before, "slots": 1,
+                        "action": "", "use_global_prompt": False, "selected": None,
+                        "remap": {"method": "linear", "target_duration": dur_before},
+                    })
+                if next_kf:
+                    dur_after = round(next_time - new_time, 2)
+                    tr2_id = next_transition_id(project_dir)
+                    db_add_tr(project_dir, {
+                        "id": tr2_id, "from": new_id, "to": next_kf["id"],
+                        "duration_seconds": dur_after, "slots": 1,
+                        "action": "", "use_global_prompt": False, "selected": None,
+                        "remap": {"method": "linear", "target_duration": dur_after},
+                    })
+
+                _log(f"  Duplicated {source_id} -> {new_id} at {timestamp} ({len(new_candidates)} candidates copied)")
+                self._json_response({"success": True, "keyframe": {"id": new_id, "timestamp": timestamp}})
+            except Exception as e:
+                _log(f"  FAILED: {e}")
+                import traceback
+                traceback.print_exc()
                 self._error(500, "INTERNAL_ERROR", str(e))
 
         def _handle_delete_keyframe(self, project_name: str):
@@ -914,118 +1194,101 @@ def make_handler(work_dir: Path):
             if not kf_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'keyframeId'")
 
-            yaml_path = self._require_yaml_path(project_name)
-            if yaml_path is None:
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
                 return
 
             try:
-                import yaml as pyyaml
+                from beatlab.db import (
+                    get_keyframe, delete_keyframe as db_del_kf, get_keyframes as db_get_kfs,
+                    get_transitions_involving, delete_transition as db_del_tr,
+                    next_transition_id, add_transition as db_add_tr,
+                )
                 from datetime import datetime, timezone
-                _log(f"[delete-kf] {kf_id}: loading YAML")
-                ryaml, parsed = self._ruamel_load(yaml_path)
-                _log(f"[delete-kf] {kf_id}: YAML loaded")
+                import shutil as _shutil
 
                 def parse_ts(ts):
                     parts = str(ts).split(":")
                     if len(parts) == 2:
                         return int(parts[0]) * 60 + float(parts[1])
-                    return 0
+                    return float(ts) if isinstance(ts, (int, float)) else 0
 
-                tl = self._load_timeline_data(parsed)
-                keyframes = tl["keyframes"]
-                idx = next((i for i, kf in enumerate(keyframes) if kf.get("id") == kf_id), -1)
-                if idx == -1:
-                    _log(f"[delete-kf] {kf_id}: NOT FOUND")
+                kf = get_keyframe(project_dir, kf_id)
+                if not kf:
                     return self._error(404, "NOT_FOUND", f"Keyframe {kf_id} not found")
 
-                _log(f"[delete-kf] {kf_id}: found at idx {idx}, removing")
-                removed = keyframes.pop(idx)
-                removed["deleted_at"] = datetime.now(timezone.utc).isoformat()
+                now = datetime.now(timezone.utc).isoformat()
+                _log(f"[delete-kf] {kf_id}")
 
-                tl["bin"].append(removed)
-                tl["keyframes"] = keyframes
-
-                # Also soft-delete any transitions referencing this keyframe
-                now = removed["deleted_at"]
-                orphaned = [tr for tr in tl["transitions"] if tr.get("from") == kf_id or tr.get("to") == kf_id]
-                _log(f"[delete-kf] {kf_id}: {len(orphaned)} orphaned transitions")
-
-                # Collect video assets from orphaned transitions to inherit
-                import shutil as _shutil
-                inherited_tr_id = None  # the orphaned tr whose video we'll reuse
+                # Soft-delete orphaned transitions, find one with video to inherit
+                orphaned = get_transitions_involving(project_dir, kf_id)
+                inherited_tr_id = None
                 for tr in orphaned:
-                    sel = tr.get("selected", [None])
-                    if isinstance(sel, list) and sel and sel[0] is not None:
-                        inherited_tr_id = tr["id"]
-                        break
-                    elif isinstance(sel, (int, str)) and sel is not None:
+                    sel = tr.get("selected")
+                    if sel is not None and sel != [None]:
                         inherited_tr_id = tr["id"]
                         break
 
                 for tr in orphaned:
-                    tr["deleted_at"] = now
-                    tl["transition_bin"].append(tr)
-                tl["transitions"] = [tr for tr in tl["transitions"] if tr.get("from") != kf_id and tr.get("to") != kf_id]
+                    db_del_tr(project_dir, tr["id"], now)
 
-                # Bridge the gap: find actual timeline neighbors by timestamp
-                removed_time = parse_ts(removed.get("timestamp", "0:00"))
-                sorted_kfs = sorted(keyframes, key=lambda k: parse_ts(k.get("timestamp", "0:00")))
+                # Soft-delete the keyframe
+                db_del_kf(project_dir, kf_id, now)
+
+                # Bridge: find timeline neighbors by timestamp
+                removed_time = parse_ts(kf["timestamp"])
+                all_kfs = db_get_kfs(project_dir)
+                sorted_kfs = sorted(all_kfs, key=lambda k: parse_ts(k["timestamp"]))
                 prev_kf = None
                 next_kf = None
-                for kf in sorted_kfs:
-                    t = parse_ts(kf.get("timestamp", "0:00"))
+                for k in sorted_kfs:
+                    t = parse_ts(k["timestamp"])
                     if t < removed_time:
-                        prev_kf = kf
+                        prev_kf = k
                     elif t > removed_time and next_kf is None:
-                        next_kf = kf
+                        next_kf = k
+
                 if prev_kf and next_kf:
-                    prev_kf_id = prev_kf.get("id")
-                    next_kf_id = next_kf.get("id")
-                    already = any(t.get("from") == prev_kf_id and t.get("to") == next_kf_id for t in tl["transitions"])
-                    if not already:
-                        import re as _re
-                        max_tr = max((int(m.group(1)) for t in tl["transitions"] + tl["transition_bin"] if (m := _re.match(r'tr_(\d+)', t.get('id', '')))), default=0)
-                        max_tr += 1
-                        new_tr_id = f"tr_{max_tr:03d}"
-                        pt = parse_ts(prev_kf.get("timestamp", "0:00"))
-                        nt = parse_ts(next_kf.get("timestamp", "0:00"))
+                    # Check if bridge already exists
+                    from beatlab.db import get_transitions as db_get_trs
+                    existing_bridge = next((t for t in db_get_trs(project_dir) if t["from"] == prev_kf["id"] and t["to"] == next_kf["id"]), None)
+                    if existing_bridge:
+                        _log(f"[delete-kf] {kf_id}: bridge {prev_kf['id']} -> {next_kf['id']} already exists as {existing_bridge['id']}")
+                    else:
+                        new_tr_id = next_transition_id(project_dir)
+                        pt = parse_ts(prev_kf["timestamp"])
+                        nt = parse_ts(next_kf["timestamp"])
                         dur = round(nt - pt, 2)
 
-                        # Inherit video from orphaned transition if available
-                        selected = [None]
+                        selected = None
                         if inherited_tr_id:
-                            project_dir = work_dir / project_name
                             old_sel = project_dir / "selected_transitions" / f"{inherited_tr_id}_slot_0.mp4"
                             old_cand_dir = project_dir / "transition_candidates" / inherited_tr_id / "slot_0"
-                            new_cand_dir = project_dir / "transition_candidates" / new_tr_id / "slot_0"
                             if old_sel.exists():
                                 new_sel = project_dir / "selected_transitions" / f"{new_tr_id}_slot_0.mp4"
                                 _shutil.copy2(str(old_sel), str(new_sel))
-                                selected = [1]
+                                selected = 1
                                 _log(f"[delete-kf] {kf_id}: inherited video from {inherited_tr_id}")
                             if old_cand_dir.exists():
+                                new_cand_dir = project_dir / "transition_candidates" / new_tr_id / "slot_0"
                                 new_cand_dir.mkdir(parents=True, exist_ok=True)
                                 for f in old_cand_dir.iterdir():
                                     _shutil.copy2(str(f), str(new_cand_dir / f.name))
 
-                        tl["transitions"].append({
-                            "id": new_tr_id, "from": prev_kf_id, "to": next_kf_id,
+                        db_add_tr(project_dir, {
+                            "id": new_tr_id, "from": prev_kf["id"], "to": next_kf["id"],
                             "duration_seconds": dur, "slots": 1,
-                            "action": "", "use_global_prompt": False,
-                            "selected": selected, "remap": {"method": "linear", "target_duration": dur},
+                            "action": "", "use_global_prompt": False, "selected": selected,
+                            "remap": {"method": "linear", "target_duration": dur},
                         })
-                        _log(f"[delete-kf] {kf_id}: bridged {prev_kf_id} -> {next_kf_id} as {new_tr_id}")
-
-                _log(f"[delete-kf] {kf_id}: saving")
-                self._save_timeline_data(parsed, tl)
-
-                _log(f"[delete-kf] {kf_id}: writing YAML")
-                self._ruamel_save(ryaml, parsed, yaml_path)
+                        _log(f"[delete-kf] {kf_id}: bridged {prev_kf['id']} -> {next_kf['id']} as {new_tr_id}")
 
                 _log(f"[delete-kf] {kf_id}: done")
-                self._json_response({"success": True, "binned": {"id": kf_id, "deleted_at": removed["deleted_at"]}})
+                self._json_response({"success": True, "binned": {"id": kf_id, "deleted_at": now}})
             except Exception as e:
                 _log(f"[delete-kf] {kf_id}: ERROR {e}")
+                import traceback
+                traceback.print_exc()
                 self._error(500, "INTERNAL_ERROR", str(e))
 
         def _handle_restore_keyframe(self, project_name: str):
@@ -1038,44 +1301,19 @@ def make_handler(work_dir: Path):
             if not kf_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'keyframeId'")
 
-            yaml_path = self._require_yaml_path(project_name)
-            if yaml_path is None:
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
                 return
 
             try:
-                ryaml, parsed = self._ruamel_load(yaml_path)
-
-                tl = self._load_timeline_data(parsed)
-                bin_list = tl["bin"]
-                idx = next((i for i, kf in enumerate(bin_list) if kf.get("id") == kf_id), -1)
-                if idx == -1:
-                    return self._error(404, "NOT_FOUND", f"Keyframe {kf_id} not in bin")
-
-                restored = bin_list.pop(idx)
-                if "deleted_at" in restored:
-                    del restored["deleted_at"]
-
-                keyframes = tl["keyframes"]
-                keyframes.append(restored)
-                def parse_ts(ts):
-                    parts = str(ts).split(":")
-                    if len(parts) == 2:
-                        return int(parts[0]) * 60 + float(parts[1])
-                    return 0
-                keyframes.sort(key=lambda kf: parse_ts(kf.get("timestamp", "0:00")))
-
-                tl["keyframes"] = keyframes
-                tl["bin"] = bin_list
-                self._save_timeline_data(parsed, tl)
-
-                self._ruamel_save(ryaml, parsed, yaml_path)
-
+                from beatlab.db import restore_keyframe as db_restore_kf
+                db_restore_kf(project_dir, kf_id)
                 self._json_response({"success": True, "keyframe": {"id": kf_id}})
             except Exception as e:
                 self._error(500, "INTERNAL_ERROR", str(e))
 
         def _handle_set_base_image(self, project_name: str):
-            """POST /api/projects/:name/set-base-image — copy a still from assets/stills/ as the selected keyframe image and set source."""
+            """POST /api/projects/:name/set-base-image — copy a still as the selected keyframe image."""
             body = self._read_json_body()
             if body is None:
                 return
@@ -1085,262 +1323,404 @@ def make_handler(work_dir: Path):
             if not kf_id or not still_name:
                 return self._error(400, "BAD_REQUEST", "Missing 'keyframeId' or 'stillName'")
 
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
+                return
+
             try:
                 import shutil
-                import yaml as pyyaml
-                project_dir = work_dir / project_name
                 source = project_dir / "assets" / "stills" / still_name
                 if not source.exists():
                     return self._error(404, "NOT_FOUND", f"Still not found: {still_name}")
 
                 dest_dir = project_dir / "selected_keyframes"
                 dest_dir.mkdir(parents=True, exist_ok=True)
-                dest = dest_dir / f"{kf_id}.png"
-                shutil.copy2(str(source), str(dest))
+                shutil.copy2(str(source), str(dest_dir / f"{kf_id}.png"))
 
-                # Update source field on the keyframe in YAML
-                yaml_path = self._require_yaml_path(project_name)
-                if yaml_path:
-                    ryaml, parsed = self._ruamel_load(yaml_path)
-                    tl = self._load_timeline_data(parsed)
-                    kf = next((k for k in tl["keyframes"] if k.get("id") == kf_id), None)
-                    if kf:
-                        kf["source"] = f"assets/stills/{still_name}"
-                        self._save_timeline_data(parsed, tl)
-                        self._ruamel_save(ryaml, parsed, yaml_path)
+                from beatlab.db import update_keyframe
+                update_keyframe(project_dir, kf_id, source=f"assets/stills/{still_name}")
 
                 self._json_response({"success": True, "keyframeId": kf_id, "still": still_name})
             except Exception as e:
                 self._error(500, "INTERNAL_ERROR", str(e))
 
-        def _handle_insert_pool_item(self, project_name: str):
-            """POST /api/projects/:name/insert-pool-item — insert a pool keyframe or segment at a given time."""
+        def _handle_assign_pool_video(self, project_name: str):
+            """POST /api/projects/:name/assign-pool-video — assign a pool video to an existing transition."""
             body = self._read_json_body()
             if body is None:
                 return
 
-            item_type = body.get("type")  # "keyframe" or "segment"
-            pool_path = body.get("poolPath")  # e.g. "pool/keyframes/019.png"
-            at_time = body.get("atTime", 0)
-            if not item_type or not pool_path:
-                return self._error(400, "BAD_REQUEST", "Missing 'type' or 'poolPath'")
+            tr_id = body.get("transitionId")
+            pool_path = body.get("poolPath")
+            if not tr_id or not pool_path:
+                return self._error(400, "BAD_REQUEST", "Missing 'transitionId' or 'poolPath'")
 
-            yaml_path = self._require_yaml_path(project_name)
-            if yaml_path is None:
+            _log(f"assign-pool-video: {project_name} {tr_id} <- {pool_path}")
+
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
                 return
 
             try:
                 import shutil
-                import yaml as pyyaml
-                project_dir = work_dir / project_name
+                from beatlab.db import get_transition, update_transition
+
                 source = project_dir / pool_path
                 if not source.exists():
-                    return self._error(404, "NOT_FOUND", f"Pool item not found: {pool_path}")
+                    return self._error(404, "NOT_FOUND", f"Pool video not found: {pool_path}")
 
-                ryaml, parsed = self._ruamel_load(yaml_path)
-                tl = self._load_timeline_data(parsed)
+                tr = get_transition(project_dir, tr_id)
+                if not tr:
+                    return self._error(404, "NOT_FOUND", f"Transition {tr_id} not found")
+
+                # Copy as candidate v(N+1)
+                cand_dir = project_dir / "transition_candidates" / tr_id / "slot_0"
+                cand_dir.mkdir(parents=True, exist_ok=True)
+                existing = len(list(cand_dir.glob("v*.mp4")))
+                variant = existing + 1
+                shutil.copy2(str(source), str(cand_dir / f"v{variant}.mp4"))
+
+                # Set as selected
+                sel_dir = project_dir / "selected_transitions"
+                sel_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(str(source), str(sel_dir / f"{tr_id}_slot_0.mp4"))
+                update_transition(project_dir, tr_id, selected=variant)
+
+                # Extract first frame as keyframe image (non-blocking)
+                import subprocess as sp
+                import threading
+                from_kf_id = tr.get("from")
+                if from_kf_id:
+                    def _extract():
+                        try:
+                            sel_kf_dir = project_dir / "selected_keyframes"
+                            sel_kf_dir.mkdir(parents=True, exist_ok=True)
+                            sp.run(["ffmpeg", "-y", "-i", str(source), "-vframes", "1", "-q:v", "2",
+                                    str(sel_kf_dir / f"{from_kf_id}.png")], capture_output=True, timeout=10)
+                        except Exception:
+                            pass
+                    threading.Thread(target=_extract, daemon=True).start()
+
+                _log(f"  Assigned v{variant} to {tr_id}")
+                self._json_response({"success": True, "transitionId": tr_id, "variant": variant})
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_get_bench(self, project_name: str):
+            """GET /api/projects/:name/bench — list benched items with usage tracking."""
+            project_dir = self._get_project_dir(project_name)
+            if project_dir is None:
+                return self._json_response({"items": []})
+            try:
+                from beatlab.db import get_bench
+                items = get_bench(project_dir)
+                self._json_response({"items": items})
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_bench_add(self, project_name: str):
+            """POST /api/projects/:name/bench/add — add an item to the bench."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            bench_type = body.get("type")  # "keyframe" or "transition"
+            entity_id = body.get("entityId")  # the kf/tr id on the timeline
+            source_path = body.get("sourcePath")  # direct path (from pool)
+            label = body.get("label", "")
+
+            if not bench_type or (not entity_id and not source_path):
+                return self._error(400, "BAD_REQUEST", "Missing 'type' and ('entityId' or 'sourcePath')")
+
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
+                return
+
+            try:
+                from beatlab.db import add_to_bench, get_transition, get_keyframe
+
+                # Resolve source path from entity if not provided directly
+                if not source_path and entity_id:
+                    if bench_type == "transition":
+                        tr = get_transition(project_dir, entity_id)
+                        if tr:
+                            source_path = f"selected_transitions/{entity_id}_slot_0.mp4"
+                            if not label:
+                                label = f"{entity_id} ({tr['from']}→{tr['to']})"
+                    elif bench_type == "keyframe":
+                        kf = get_keyframe(project_dir, entity_id)
+                        if kf:
+                            source_path = f"selected_keyframes/{entity_id}.png"
+                            if not label:
+                                label = f"{entity_id} @ {kf['timestamp']}"
+
+                if not source_path:
+                    return self._error(404, "NOT_FOUND", f"Entity {entity_id} not found")
+
+                bench_id = add_to_bench(project_dir, bench_type, source_path, label)
+                _log(f"bench-add: {project_name} {bench_type} {source_path} -> {bench_id}")
+                self._json_response({"success": True, "benchId": bench_id})
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_bench_remove(self, project_name: str):
+            """POST /api/projects/:name/bench/remove — remove an item from the bench."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            bench_id = body.get("benchId")
+            if not bench_id:
+                return self._error(400, "BAD_REQUEST", "Missing 'benchId'")
+
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
+                return
+
+            try:
+                from beatlab.db import remove_from_bench
+                remove_from_bench(project_dir, bench_id)
+                self._json_response({"success": True})
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_split_transition(self, project_name: str):
+            """POST /api/projects/:name/split-transition — split a transition at the playhead."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            tr_id = body.get("transitionId")
+            split_time = body.get("splitTime")
+            if not tr_id or split_time is None:
+                return self._error(400, "BAD_REQUEST", "Missing 'transitionId' or 'splitTime'")
+
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
+                return
+
+            try:
+                from beatlab.db import (
+                    get_transition, get_keyframe, delete_transition as db_del_tr,
+                    add_keyframe as db_add_kf, add_transition as db_add_tr,
+                    next_keyframe_id, next_transition_id,
+                )
+                from datetime import datetime, timezone
+                import subprocess as sp
+                import shutil
+                import threading
 
                 def parse_ts(ts):
                     parts = str(ts).split(":")
-                    return int(parts[0]) * 60 + float(parts[1]) if len(parts) == 2 else 0
+                    if len(parts) == 2:
+                        return int(parts[0]) * 60 + float(parts[1])
+                    return float(ts) if isinstance(ts, (int, float)) else 0
 
                 def to_ts(s):
                     m = int(s) // 60
                     return f"{m}:{s - m*60:05.2f}"
 
-                # Compute next IDs
-                import re as _re
-                keyframes = tl["keyframes"]
-                transitions = tl["transitions"]
-                kf_bin = tl.get("bin", [])
-                tr_bin = tl.get("transition_bin", [])
+                tr = get_transition(project_dir, tr_id)
+                if not tr:
+                    return self._error(404, "NOT_FOUND", f"Transition {tr_id} not found")
 
-                max_kf = max((int(m.group(1)) for k in keyframes + kf_bin if (m := _re.match(r'kf_(\d+)', k.get('id', '')))), default=0)
-                max_tr = max((int(m.group(1)) for t in transitions + tr_bin if (m := _re.match(r'tr_(\d+)', t.get('id', '')))), default=0)
+                from_kf = get_keyframe(project_dir, tr["from"])
+                to_kf = get_keyframe(project_dir, tr["to"])
+                if not from_kf or not to_kf:
+                    return self._error(400, "BAD_REQUEST", "Keyframes not found")
 
-                timestamp = to_ts(at_time)
+                from_time = parse_ts(from_kf["timestamp"])
+                to_time = parse_ts(to_kf["timestamp"])
+
+                if split_time <= from_time or split_time >= to_time:
+                    return self._error(400, "BAD_REQUEST", "Split time must be within transition range")
+
+                _log(f"split-transition: {tr_id} at {split_time:.2f}s (range {from_time:.2f}-{to_time:.2f})")
+
+                split_progress = (split_time - from_time) / (to_time - from_time)
+                dur1 = round(split_time - from_time, 2)
+                dur2 = round(to_time - split_time, 2)
+
+                # Create new keyframe at split point
+                new_kf_id = next_keyframe_id(project_dir)
+                db_add_kf(project_dir, {
+                    "id": new_kf_id, "timestamp": to_ts(split_time), "section": "",
+                    "source": f"selected_keyframes/{new_kf_id}.png", "prompt": "",
+                    "candidates": [], "selected": None,
+                })
+
+                # Soft-delete original transition
+                now = datetime.now(timezone.utc).isoformat()
+                db_del_tr(project_dir, tr_id, now)
+
+                # Create two new transitions
+                tr1_id = next_transition_id(project_dir)
+                tr2_id = next_transition_id(project_dir)
+                # Temp: need tr1 committed before tr2 id generation works
+                db_add_tr(project_dir, {
+                    "id": tr1_id, "from": tr["from"], "to": new_kf_id,
+                    "duration_seconds": dur1, "slots": 1, "action": tr.get("action", ""),
+                    "use_global_prompt": tr.get("use_global_prompt", False), "selected": None,
+                    "remap": {"method": "linear", "target_duration": dur1},
+                })
+                # Re-get next ID after tr1 is committed
+                tr2_id = next_transition_id(project_dir)
+                db_add_tr(project_dir, {
+                    "id": tr2_id, "from": new_kf_id, "to": tr["to"],
+                    "duration_seconds": dur2, "slots": 1, "action": tr.get("action", ""),
+                    "use_global_prompt": tr.get("use_global_prompt", False), "selected": None,
+                    "remap": {"method": "linear", "target_duration": dur2},
+                })
+
+                _log(f"  Created {new_kf_id}, {tr1_id} ({dur1}s), {tr2_id} ({dur2}s)")
+
+                # If original had a selected video, extract keyframe frame synchronously
+                # then split video in background
+                sel_video = project_dir / "selected_transitions" / f"{tr_id}_slot_0.mp4"
+                if sel_video.exists():
+                    # Probe duration and compute split point
+                    probe = sp.run(
+                        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", str(sel_video)],
+                        capture_output=True, text=True,
+                    )
+                    video_dur = float(probe.stdout.strip()) if probe.stdout.strip() else (to_time - from_time)
+                    split_at = split_progress * video_dur
+
+                    # Extract frame at split point as new keyframe image (synchronous — fast)
+                    sel_kf_dir = project_dir / "selected_keyframes"
+                    sel_kf_dir.mkdir(parents=True, exist_ok=True)
+                    sp.run(["ffmpeg", "-y", "-ss", str(split_at), "-i", str(sel_video),
+                            "-vframes", "1", "-q:v", "2",
+                            str(sel_kf_dir / f"{new_kf_id}.png")], capture_output=True, timeout=10)
+                    _log(f"  Extracted keyframe frame at {split_at:.2f}s -> {new_kf_id}.png")
+
+                    def _split_video():
+                        try:
+                            # Split part 1
+                            cand1_dir = project_dir / "transition_candidates" / tr1_id / "slot_0"
+                            cand1_dir.mkdir(parents=True, exist_ok=True)
+                            part1 = cand1_dir / "v1.mp4"
+                            sp.run(["ffmpeg", "-y", "-i", str(sel_video), "-t", str(split_at),
+                                    "-c", "copy", str(part1)], capture_output=True, timeout=30)
+                            sel1 = project_dir / "selected_transitions" / f"{tr1_id}_slot_0.mp4"
+                            shutil.copy2(str(part1), str(sel1))
+
+                            # Split part 2
+                            cand2_dir = project_dir / "transition_candidates" / tr2_id / "slot_0"
+                            cand2_dir.mkdir(parents=True, exist_ok=True)
+                            part2 = cand2_dir / "v1.mp4"
+                            sp.run(["ffmpeg", "-y", "-i", str(sel_video), "-ss", str(split_at),
+                                    "-c", "copy", str(part2)], capture_output=True, timeout=30)
+                            sel2 = project_dir / "selected_transitions" / f"{tr2_id}_slot_0.mp4"
+                            shutil.copy2(str(part2), str(sel2))
+
+                            # Update DB with selected variants
+                            from beatlab.db import update_transition
+                            update_transition(project_dir, tr1_id, selected=1)
+                            update_transition(project_dir, tr2_id, selected=1)
+
+                            _log(f"  Video split complete: {tr1_id} + {tr2_id}")
+                        except Exception as e:
+                            _log(f"  Warning: video split failed: {e}")
+
+                    threading.Thread(target=_split_video, daemon=True).start()
+
+                self._json_response({
+                    "success": True, "keyframeId": new_kf_id,
+                    "transition1": tr1_id, "transition2": tr2_id,
+                })
+            except Exception as e:
+                _log(f"  FAILED: {e}")
+                import traceback
+                traceback.print_exc()
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_insert_pool_item(self, project_name: str):
+            """POST /api/projects/:name/insert-pool-item — insert a pool keyframe at a given time."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            item_type = body.get("type")
+            pool_path = body.get("poolPath")
+            at_time = body.get("atTime", 0)
+            if not item_type or not pool_path:
+                return self._error(400, "BAD_REQUEST", "Missing 'type' or 'poolPath'")
+
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
+                return
+
+            try:
+                import shutil
+                from beatlab.db import (
+                    add_keyframe as db_add_kf, get_keyframes as db_get_kfs,
+                    next_keyframe_id, next_transition_id,
+                    add_transition as db_add_tr, delete_transition as db_del_tr,
+                    get_transitions as db_get_trs,
+                )
+                from datetime import datetime, timezone
+
+                source = project_dir / pool_path
+                if not source.exists():
+                    return self._error(404, "NOT_FOUND", f"Pool item not found: {pool_path}")
+
+                def parse_ts(ts):
+                    parts = str(ts).split(":")
+                    return int(parts[0]) * 60 + float(parts[1]) if len(parts) == 2 else (float(ts) if isinstance(ts, (int, float)) else 0)
+
+                def to_ts(s):
+                    m = int(s) // 60
+                    return f"{m}:{s - m*60:05.2f}"
 
                 _log(f"insert-pool-item: type={item_type} path={pool_path} atTime={at_time}")
 
                 if item_type == "keyframe":
-                    max_kf += 1
-                    kf_id = f"kf_{max_kf:03d}"
-                    # Copy to selected_keyframes
+                    kf_id = next_keyframe_id(project_dir)
                     dest = project_dir / "selected_keyframes" / f"{kf_id}.png"
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(str(source), str(dest))
-                    # Also copy as candidate v1
                     cand_dir = project_dir / "keyframe_candidates" / "candidates" / f"section_{kf_id}"
                     cand_dir.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(str(source), str(cand_dir / "v1.png"))
 
-                    new_kf = {
-                        "id": kf_id, "timestamp": timestamp, "section": "",
+                    db_add_kf(project_dir, {
+                        "id": kf_id, "timestamp": to_ts(at_time), "section": "",
                         "source": pool_path, "prompt": f"Inserted from pool: {source.name}",
                         "candidates": [f"keyframe_candidates/candidates/section_{kf_id}/v1.png"],
                         "selected": 1,
-                    }
-                    keyframes.append(new_kf)
-                    keyframes.sort(key=lambda k: parse_ts(k.get("timestamp", "0:00")))
-
-                    # Split any transition that spans this new keyframe
-                    new_idx = next(i for i, k in enumerate(keyframes) if k.get("id") == kf_id)
-                    prev_kf = keyframes[new_idx - 1] if new_idx > 0 else None
-                    next_kf = keyframes[new_idx + 1] if new_idx < len(keyframes) - 1 else None
-
-                    if prev_kf and next_kf:
-                        old_idx = next((i for i, tr in enumerate(transitions)
-                                        if tr.get("from") == prev_kf["id"] and tr.get("to") == next_kf["id"]), -1)
-                        if old_idx >= 0:
-                            transitions.pop(old_idx)
-                            pt = parse_ts(prev_kf.get("timestamp", "0:00"))
-                            nt = parse_ts(next_kf.get("timestamp", "0:00"))
-                            d1 = round(at_time - pt, 2)
-                            d2 = round(nt - at_time, 2)
-                            max_tr += 1
-                            transitions.append({"id": f"tr_{max_tr:03d}", "from": prev_kf["id"], "to": kf_id,
-                                "duration_seconds": d1, "action": "", "use_global_prompt": False,
-                                "selected": None, "remap": {"method": "linear", "target_duration": d1}})
-                            max_tr += 1
-                            transitions.append({"id": f"tr_{max_tr:03d}", "from": kf_id, "to": next_kf["id"],
-                                "duration_seconds": d2, "action": "", "use_global_prompt": False,
-                                "selected": None, "remap": {"method": "linear", "target_duration": d2}})
-
-                    # Sort transitions by their 'from' keyframe position
-                    kf_order = {k["id"]: i for i, k in enumerate(keyframes)}
-                    transitions.sort(key=lambda t: kf_order.get(t.get("from", ""), 9999))
-
-                    tl["keyframes"] = keyframes
-                    tl["transitions"] = transitions
-                    self._save_timeline_data(parsed, tl)
-                    self._ruamel_save(ryaml, parsed, yaml_path)
-                    self._json_response({"success": True, "type": "keyframe", "id": kf_id})
-
-                elif item_type == "segment":
-                    # Insert a video segment by splitting at the playhead:
-                    # 1. Create two new keyframes at playhead (start_kf) and playhead+video_dur (end_kf)
-                    # 2. Split any existing transition that spans the insert region
-                    # 3. Create a new transition between start_kf and end_kf with the pool video
-
-                    # Probe video duration
-                    import subprocess as sp
-                    probe = sp.run(
-                        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", str(source)],
-                        capture_output=True, text=True,
-                    )
-                    video_dur = float(probe.stdout.strip()) if probe.stdout.strip() else 8.0
-                    insert_end = at_time + video_dur
-
-                    _log(f"  Inserting {video_dur:.1f}s segment at {at_time:.2f}s-{insert_end:.2f}s")
-
-                    # Find keyframes sorted by time
-                    kf_times = [(k, parse_ts(k.get("timestamp", "0:00"))) for k in keyframes]
-                    kf_times.sort(key=lambda x: x[1])
-
-                    # Create start keyframe at playhead (copies from nearest preceding kf image if available)
-                    max_kf += 1
-                    start_kf_id = f"kf_{max_kf:03d}"
-                    start_kf = {
-                        "id": start_kf_id, "timestamp": to_ts(at_time), "section": "",
-                        "source": f"selected_keyframes/{start_kf_id}.png",
-                        "prompt": f"Insert point (start of pool segment)",
-                        "candidates": [], "selected": None,
-                    }
-
-                    # Create end keyframe at playhead + video duration
-                    max_kf += 1
-                    end_kf_id = f"kf_{max_kf:03d}"
-                    end_kf = {
-                        "id": end_kf_id, "timestamp": to_ts(insert_end), "section": "",
-                        "source": f"selected_keyframes/{end_kf_id}.png",
-                        "prompt": f"Insert point (end of pool segment)",
-                        "candidates": [], "selected": None,
-                    }
-
-                    keyframes.extend([start_kf, end_kf])
-                    keyframes.sort(key=lambda k: parse_ts(k.get("timestamp", "0:00")))
-
-                    # Find and split any transitions that overlap the insert region
-                    new_transitions = []
-                    to_remove = set()
-                    for tr in transitions:
-                        from_kf = next((k for k in keyframes if k["id"] == tr.get("from")), None)
-                        to_kf = next((k for k in keyframes if k["id"] == tr.get("to")), None)
-                        if not from_kf or not to_kf:
-                            continue
-                        ft = parse_ts(from_kf.get("timestamp", "0:00"))
-                        tt = parse_ts(to_kf.get("timestamp", "0:00"))
-
-                        # Does this transition span the insert start point?
-                        if ft < at_time < tt:
-                            to_remove.add(tr["id"])
-                            # Create: from_kf -> start_kf
-                            d1 = round(at_time - ft, 2)
-                            max_tr += 1
-                            new_transitions.append({
-                                "id": f"tr_{max_tr:03d}", "from": tr["from"], "to": start_kf_id,
-                                "duration_seconds": d1, "slots": 1, "action": "", "use_global_prompt": False,
-                                "selected": [None], "remap": {"method": "linear", "target_duration": d1},
-                            })
-                            # Create: end_kf -> to_kf (if end is before to_kf)
-                            if insert_end < tt:
-                                d2 = round(tt - insert_end, 2)
-                                max_tr += 1
-                                new_transitions.append({
-                                    "id": f"tr_{max_tr:03d}", "from": end_kf_id, "to": tr["to"],
-                                    "duration_seconds": d2, "slots": 1, "action": "", "use_global_prompt": False,
-                                    "selected": [None], "remap": {"method": "linear", "target_duration": d2},
-                                })
-
-                    # Remove split transitions, add new ones
-                    transitions = [tr for tr in transitions if tr["id"] not in to_remove]
-                    transitions.extend(new_transitions)
-
-                    # Create the inserted transition: start_kf -> end_kf with the pool video
-                    max_tr += 1
-                    insert_tr_id = f"tr_{max_tr:03d}"
-                    cand_dir = project_dir / "transition_candidates" / insert_tr_id / "slot_0"
-                    cand_dir.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(str(source), str(cand_dir / "v1.mp4"))
-                    sel_dir = project_dir / "selected_transitions"
-                    sel_dir.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(str(source), str(sel_dir / f"{insert_tr_id}_slot_0.mp4"))
-
-                    transitions.append({
-                        "id": insert_tr_id, "from": start_kf_id, "to": end_kf_id,
-                        "duration_seconds": round(video_dur, 2), "slots": 1,
-                        "action": "", "use_global_prompt": False,
-                        "selected": [1], "remap": {"method": "linear", "target_duration": round(video_dur, 2)},
                     })
 
-                    # Extract first and last frames as keyframe images
-                    sel_kf_dir = project_dir / "selected_keyframes"
-                    sel_kf_dir.mkdir(parents=True, exist_ok=True)
-                    try:
-                        # First frame -> start keyframe
-                        sp.run(["ffmpeg", "-y", "-i", str(source), "-vframes", "1", "-q:v", "2",
-                                str(sel_kf_dir / f"{start_kf_id}.png")],
-                               capture_output=True, timeout=10)
-                        start_kf["selected"] = 1
-                        # Last frame -> end keyframe
-                        sp.run(["ffmpeg", "-y", "-sseof", "-0.1", "-i", str(source), "-vframes", "1", "-q:v", "2",
-                                str(sel_kf_dir / f"{end_kf_id}.png")],
-                               capture_output=True, timeout=10)
-                        end_kf["selected"] = 1
-                        _log(f"  Extracted first/last frames as {start_kf_id}.png, {end_kf_id}.png")
-                    except Exception as frame_err:
-                        _log(f"  Warning: frame extraction failed: {frame_err}")
+                    # Find neighbors and split spanning transition
+                    all_kfs = db_get_kfs(project_dir)
+                    sorted_kfs = sorted(all_kfs, key=lambda k: parse_ts(k["timestamp"]))
+                    new_idx = next((i for i, k in enumerate(sorted_kfs) if k["id"] == kf_id), -1)
+                    prev_kf = sorted_kfs[new_idx - 1] if new_idx > 0 else None
+                    next_kf = sorted_kfs[new_idx + 1] if new_idx < len(sorted_kfs) - 1 else None
 
-                    _log(f"  Created {start_kf_id}, {end_kf_id}, {insert_tr_id} ({video_dur:.1f}s)")
+                    if prev_kf and next_kf:
+                        all_trs = db_get_trs(project_dir)
+                        old_tr = next((t for t in all_trs if t["from"] == prev_kf["id"] and t["to"] == next_kf["id"]), None)
+                        if old_tr:
+                            now = datetime.now(timezone.utc).isoformat()
+                            db_del_tr(project_dir, old_tr["id"], now)
+                            pt = parse_ts(prev_kf["timestamp"])
+                            nt = parse_ts(next_kf["timestamp"])
+                            d1, d2 = round(at_time - pt, 2), round(nt - at_time, 2)
+                            tr1_id = next_transition_id(project_dir)
+                            db_add_tr(project_dir, {"id": tr1_id, "from": prev_kf["id"], "to": kf_id,
+                                "duration_seconds": d1, "slots": 1, "action": "", "use_global_prompt": False,
+                                "selected": None, "remap": {"method": "linear", "target_duration": d1}})
+                            tr2_id = next_transition_id(project_dir)
+                            db_add_tr(project_dir, {"id": tr2_id, "from": kf_id, "to": next_kf["id"],
+                                "duration_seconds": d2, "slots": 1, "action": "", "use_global_prompt": False,
+                                "selected": None, "remap": {"method": "linear", "target_duration": d2}})
 
-                    tl["keyframes"] = keyframes
-                    tl["transitions"] = transitions
-                    self._save_timeline_data(parsed, tl)
-                    self._ruamel_save(ryaml, parsed, yaml_path)
-                    self._json_response({"success": True, "type": "segment", "transitionId": insert_tr_id,
-                        "startKeyframe": start_kf_id, "endKeyframe": end_kf_id})
+                    self._json_response({"success": True, "type": "keyframe", "id": kf_id})
                 else:
-                    return self._error(400, "BAD_REQUEST", f"Unknown type: {item_type}")
+                    return self._error(400, "BAD_REQUEST", f"Use 'Assign to TR' for video segments")
 
             except Exception as e:
                 import traceback
@@ -1357,30 +1737,16 @@ def make_handler(work_dir: Path):
             if not tr_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'transitionId'")
 
-            yaml_path = self._require_yaml_path(project_name)
-            if yaml_path is None:
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
                 return
 
             try:
-                import yaml as pyyaml
+                from beatlab.db import delete_transition as db_del_tr
                 from datetime import datetime, timezone
-                ryaml, parsed = self._ruamel_load(yaml_path)
-
-                tl = self._load_timeline_data(parsed)
-                transitions = tl["transitions"]
-                idx = next((i for i, tr in enumerate(transitions) if tr.get("id") == tr_id), -1)
-                if idx == -1:
-                    return self._error(404, "NOT_FOUND", f"Transition {tr_id} not found")
-
-                removed = transitions.pop(idx)
-                removed["deleted_at"] = datetime.now(timezone.utc).isoformat()
-
-                tl["transition_bin"].append(removed)
-                self._save_timeline_data(parsed, tl)
-
-                self._ruamel_save(ryaml, parsed, yaml_path)
-
-                self._json_response({"success": True, "binned": {"id": tr_id, "deleted_at": removed["deleted_at"]}})
+                now = datetime.now(timezone.utc).isoformat()
+                db_del_tr(project_dir, tr_id, now)
+                self._json_response({"success": True, "binned": {"id": tr_id, "deleted_at": now}})
             except Exception as e:
                 self._error(500, "INTERNAL_ERROR", str(e))
 
@@ -1394,33 +1760,19 @@ def make_handler(work_dir: Path):
             if not tr_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'transitionId'")
 
-            yaml_path = self._require_yaml_path(project_name)
-            if yaml_path is None:
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
                 return
 
             try:
-                ryaml, parsed = self._ruamel_load(yaml_path)
-
-                tl = self._load_timeline_data(parsed)
-                tr_bin = tl["transition_bin"]
-                idx = next((i for i, tr in enumerate(tr_bin) if tr.get("id") == tr_id), -1)
-                if idx == -1:
-                    return self._error(404, "NOT_FOUND", f"Transition {tr_id} not in bin")
-
-                restored = tr_bin.pop(idx)
-                del restored["deleted_at"]
-
-                tl["transitions"].append(restored)
-                self._save_timeline_data(parsed, tl)
-
-                self._ruamel_save(ryaml, parsed, yaml_path)
-
+                from beatlab.db import restore_transition as db_restore_tr
+                db_restore_tr(project_dir, tr_id)
                 self._json_response({"success": True, "transition": {"id": tr_id}})
             except Exception as e:
                 self._error(500, "INTERNAL_ERROR", str(e))
 
         def _handle_update_transition_action(self, project_name: str):
-            """POST /api/projects/:name/update-transition-action — update a transition's action prompt (ruamel round-trip)."""
+            """POST /api/projects/:name/update-transition-action — update a transition's action prompt."""
             body = self._read_json_body()
             if body is None:
                 return
@@ -1433,32 +1785,23 @@ def make_handler(work_dir: Path):
 
             _log(f"update-transition-action: {project_name} {tr_id} action={repr(action[:50] if action else None)}")
 
-            yaml_path = self._require_yaml_path(project_name)
-            if yaml_path is None:
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
                 return
 
             try:
-                from ruamel.yaml import YAML
-                ryaml = YAML()
-                ryaml.width = 1000
-                ryaml.preserve_quotes = True
-
-                with open(yaml_path) as f:
-                    parsed = ryaml.load(f)
-
-                tl_data = parsed.get("timelines", {}).get(parsed.get("active_timeline", "default"), parsed) if "timelines" in parsed else parsed
-                transitions = tl_data.get("transitions", [])
-                tr = next((t for t in transitions if t.get("id") == tr_id), None)
+                from beatlab.db import update_transition, get_transition
+                tr = get_transition(project_dir, tr_id)
                 if not tr:
                     return self._error(404, "NOT_FOUND", f"Transition {tr_id} not found")
 
+                updates = {}
                 if action is not None:
-                    tr["action"] = action
+                    updates["action"] = action
                 if use_global is not None:
-                    tr["use_global_prompt"] = use_global
-
-                with open(yaml_path, "w") as f:
-                    ryaml.dump(parsed, f)
+                    updates["use_global_prompt"] = use_global
+                if updates:
+                    update_transition(project_dir, tr_id, **updates)
 
                 self._json_response({"success": True})
             except Exception as e:
@@ -1473,19 +1816,17 @@ def make_handler(work_dir: Path):
             tr_id = body.get("transitionId")
             target_duration = body.get("targetDuration")
             method = body.get("method")
+            curve_points = body.get("curvePoints")
             if not tr_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'transitionId'")
 
-            yaml_path = self._require_yaml_path(project_name)
-            if yaml_path is None:
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
                 return
 
             try:
-                ryaml, parsed = self._ruamel_load(yaml_path)
-
-                tl = self._load_timeline_data(parsed)
-                transitions = tl["transitions"]
-                tr = next((t for t in transitions if t.get("id") == tr_id), None)
+                from beatlab.db import get_transition, update_transition
+                tr = get_transition(project_dir, tr_id)
                 if not tr:
                     return self._error(404, "NOT_FOUND", f"Transition {tr_id} not found")
 
@@ -1494,11 +1835,12 @@ def make_handler(work_dir: Path):
                     remap["target_duration"] = target_duration
                 if method is not None:
                     remap["method"] = method
-                tr["remap"] = remap
+                if curve_points is not None:
+                    remap["curve_points"] = curve_points
+                elif method == "linear" and "curve_points" in remap:
+                    del remap["curve_points"]
 
-                self._save_timeline_data(parsed, tl)
-                self._ruamel_save(ryaml, parsed, yaml_path)
-
+                update_transition(project_dir, tr_id, remap=remap)
                 self._json_response({"success": True, "transitionId": tr_id, "remap": remap})
             except Exception as e:
                 self._error(500, "INTERNAL_ERROR", str(e))
@@ -1516,30 +1858,23 @@ def make_handler(work_dir: Path):
 
             _log(f"generate-transition-action: {project_name} {tr_id} (section context: {'yes' if section_context else 'no'})")
 
-            yaml_path = self._require_yaml_path(project_name)
-            if yaml_path is None:
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
                 return
 
             try:
-                import yaml as pyyaml
                 import base64
                 import os
+                from beatlab.db import get_transition, get_keyframe, get_meta, update_transition
 
-                ryaml, parsed = self._ruamel_load(yaml_path)
-
-                tl = self._load_timeline_data(parsed)
-                transitions = tl.get("transitions", [])
-                tr = next((t for t in transitions if t.get("id") == tr_id), None)
+                tr = get_transition(project_dir, tr_id)
                 if not tr:
                     return self._error(404, "NOT_FOUND", f"Transition {tr_id} not found")
 
-                kf_by_id = {kf["id"]: kf for kf in tl.get("keyframes", [])}
-                from_kf = kf_by_id.get(tr["from"])
-                to_kf = kf_by_id.get(tr["to"])
+                from_kf = get_keyframe(project_dir, tr["from"])
+                to_kf = get_keyframe(project_dir, tr["to"])
                 if not from_kf or not to_kf:
                     return self._error(400, "BAD_REQUEST", f"Keyframes {tr['from']} or {tr['to']} not found")
-
-                project_dir = work_dir / project_name
                 selected_dir = project_dir / "selected_keyframes"
                 from_img = selected_dir / f"{tr['from']}.png"
                 to_img = selected_dir / f"{tr['to']}.png"
@@ -1558,16 +1893,10 @@ def make_handler(work_dir: Path):
 
                 from_b64 = base64.b64encode(from_img.read_bytes()).decode()
                 to_b64 = base64.b64encode(to_img.read_bytes()).decode()
-                from_ctx = from_kf.get("context", {})
-                to_ctx = to_kf.get("context", {})
-                # In split format, meta is in project.yaml; in legacy, it's in the same file
-                project_yaml = work_dir / project_name / "project.yaml"
-                if project_yaml.exists():
-                    with open(project_yaml) as pf:
-                        project_data = pyyaml.safe_load(pf) or {}
-                    master_prompt = project_data.get("meta", {}).get("prompt", "")
-                else:
-                    master_prompt = parsed.get("meta", {}).get("prompt", "")
+                from_ctx = from_kf.get("context") or {}
+                to_ctx = to_kf.get("context") or {}
+                meta = get_meta(project_dir)
+                master_prompt = meta.get("prompt", "")
                 master_context = f"Overall creative direction: {master_prompt}\n\n" if master_prompt else ""
 
                 n_slots = tr.get("slots", 1)
@@ -1609,6 +1938,7 @@ def make_handler(work_dir: Path):
 
                     action = response.content[0].text.strip()
                     tr["action"] = action
+                    _log(f"  Generated action: {action[:80]}...")
                 else:
                     # Multi-slot: build the chain of images (from_kf -> intermediate_0 -> ... -> to_kf)
                     chain_images = [from_img]
@@ -1660,10 +1990,14 @@ def make_handler(work_dir: Path):
                     if slot_actions:
                         tr["action"] = slot_actions[0]
 
-                self._ruamel_save(ryaml, parsed, yaml_path)
+                update_transition(project_dir, tr_id, action=tr.get("action", ""))
 
+                _log(f"  Saved action for {tr_id}")
                 self._json_response({"success": True, "action": tr.get("action", ""), "slotActions": tr.get("slot_actions", [])})
             except Exception as e:
+                _log(f"  FAILED: {e}")
+                import traceback
+                traceback.print_exc()
                 self._error(500, "INTERNAL_ERROR", str(e))
 
         def _handle_enhance_transition_action(self, project_name: str):
@@ -1678,20 +2012,16 @@ def make_handler(work_dir: Path):
             if not tr_id or not current_action:
                 return self._error(400, "BAD_REQUEST", "Missing 'transitionId' or 'action'")
 
-            yaml_path = self._require_yaml_path(project_name)
-            if yaml_path is None:
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
                 return
 
             try:
-                import yaml as pyyaml
                 import base64
                 import os
+                from beatlab.db import get_transition
 
-                ryaml, parsed = self._ruamel_load(yaml_path)
-
-                tl = self._load_timeline_data(parsed)
-                transitions = tl["transitions"]
-                tr = next((t for t in transitions if t.get("id") == tr_id), None)
+                tr = get_transition(project_dir, tr_id)
                 if not tr:
                     return self._error(404, "NOT_FOUND", f"Transition {tr_id} not found")
 
@@ -1699,7 +2029,6 @@ def make_handler(work_dir: Path):
                 if not api_key:
                     return self._error(500, "INTERNAL_ERROR", "ANTHROPIC_API_KEY not set")
 
-                project_dir = work_dir / project_name
                 from_img = project_dir / "selected_keyframes" / f"{tr['from']}.png"
                 to_img = project_dir / "selected_keyframes" / f"{tr['to']}.png"
 
@@ -1797,12 +2126,21 @@ def make_handler(work_dir: Path):
             if not kf_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'keyframeId'")
 
+            project_dir = work_dir / project_name
+
+            # Export DB to YAML before generation (narrative.py still reads YAML)
+            if (project_dir / "project.db").exists():
+                try:
+                    from beatlab.db import export_to_yaml
+                    export_to_yaml(project_dir)
+                except Exception as ex:
+                    _log(f"  Warning: DB->YAML export failed: {ex}")
+
             yaml_path = self._require_yaml_path(project_name)
             if yaml_path is None:
                 return
 
             # Count existing candidates so we generate beyond them (v5, v6, etc.)
-            project_dir = work_dir / project_name
             candidates_dir = project_dir / "keyframe_candidates" / "candidates" / f"section_{kf_id}"
             existing_count = len(list(candidates_dir.glob("v*.png"))) if candidates_dir.exists() else 0
             total_count = existing_count + count
@@ -1830,6 +2168,10 @@ def make_handler(work_dir: Path):
                             for f in candidates_dir.glob("v*.png")
                         ])
 
+                    # Persist candidates to DB
+                    from beatlab.db import update_keyframe
+                    update_keyframe(project_dir, kf_id, candidates=candidates)
+
                     job_manager.complete_job(job_id, {"keyframeId": kf_id, "candidates": candidates})
                 except Exception as e:
                     job_manager.fail_job(job_id, str(e))
@@ -1848,15 +2190,26 @@ def make_handler(work_dir: Path):
             count = body.get("count", 4)  # how many NEW candidates to generate
             slot_index = body.get("slotIndex")  # optional: generate for a single slot only
             duration = body.get("duration")  # optional: 4, 6, or 8 seconds
+            _log(f"[generate-transition-candidates] tr={tr_id} count={count} duration={duration} (body keys: {list(body.keys())})")
             if not tr_id:
                 return self._error(400, "BAD_REQUEST", "Missing 'transitionId'")
+
+            project_dir = work_dir / project_name
+
+            # Export DB to YAML before generation (narrative.py still reads YAML)
+            if (project_dir / "project.db").exists():
+                try:
+                    from beatlab.db import export_to_yaml
+                    export_to_yaml(project_dir)
+                    _log(f"  Exported DB->YAML for {project_name}")
+                except Exception as ex:
+                    _log(f"  Warning: DB->YAML export failed: {ex}")
 
             yaml_path = self._require_yaml_path(project_name)
             if yaml_path is None:
                 return
 
             # Count existing candidates so we generate beyond them (v5, v6, etc.)
-            project_dir = work_dir / project_name
             tr_candidates_dir = project_dir / "transition_candidates" / tr_id
             existing_count = 0
             if tr_candidates_dir.exists():
@@ -1932,32 +2285,17 @@ def make_handler(work_dir: Path):
             if body is None:
                 return
 
-            yaml_path = self._require_yaml_path(project_name)
-            if yaml_path is None:
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
                 return
 
             try:
-                ryaml, parsed = self._ruamel_load(yaml_path)
-
-                # For split format, meta lives in project.yaml
-                project_yaml = work_dir / project_name / "project.yaml"
-                if project_yaml.exists():
-                    with open(project_yaml) as pf:
-                        project_data = pyyaml.safe_load(pf) or {}
-                    meta = project_data.get("meta", {})
-                    for key in ("motion_prompt", "default_transition_prompt"):
-                        if key in body:
-                            meta[key] = body[key]
-                    project_data["meta"] = meta
-                    with open(project_yaml, "w") as pf:
-                        pyyaml.dump(project_data, pf, default_flow_style=False, allow_unicode=True, width=1000)
-                else:
-                    meta = parsed.get("meta", {})
-                    for key in ("motion_prompt", "default_transition_prompt"):
-                        if key in body:
-                            meta[key] = body[key]
-                    parsed["meta"] = meta
-                    self._ruamel_save(ryaml, parsed, yaml_path)
+                from beatlab.db import get_meta, set_meta
+                meta = get_meta(project_dir)
+                for key in ("motion_prompt", "default_transition_prompt"):
+                    if key in body:
+                        set_meta(project_dir, key, body[key])
+                        meta[key] = body[key]
 
                 self._json_response({"success": True, "meta": meta})
             except Exception as e:
@@ -2058,53 +2396,52 @@ def make_handler(work_dir: Path):
 
         def _handle_get_watched_folders(self, project_name: str):
             """GET /api/projects/:name/watched-folders — list persisted watched folders."""
-            from beatlab.project import load_project
-            project_dir = work_dir / project_name
-            parsed = load_project(project_dir) if project_dir.is_dir() else {}
-            self._json_response({"watchedFolders": parsed.get("watched_folders", [])})
+            project_dir = self._get_project_dir(project_name)
+            if project_dir is None:
+                return self._json_response({"watchedFolders": []})
+            try:
+                from beatlab.db import get_meta
+                import json
+                meta = get_meta(project_dir)
+                wf = meta.get("watched_folders", [])
+                if isinstance(wf, str):
+                    wf = json.loads(wf)
+                self._json_response({"watchedFolders": wf})
+            except Exception:
+                self._json_response({"watchedFolders": []})
 
         def _handle_get_effects(self, project_name: str):
-            """GET /api/projects/:name/effects — load user-authored effects from beats.yaml."""
-            effects_path = work_dir / project_name / "beats.yaml"
-            if not effects_path.exists():
+            """GET /api/projects/:name/effects — load user-authored effects."""
+            project_dir = self._get_project_dir(project_name)
+            if project_dir is None:
                 return self._json_response({"effects": [], "suppressions": []})
-
-            import yaml as pyyaml
-            with open(effects_path) as f:
-                parsed = pyyaml.safe_load(f) or {}
-
-            self._json_response({
-                "effects": parsed.get("effects", []),
-                "suppressions": parsed.get("suppressions", []),
-            })
+            try:
+                from beatlab.db import get_effects, get_suppressions
+                self._json_response({
+                    "effects": get_effects(project_dir),
+                    "suppressions": get_suppressions(project_dir),
+                })
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
 
         def _handle_update_effects(self, project_name: str):
-            """POST /api/projects/:name/effects — update user-authored effects in beats.yaml.
+            """POST /api/projects/:name/effects — update user-authored effects.
 
             Body: { "effects": [...], "suppressions": [...] }
-            Replaces the entire effects file with the provided data.
             """
             body = self._read_json_body()
             if body is None:
                 return
 
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
+                return
+
             try:
-                import yaml as pyyaml
-                effects_path = work_dir / project_name / "beats.yaml"
-
-                data = {}
-                if effects_path.exists():
-                    with open(effects_path) as f:
-                        data = pyyaml.safe_load(f) or {}
-
-                if "effects" in body:
-                    data["effects"] = body["effects"]
-                if "suppressions" in body:
-                    data["suppressions"] = body["suppressions"]
-
-                with open(effects_path, "w") as f:
-                    pyyaml.dump(data, f, default_flow_style=False, allow_unicode=True, width=1000)
-
+                from beatlab.db import save_effects
+                effects = body.get("effects", [])
+                suppressions = body.get("suppressions", [])
+                save_effects(project_dir, effects, suppressions)
                 self._json_response({"success": True})
             except Exception as e:
                 self._error(500, "INTERNAL_ERROR", str(e))
@@ -2556,6 +2893,13 @@ def make_handler(work_dir: Path):
 
             self._ensure_git_repo(project_dir)
 
+            # Lock per-project to prevent concurrent git/YAML operations
+            lock = _get_project_lock(project_name)
+            with lock:
+                return self._do_version_commit(project_dir, message)
+
+        def _do_version_commit(self, project_dir, message):
+            import subprocess as sp
             # Stage all changes
             sp.run(["git", "add", "-A"], cwd=project_dir, capture_output=True, check=True)
 
@@ -2796,6 +3140,30 @@ def make_handler(work_dir: Path):
 
         # ── Helpers ──────────────────────────────────────────────
 
+        def _get_project_dir(self, project_name: str) -> Path | None:
+            """Get project directory, auto-importing YAML to SQLite if needed."""
+            project_dir = work_dir / project_name
+            if not project_dir.is_dir():
+                return None
+            db_path = project_dir / "project.db"
+            if not db_path.exists():
+                # Auto-import from YAML on first access
+                yaml_exists = (project_dir / "timeline.yaml").exists() or (project_dir / "narrative_keyframes.yaml").exists()
+                if yaml_exists:
+                    from beatlab.db import import_from_yaml
+                    _log(f"Auto-importing {project_name} from YAML to SQLite...")
+                    import_from_yaml(project_dir)
+                    _log(f"  Import complete")
+            return project_dir
+
+        def _require_project_dir(self, project_name: str) -> Path | None:
+            """Get project directory or send 404."""
+            d = self._get_project_dir(project_name)
+            if d is None:
+                self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
+                return None
+            return d
+
         def _get_yaml_path(self, project_name: str) -> Path | None:
             """Get the YAML path for a project — prefers timeline.yaml (split format), falls back to legacy."""
             project_dir = work_dir / project_name
@@ -2915,6 +3283,342 @@ def make_handler(work_dir: Path):
             self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
+        def _handle_get_section_settings(self, project_name: str):
+            """GET /api/projects/:name/section-settings?section=label — get persisted settings for a section."""
+            from urllib.parse import parse_qs
+            qs = parse_qs(urlparse(self.path).query)
+            section_label = qs.get("section", [""])[0]
+
+            project_dir = self._get_project_dir(project_name)
+            if project_dir is None:
+                return self._json_response({})
+
+            try:
+                from beatlab.db import get_meta
+                import json
+                meta = get_meta(project_dir)
+                still = meta.get(f"section_still:{section_label}", None)
+                suggestions_raw = meta.get(f"section_suggestions:{section_label}", None)
+                suggestions = json.loads(suggestions_raw) if isinstance(suggestions_raw, str) else suggestions_raw
+                self._json_response({
+                    "still": still,
+                    "suggestions": suggestions,
+                })
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_section_settings(self, project_name: str):
+            """POST /api/projects/:name/section-settings — persist section settings (still, suggestions)."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            section_label = body.get("sectionLabel")
+            if not section_label:
+                return self._error(400, "BAD_REQUEST", "Missing 'sectionLabel'")
+
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
+                return
+
+            try:
+                from beatlab.db import set_meta
+                import json
+
+                if "still" in body:
+                    set_meta(project_dir, f"section_still:{section_label}", body["still"])
+                if "suggestions" in body:
+                    set_meta(project_dir, f"section_suggestions:{section_label}",
+                             json.dumps(body["suggestions"]))
+
+                self._json_response({"success": True})
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_promote_staged_candidate(self, project_name: str):
+            """POST /api/projects/:name/promote-staged-candidate — copy a staged candidate as a keyframe's selected image.
+
+            Body: { "keyframeId": "kf_XXX", "stagingId": "evt_0_1234", "variant": 1 }
+            """
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            kf_id = body.get("keyframeId")
+            staging_id = body.get("stagingId")
+            variant = body.get("variant", 1)
+            if not kf_id or not staging_id:
+                return self._error(400, "BAD_REQUEST", "Missing 'keyframeId' or 'stagingId'")
+
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
+                return
+
+            try:
+                import shutil
+                from beatlab.db import update_keyframe
+
+                staging_file = project_dir / "staging" / staging_id / f"v{variant}.png"
+                if not staging_file.exists():
+                    return self._error(404, "NOT_FOUND", f"Staged candidate not found: {staging_file}")
+
+                # Copy to selected_keyframes
+                sel_dir = project_dir / "selected_keyframes"
+                sel_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(str(staging_file), str(sel_dir / f"{kf_id}.png"))
+
+                # Also copy to keyframe candidates dir
+                cand_dir = project_dir / "keyframe_candidates" / "candidates" / f"section_{kf_id}"
+                cand_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(str(staging_file), str(cand_dir / f"v{variant}.png"))
+
+                update_keyframe(project_dir, kf_id, selected=variant,
+                                candidates=[f"keyframe_candidates/candidates/section_{kf_id}/v{variant}.png"])
+
+                _log(f"promote-staged: {staging_id}/v{variant} -> {kf_id}")
+                self._json_response({"success": True, "keyframeId": kf_id})
+            except Exception as e:
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_generate_staged_candidate(self, project_name: str):
+            """POST /api/projects/:name/generate-staged-candidate — generate a keyframe image without creating a timeline keyframe.
+
+            Body: { "prompt": "...", "stillName": "dark.png", "stagingId": "evt_0_1234" }
+            Returns: { "success": true, "path": "staging/evt_0_1234/v1.png" }
+            """
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            prompt = body.get("prompt")
+            still_name = body.get("stillName")
+            staging_id = body.get("stagingId")
+            count = body.get("count", 1)
+            if not prompt or not still_name or not staging_id:
+                return self._error(400, "BAD_REQUEST", "Missing 'prompt', 'stillName', or 'stagingId'")
+
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
+                return
+
+            _log(f"generate-staged-candidate: {project_name} id={staging_id} still={still_name} count={count}")
+
+            source = project_dir / "assets" / "stills" / still_name
+            if not source.exists():
+                return self._error(404, "NOT_FOUND", f"Still not found: {still_name}")
+
+            from beatlab.ws_server import job_manager
+            job_id = job_manager.create_job("staged_candidate", total=count, meta={"stagingId": staging_id, "project": project_name})
+
+            def _run():
+                try:
+                    from beatlab.render.google_video import GoogleVideoClient
+                    client = GoogleVideoClient(vertex=True)
+
+                    staging_dir = project_dir / "staging" / staging_id
+                    staging_dir.mkdir(parents=True, exist_ok=True)
+
+                    paths = []
+                    existing = len(list(staging_dir.glob("v*.png")))
+                    for i in range(count):
+                        v = existing + i + 1
+                        out_path = str(staging_dir / f"v{v}.png")
+                        if Path(out_path).exists():
+                            paths.append(f"staging/{staging_id}/v{v}.png")
+                            continue
+                        varied = f"{prompt}, variation {v}" if v > 1 else prompt
+                        try:
+                            client.stylize_image(str(source), varied, out_path)
+                            paths.append(f"staging/{staging_id}/v{v}.png")
+                            job_manager.update_progress(job_id, i + 1, f"v{v} done")
+                        except Exception as e:
+                            _log(f"  v{v} FAILED: {e}")
+                            job_manager.update_progress(job_id, i + 1, f"v{v} failed")
+
+                    # Return ALL candidates in staging dir (not just newly generated)
+                    all_paths = sorted([
+                        f"staging/{staging_id}/{f.name}"
+                        for f in staging_dir.glob("v*.png")
+                    ])
+                    job_manager.complete_job(job_id, {"stagingId": staging_id, "candidates": all_paths})
+                except Exception as e:
+                    _log(f"  staged generation FAILED: {e}")
+                    job_manager.fail_job(job_id, str(e))
+
+            import threading
+            threading.Thread(target=_run, daemon=True).start()
+            self._json_response({"jobId": job_id, "stagingId": staging_id})
+
+        def _handle_enhance_keyframe_prompt(self, project_name: str):
+            """POST /api/projects/:name/enhance-keyframe-prompt — enhance an existing keyframe prompt to be more vivid and cinematic."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            current_prompt = body.get("prompt", "")
+            section_content = body.get("sectionContent", "")
+            event = body.get("event", {})
+
+            if not current_prompt:
+                return self._error(400, "BAD_REQUEST", "Missing 'prompt'")
+
+            _log(f"enhance-keyframe-prompt: {project_name} prompt={current_prompt[:60]!r}")
+
+            try:
+                import os
+                api_key = os.environ.get("ANTHROPIC_API_KEY")
+                if not api_key:
+                    return self._error(500, "INTERNAL_ERROR", "ANTHROPIC_API_KEY not set")
+
+                from anthropic import Anthropic
+                client = Anthropic(api_key=api_key)
+
+                event_context = ""
+                if event:
+                    event_context = (
+                        f"\n\nAudio event context:\n"
+                        f"  Time: {event.get('time', 0):.2f}s\n"
+                        f"  Stem: {event.get('stem_source', '?')}\n"
+                        f"  Effect: {event.get('effect', '?')}\n"
+                        f"  Intensity: {event.get('intensity', 0) * 100:.0f}%\n"
+                    )
+                    if event.get("rationale"):
+                        event_context += f"  Rationale: {event['rationale']}\n"
+
+                section_text = f"\n\nMusical context for this section:\n{section_content}\n" if section_content else ""
+
+                prompt_text = (
+                    "You are a visionary art director enhancing a keyframe image prompt for Imagen style transfer. "
+                    "Take the user's existing prompt and make it more vivid, specific, and cinematic. "
+                    "Add details about materials, textures, lighting quality, atmosphere, scale, and spatial depth. "
+                    "Keep the core scene and intent but make it significantly more descriptive and tangible.\n\n"
+                    f"Current prompt: \"{current_prompt}\"\n"
+                    f"{section_text}"
+                    f"{event_context}\n"
+                    "Reply with ONLY the enhanced prompt, no preamble or explanation. "
+                    "Keep it to 2-4 sentences. Describe a CONCRETE, FILMABLE scene."
+                )
+
+                response = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=400,
+                    messages=[{"role": "user", "content": prompt_text}],
+                )
+
+                enhanced = response.content[0].text.strip()
+                _log(f"  Enhanced prompt: {enhanced[:80]}...")
+                self._json_response({"success": True, "prompt": enhanced})
+
+            except Exception as e:
+                _log(f"  enhance-keyframe-prompt error: {e}")
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_suggest_keyframe_prompts(self, project_name: str):
+            """POST /api/projects/:name/suggest-keyframe-prompts — LLM-generate style prompts for audio events."""
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            section_label = body.get("sectionLabel", "")
+            section_content = body.get("sectionContent", "")
+            events = body.get("events", [])
+            base_still = body.get("baseStillName", "")
+
+            if not events:
+                return self._error(400, "BAD_REQUEST", "Missing 'events'")
+
+            _log(f"suggest-keyframe-prompts: {project_name} section={section_label!r} events={len(events)} still={base_still!r}")
+
+            try:
+                import os
+                api_key = os.environ.get("ANTHROPIC_API_KEY")
+                if not api_key:
+                    return self._error(500, "INTERNAL_ERROR", "ANTHROPIC_API_KEY not set")
+
+                _log(f"  Calling Claude for {len(events)} event prompts...")
+                from anthropic import Anthropic
+                client = Anthropic(api_key=api_key)
+
+                event_list = "\n".join(
+                    f"  {i}: t={ev.get('time', 0):.2f}s, stem={ev.get('stem_source', '?')}, "
+                    f"effect={ev.get('effect', '?')}, intensity={ev.get('intensity', 0) * 100:.0f}%"
+                    for i, ev in enumerate(events)
+                )
+
+                prompt_text = (
+                    f"You are a visionary art director creating keyframe images for a cinematic music video. "
+                    f"Each prompt will transform a base photograph (\"{base_still}\") into a vivid, "
+                    f"tangible scene through Imagen style transfer.\n\n"
+                    f"CRITICAL: Each prompt MUST describe a SPECIFIC, CONCRETE scene, place, or action. "
+                    f"NOT abstract descriptions of mood or color. Think like a film location scout crossed with a painter:\n"
+                    f"- A mist-shrouded ancient forest with bioluminescent fungi pulsing on twisted bark\n"
+                    f"- Tiny porcelain dancers frozen mid-leap inside a cracked music box\n"
+                    f"- A haunting gothic cathedral where stained glass bleeds liquid color onto stone floors\n"
+                    f"- A dark menacing techno underworld of chrome corridors and neon-dripping pipework\n"
+                    f"- An underwater ballroom where jellyfish chandeliers illuminate drowned aristocrats\n"
+                    f"- A burning library where pages become flocks of fire-birds spiraling upward\n\n"
+                    f"Each prompt should conjure a PLACE you could walk into, a SCENE you could film, "
+                    f"an ACTION caught mid-frame. Be wildly creative. Be specific. Be cinematic.\n\n"
+                    f"Section: \"{section_label}\"\n"
+                    f"Musical description:\n{section_content}\n\n"
+                    f"Audio events in this section:\n{event_list}\n\n"
+                    f"For each event, write a prompt (2-3 sentences) that:\n"
+                    f"- Describes a TANGIBLE scene, location, or frozen moment (not abstract feelings)\n"
+                    f"- Matches the musical energy: quiet = intimate/delicate/mysterious, loud = explosive/overwhelming/massive\n"
+                    f"- Includes specific visual details: materials, lighting quality, weather, scale, texture\n"
+                    f"- Varies WILDLY across events — each should feel like a different world or dimension\n"
+                    f"- Treats the base image as the subject placed INTO this new world\n\n"
+                    f"Respond with ONLY a JSON array, no markdown fences: [{{\"eventIndex\": 0, \"prompt\": \"...\"}}, ...]"
+                )
+
+                import json as _json
+                import re as _re
+                suggestions = None
+                max_retries = 2
+
+                for attempt in range(max_retries + 1):
+                    response = client.messages.create(
+                        model="claude-sonnet-4-20250514",
+                        max_tokens=16384,
+                        messages=[{"role": "user", "content": prompt_text}],
+                    )
+
+                    text = response.content[0].text if response.content else ""
+                    _log(f"  Attempt {attempt + 1}: response length={len(text)}, stop={response.stop_reason}")
+
+                    json_match = _re.search(r"\[[\s\S]*\]", text)
+                    if json_match:
+                        try:
+                            suggestions = _json.loads(json_match.group(0))
+                            break
+                        except _json.JSONDecodeError:
+                            _log(f"  Attempt {attempt + 1}: JSON parse error, retrying...")
+                    else:
+                        _log(f"  Attempt {attempt + 1}: no JSON array found in response: {text[:200]}")
+
+                if suggestions is None:
+                    return self._error(500, "INTERNAL_ERROR", "Failed to parse prompt suggestions after retries")
+
+                _log(f"  Generated {len(suggestions)} prompt suggestions")
+
+                # Auto-persist suggestions to DB
+                try:
+                    from beatlab.db import set_meta
+                    import json as _json2
+                    project_dir = self._get_project_dir(project_name)
+                    if project_dir:
+                        set_meta(project_dir, f"section_suggestions:{section_label}", _json2.dumps(suggestions))
+                        if base_still:
+                            set_meta(project_dir, f"section_still:{section_label}", base_still)
+                except Exception:
+                    pass  # non-critical
+
+                self._json_response({"suggestions": suggestions})
+
+            except Exception as e:
+                _log(f"  suggest-keyframe-prompts error: {e}")
+                self._error(500, "INTERNAL_ERROR", str(e))
+
         def log_message(self, format, *args):
             # Quiet default logging — we use _log() for important events
             pass
@@ -2931,7 +3635,10 @@ def run_server(host: str = "0.0.0.0", port: int = 8888, work_dir: str | None = N
         raise SystemExit(1)
 
     handler = make_handler(wd)
-    server = HTTPServer((host, port), handler)
+    class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+        daemon_threads = True
+
+    server = ThreadedHTTPServer((host, port), handler)
 
     # Start WebSocket server for real-time job progress
     ws_port = port + 1

@@ -27,7 +27,7 @@ def dump_db_to_yaml(project_dir: str | Path) -> None:
     if not db_path.exists():
         return
 
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), timeout=30)
     conn.row_factory = sqlite3.Row
 
     try:

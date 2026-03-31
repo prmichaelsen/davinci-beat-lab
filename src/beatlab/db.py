@@ -18,6 +18,8 @@ _connections: dict[str, sqlite3.Connection] = {}
 _conn_lock = threading.Lock()
 
 
+_migrated_dbs: set[str] = set()  # tracks which DBs have been migrated this process
+
 def get_db(project_dir: Path) -> sqlite3.Connection:
     """Get or create a SQLite connection for a project directory."""
     db_path = str(project_dir / "project.db")
@@ -25,12 +27,14 @@ def get_db(project_dir: Path) -> sqlite3.Connection:
 
     with _conn_lock:
         if thread_key not in _connections:
-            conn = sqlite3.connect(db_path, check_same_thread=False)
+            conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
             conn.execute("PRAGMA foreign_keys=ON")
-            _ensure_schema(conn)
+            if db_path not in _migrated_dbs:
+                _ensure_schema(conn)
+                _migrated_dbs.add(db_path)
             _connections[thread_key] = conn
         return _connections[thread_key]
 
@@ -119,12 +123,44 @@ def _ensure_schema(conn: sqlite3.Connection):
             label TEXT NOT NULL DEFAULT ''
         );
 
+        CREATE TABLE IF NOT EXISTS tracks (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL DEFAULT 'Track 1',
+            z_order INTEGER NOT NULL DEFAULT 0,
+            blend_mode TEXT NOT NULL DEFAULT 'normal',
+            base_opacity REAL NOT NULL DEFAULT 1.0,
+            enabled INTEGER NOT NULL DEFAULT 1
+        );
+
+        CREATE TABLE IF NOT EXISTS opacity_keyframes (
+            id TEXT PRIMARY KEY,
+            track_id TEXT NOT NULL,
+            time REAL NOT NULL,
+            opacity REAL NOT NULL DEFAULT 1.0
+        );
+
         CREATE INDEX IF NOT EXISTS idx_keyframes_timestamp ON keyframes(timestamp);
         CREATE INDEX IF NOT EXISTS idx_keyframes_deleted ON keyframes(deleted_at);
         CREATE INDEX IF NOT EXISTS idx_transitions_from ON transitions(from_kf);
         CREATE INDEX IF NOT EXISTS idx_transitions_to ON transitions(to_kf);
         CREATE INDEX IF NOT EXISTS idx_transitions_deleted ON transitions(deleted_at);
+        CREATE INDEX IF NOT EXISTS idx_opacity_kf_track ON opacity_keyframes(track_id, time);
     """)
+
+    # ── Migration: add track_id to keyframes/transitions if missing ──
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(keyframes)").fetchall()}
+    if "track_id" not in cols:
+        conn.execute("ALTER TABLE keyframes ADD COLUMN track_id TEXT NOT NULL DEFAULT 'track_1'")
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(transitions)").fetchall()}
+    if "track_id" not in cols:
+        conn.execute("ALTER TABLE transitions ADD COLUMN track_id TEXT NOT NULL DEFAULT 'track_1'")
+
+    # Ensure default track exists
+    try:
+        if not conn.execute("SELECT 1 FROM tracks WHERE id = 'track_1'").fetchone():
+            conn.execute("INSERT OR IGNORE INTO tracks (id, name, z_order, blend_mode, base_opacity, enabled) VALUES ('track_1', 'Track 1', 0, 'normal', 1.0, 1)")
+    except Exception:
+        pass  # another thread may have inserted it
 
 
 # ── Meta operations ─────────────────────────────────────────────────
@@ -172,6 +208,7 @@ def _row_to_keyframe(row: sqlite3.Row) -> dict:
         "selected": row["selected"],
         "candidates": json.loads(row["candidates"]),
         "context": json.loads(row["context"]) if row["context"] else None,
+        "track_id": row["track_id"] if "track_id" in row.keys() else "track_1",
         "deleted_at": row["deleted_at"],
     }
 
@@ -266,6 +303,7 @@ def _row_to_transition(row: sqlite3.Row) -> dict:
         "use_global_prompt": bool(row["use_global_prompt"]),
         "selected": selected,
         "remap": remap,
+        "track_id": row["track_id"] if "track_id" in row.keys() else "track_1",
         "deleted_at": row["deleted_at"],
     }
 
@@ -499,6 +537,95 @@ def get_bench_item(project_dir: Path, bench_id: str) -> dict | None:
         "sourcePath": row["source_path"], "label": row["label"],
         "addedAt": row["added_at"],
     }
+
+
+# ── Track operations ───────────────────────────────────────────────
+
+def get_tracks(project_dir: Path) -> list[dict]:
+    conn = get_db(project_dir)
+    rows = conn.execute("SELECT * FROM tracks ORDER BY z_order").fetchall()
+    return [{
+        "id": r["id"], "name": r["name"], "z_order": r["z_order"],
+        "blend_mode": r["blend_mode"], "base_opacity": r["base_opacity"],
+        "enabled": bool(r["enabled"]),
+    } for r in rows]
+
+
+def add_track(project_dir: Path, track: dict):
+    conn = get_db(project_dir)
+    conn.execute(
+        "INSERT INTO tracks (id, name, z_order, blend_mode, base_opacity, enabled) VALUES (?, ?, ?, ?, ?, ?)",
+        (track["id"], track.get("name", "New Track"), track.get("z_order", 0),
+         track.get("blend_mode", "normal"), track.get("base_opacity", 1.0),
+         1 if track.get("enabled", True) else 0),
+    )
+    conn.commit()
+
+
+def update_track(project_dir: Path, track_id: str, **fields):
+    conn = get_db(project_dir)
+    sets = []
+    values = []
+    for key, val in fields.items():
+        if key == "enabled":
+            val = 1 if val else 0
+        sets.append(f"{key} = ?")
+        values.append(val)
+    values.append(track_id)
+    conn.execute(f"UPDATE tracks SET {', '.join(sets)} WHERE id = ?", values)
+    conn.commit()
+
+
+def delete_track(project_dir: Path, track_id: str):
+    conn = get_db(project_dir)
+    conn.execute("DELETE FROM tracks WHERE id = ?", (track_id,))
+    conn.execute("DELETE FROM opacity_keyframes WHERE track_id = ?", (track_id,))
+    # Soft-delete keyframes and transitions on this track
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute("UPDATE keyframes SET deleted_at = ? WHERE track_id = ? AND deleted_at IS NULL", (now, track_id))
+    conn.execute("UPDATE transitions SET deleted_at = ? WHERE track_id = ? AND deleted_at IS NULL", (now, track_id))
+    conn.commit()
+
+
+def reorder_tracks(project_dir: Path, track_ids: list[str]):
+    conn = get_db(project_dir)
+    for i, tid in enumerate(track_ids):
+        conn.execute("UPDATE tracks SET z_order = ? WHERE id = ?", (i, tid))
+    conn.commit()
+
+
+# ── Opacity keyframe operations ────────────────────────────────────
+
+def get_opacity_keyframes(project_dir: Path, track_id: str) -> list[dict]:
+    conn = get_db(project_dir)
+    rows = conn.execute("SELECT * FROM opacity_keyframes WHERE track_id = ? ORDER BY time", (track_id,)).fetchall()
+    return [{"id": r["id"], "track_id": r["track_id"], "time": r["time"], "opacity": r["opacity"]} for r in rows]
+
+
+def add_opacity_keyframe(project_dir: Path, okf_id: str, track_id: str, time: float, opacity: float):
+    conn = get_db(project_dir)
+    conn.execute("INSERT OR REPLACE INTO opacity_keyframes (id, track_id, time, opacity) VALUES (?, ?, ?, ?)",
+                 (okf_id, track_id, time, opacity))
+    conn.commit()
+
+
+def update_opacity_keyframe(project_dir: Path, okf_id: str, **fields):
+    conn = get_db(project_dir)
+    sets = []
+    values = []
+    for key, val in fields.items():
+        sets.append(f"{key} = ?")
+        values.append(val)
+    values.append(okf_id)
+    conn.execute(f"UPDATE opacity_keyframes SET {', '.join(sets)} WHERE id = ?", values)
+    conn.commit()
+
+
+def delete_opacity_keyframe(project_dir: Path, okf_id: str):
+    conn = get_db(project_dir)
+    conn.execute("DELETE FROM opacity_keyframes WHERE id = ?", (okf_id,))
+    conn.commit()
 
 
 # ── Marker operations ──────────────────────────────────────────────

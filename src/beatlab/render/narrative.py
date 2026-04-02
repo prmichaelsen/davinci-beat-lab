@@ -1369,77 +1369,334 @@ def assemble_final(yaml_path: str, output_path: str) -> str:
     XFADE_FRAMES = 8
     HALF = XFADE_FRAMES // 2
 
-    # Phase 1: Remap with accumulated correction + crossfade extensions
-    _log(f"Phase 1: Remapping {n_clips} clips (accumulated correction + {XFADE_FRAMES}-frame crossfade)...")
-    accumulated_frames = 0
-    output_clips = []
+    # Unified single-pass: remap + stitch + crossfade + effects in one frame loop
+    # No intermediate files — reads source clips directly, remaps inline matching frontend logic
+    import cv2
+    import numpy as np
+    import time as _time
 
-    for i, ci in enumerate(clips_info):
-        # Accumulated correction: exact frame count for this clip's core
-        target_end = round(ci["to_ts"] * fps)
-        core_frames = target_end - accumulated_frames
-        if core_frames <= 0:
-            core_frames = 1
+    # Load effect events if intel_path provided
+    intel_path = meta.get("_intel_path")
+    project_dir_str = str(work_dir)
+    effect_events = []
+    suppressions = []
 
-        # Half-overlap extensions for crossfade
-        extend_start = HALF if i > 0 else 0
-        extend_end = HALF if i < n_clips - 1 else 0
-        total_frames = core_frames + extend_start + extend_end
+    # Try to find intel file automatically
+    if not intel_path:
+        candidates = sorted(work_dir.glob("audio_intelligence*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if candidates:
+            intel_path = str(candidates[0])
 
-        # Speed factor from EXTENDED duration (not core) so setpts produces enough frames
-        extended_dur = total_frames / fps
-        actual_dur = _get_duration(ci["selected"])
-        speed_factor = actual_dur / extended_dur
+    if intel_path:
+        import json as _json
+        with open(intel_path) as f:
+            intel_data = _json.load(f)
+        from beatlab.render.effects_opencv import _apply_rules_client
+        onsets = {}
+        for stem, bands in intel_data.get("layer1", {}).items():
+            onsets[stem] = {}
+            for band, bdata in bands.items():
+                onsets[stem][band] = bdata.get("onsets", [])
+        rules = intel_data.get("layer3_rules", [])
+        layer1 = intel_data.get("layer1", {})
+        effect_events = _apply_rules_client(onsets, rules, layer1=layer1)
+        _log(f"Phase 2: Loaded {len(rules)} rules → {len(effect_events)} events")
 
-        output = remapped_dir / f"{ci['tr']['id']}_slot_0.mp4"
+    # Load user effects and suppressions
+    if (work_dir / "project.db").exists():
+        from beatlab.db import get_effects, get_suppressions
+        user_effects = get_effects(work_dir)
+        suppressions = get_suppressions(work_dir)
+        if user_effects:
+            for ufx in user_effects:
+                effect_events.append({
+                    "time": ufx["time"], "duration": ufx["duration"],
+                    "effect": ufx["type"], "intensity": ufx["intensity"],
+                    "sustain": 0, "stem_source": "user",
+                })
+            _log(f"  + {len(user_effects)} user effects, {len(suppressions)} suppressions")
 
-        remap = ci["tr"].get("remap", {})
-        use_curve = remap.get("method") == "curve" and remap.get("curve_points")
+    effect_events.sort(key=lambda e: e["time"])
 
-        if use_curve:
-            _remap_with_curve(ci["selected"], str(output), extended_dur, remap["curve_points"])
-        elif abs(speed_factor - 1.0) < 0.01:
-            subprocess.run([
-                "ffmpeg", "-y", "-i", ci["selected"],
-                "-frames:v", str(total_frames), "-an", str(output),
-            ], capture_output=True, check=True)
+    # Remove hard_cuts
+    effect_events = [e for e in effect_events if e.get("effect") != "hard_cut"]
+
+    def _is_suppressed(t, effect):
+        for sup in suppressions:
+            if sup["from"] <= t <= sup["to"]:
+                et = sup.get("effectTypes")
+                if et is None:
+                    return True
+                if effect in ("zoom_pulse", "zoom_bounce") and "zoom" in et:
+                    return True
+                if effect in ("shake_x", "shake_y") and "shake" in et:
+                    return True
+                if effect in et:
+                    return True
+        return False
+
+    def _get_event_intensity(t, event):
+        event_time = event["time"]
+        duration = event.get("duration", 0.2)
+        sustain = event.get("sustain") or 0.0
+        intensity = event.get("intensity", 0.5)
+        dt = t - event_time
+        if dt < 0:
+            return 0.0
+        attack = min(0.04, duration * 0.2)
+        release = duration - attack
+        if sustain > 0:
+            if dt < attack:
+                return intensity * (dt / attack)
+            elif dt < attack + sustain:
+                return intensity
+            elif dt < attack + sustain + release:
+                return intensity * (1.0 - (dt - attack - sustain) / release)
+            return 0.0
         else:
-            subprocess.run([
-                "ffmpeg", "-y", "-i", ci["selected"],
-                "-filter:v", f"setpts={1/speed_factor}*PTS",
-                "-frames:v", str(total_frames), "-an", str(output),
-            ], capture_output=True, check=True)
+            if dt < attack:
+                return intensity * (dt / attack)
+            elif dt < attack + release:
+                return intensity * (1.0 - (dt - attack) / release)
+            return 0.0
 
-        accumulated_frames += core_frames
-        output_clips.append(str(Path(output).resolve()))
+    import math
 
-        if i % 50 == 0 or i == n_clips - 1:
-            drift = accumulated_frames / fps - ci["to_ts"]
-            _log(f"  [{i+1}/{n_clips}] {ci['tr']['id']}: core={core_frames} +{extend_start}+{extend_end}={total_frames} drift={drift:+.4f}s")
+    def _apply_frame_effects(frame, t, w, h):
+        zoom_amount = 0.0
+        zoom_bounce_active = False
+        shake_x_val = 0
+        shake_y_val = 0
+        bright_alpha = 1.0
+        bright_beta = 0
+        contrast_amount = 0.0
+        glow_amount = 0.0
 
-    # Phase 2: Crossfade
-    _log(f"Phase 2: Crossfading {len(output_clips)} clips...")
-    from beatlab.render.crossfade import concat_with_crossfade
-    no_audio = str(work_dir / "narrative_noaudio.mp4")
+        # Check zoom_bounce first
+        for event in effect_events:
+            et = event["time"]
+            max_dur = event.get("duration", 0.2) + (event.get("sustain") or 0.0) + 0.5
+            if et > t + 0.1:
+                break
+            if et + max_dur < t:
+                continue
+            if event["effect"] == "zoom_bounce" and _get_event_intensity(t, event) > 0.05:
+                zoom_bounce_active = True
+                break
 
-    # Clear xfade cache
-    for d in work_dir.glob("_xfade_chunks_*"):
-        shutil.rmtree(d)
+        for event in effect_events:
+            et = event["time"]
+            max_dur = event.get("duration", 0.2) + (event.get("sustain") or 0.0) + 0.5
+            if et > t + 0.1:
+                break
+            if et + max_dur < t:
+                continue
+            ei = _get_event_intensity(t, event)
+            if ei < 0.01:
+                continue
+            if _is_suppressed(et, event["effect"]):
+                continue
 
-    concat_with_crossfade(output_clips, no_audio, crossfade_frames=XFADE_FRAMES, fps=fps, chunk_size=10)
+            effect = event["effect"]
+            if effect == "zoom_pulse":
+                if not zoom_bounce_active:
+                    zoom_amount = max(zoom_amount, 0.12 * ei)
+            elif effect == "zoom_bounce":
+                zoom_amount = max(zoom_amount, 0.20 * ei)
+            elif effect == "shake_x":
+                shake_x_val += int(8 * ei * math.sin(t * 47))
+            elif effect == "shake_y":
+                shake_y_val += int(5 * ei * math.cos(t * 53))
+            elif effect == "flash":
+                contrast_amount = max(contrast_amount, 0.4 * ei)
+            elif effect == "hard_cut":
+                bright_alpha = max(bright_alpha, 1.0 + 0.8 * ei)
+                bright_beta = max(bright_beta, int(50 * ei))
+            elif effect == "contrast_pop":
+                contrast_amount = max(contrast_amount, 0.4 * ei)
+            elif effect == "glow_swell":
+                glow_amount = max(glow_amount, 0.3 * ei)
 
-    # Phase 3: Mux audio
+        if zoom_amount > 0.001:
+            zoom = 1.0 + zoom_amount
+            new_h, new_w = int(h * zoom), int(w * zoom)
+            zoomed = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+            top = (new_h - h) // 2
+            left = (new_w - w) // 2
+            frame = zoomed[top:top+h, left:left+w]
+        if abs(shake_x_val) > 0 or abs(shake_y_val) > 0:
+            M = np.float32([[1, 0, shake_x_val], [0, 1, shake_y_val]])
+            frame = cv2.warpAffine(frame, M, (w, h), borderMode=cv2.BORDER_REFLECT)
+        if bright_alpha != 1.0 or bright_beta != 0:
+            frame = cv2.convertScaleAbs(frame, alpha=bright_alpha, beta=bright_beta)
+        if contrast_amount > 0.01:
+            contrast = 1.0 + contrast_amount
+            mean = np.mean(frame)
+            frame = cv2.convertScaleAbs(frame, alpha=contrast, beta=int(mean * (1 - contrast)))
+        if glow_amount > 0.01:
+            blurred = cv2.GaussianBlur(frame, (0, 0), 8)
+            frame = cv2.addWeighted(frame, 1.0 - glow_amount, blurred, glow_amount, 0)
+        return frame
+
+    # Build clip schedule with source paths (not remapped) for inline remap
+    def _evaluate_curve(curve_points, linear_progress):
+        """Match frontend evaluateCurve — linear interp between curve points."""
+        if not curve_points or len(curve_points) < 2:
+            return linear_progress
+        p = max(0.0, min(1.0, linear_progress))
+        if p <= curve_points[0][0]:
+            return curve_points[0][1]
+        if p >= curve_points[-1][0]:
+            return curve_points[-1][1]
+        lo, hi = 0, len(curve_points) - 1
+        while lo < hi - 1:
+            mid = (lo + hi) // 2
+            if curve_points[mid][0] <= p:
+                lo = mid
+            else:
+                hi = mid
+        x0, y0 = curve_points[lo]
+        x1, y1 = curve_points[hi]
+        if x1 == x0:
+            return y0
+        t_lerp = (p - x0) / (x1 - x0)
+        return y0 + t_lerp * (y1 - y0)
+
+    clip_schedule = []
+    acc = 0
+    for i, ci in enumerate(clips_info):
+        target_end = round(ci["to_ts"] * fps)
+        core = target_end - acc
+        if core <= 0:
+            core = 1
+        remap = ci["tr"].get("remap", {})
+        clip_schedule.append({
+            "source": ci["selected"],
+            "core": core,
+            "from_ts": ci["from_ts"],
+            "to_ts": ci["to_ts"],
+            "remap_method": remap.get("method", "linear"),
+            "curve_points": remap.get("curve_points"),
+        })
+        acc += core
+
+    # Determine output resolution from first clip
+    cap0 = cv2.VideoCapture(clip_schedule[0]["source"])
+    w = int(cap0.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap0.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cap0.release()
+
+    preview = output_path.endswith("_preview.mp4")
+    if preview:
+        w, h = w // 2, h // 2
+
+    total_output_frames = acc
+    _log(f"Phase 2: Unified stitch+remap+crossfade+effects — {total_output_frames} frames, {w}x{h} @ {fps}fps")
+    _log(f"  {len(clip_schedule)} clips, {XFADE_FRAMES}-frame crossfade, {len(effect_events)} effect events")
+
+    tmp_path = output_path + ".tmp.mp4"
+    out = cv2.VideoWriter(tmp_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+
+    start_time = _time.time()
+    global_frame = 0
+    prev_tail_frames = []  # last HALF remapped frames from previous clip
+
+    for clip_idx, sched in enumerate(clip_schedule):
+        # Read ALL source frames into memory
+        cap = cv2.VideoCapture(sched["source"])
+        source_frames = []
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            if preview:
+                frame = cv2.resize(frame, (w, h), interpolation=cv2.INTER_AREA)
+            source_frames.append(frame)
+        cap.release()
+
+        n_source = len(source_frames)
+        if n_source == 0:
+            continue
+
+        core = sched["core"]
+        use_curve = sched["remap_method"] == "curve" and sched["curve_points"]
+
+        # Inline remap: for each output frame, pick the source frame
+        # matching frontend: floor(progress * totalSourceFrames) clamped
+        # Total output frames for this clip = core + HALF on each touching side
+        is_first = clip_idx == 0
+        is_last = clip_idx == len(clip_schedule) - 1
+        extend_before = HALF if not is_first else 0
+        extend_after = HALF if not is_last else 0
+        total_clip_frames = extend_before + core + extend_after
+
+        remapped = []
+        for fi in range(total_clip_frames):
+            # Progress through the clip: 0 to 1
+            progress = fi / total_clip_frames if total_clip_frames > 1 else 0
+            if use_curve:
+                progress = _evaluate_curve(sched["curve_points"], progress)
+            src_idx = min(int(progress * n_source), n_source - 1)
+            remapped.append(source_frames[src_idx])
+
+        # Crossfade zone at start: blend prev_tail_frames with our first HALF frames
+        xfade_written = 0
+        if extend_before > 0 and prev_tail_frames:
+            xfade_len = min(len(prev_tail_frames), extend_before)
+            for j in range(xfade_len):
+                alpha = (j + 1) / (xfade_len + 1)
+                blended = cv2.addWeighted(prev_tail_frames[j], 1.0 - alpha, remapped[j], alpha, 0)
+                t = global_frame / fps
+                blended = _apply_frame_effects(blended, t, w, h)
+                out.write(blended)
+                global_frame += 1
+                xfade_written += 1
+
+        # Core frames (after crossfade region)
+        core_start = extend_before
+        core_end = extend_before + core - xfade_written
+        for fi in range(core_start, min(core_end, len(remapped))):
+            t = global_frame / fps
+            frame = _apply_frame_effects(remapped[fi], t, w, h)
+            out.write(frame)
+            global_frame += 1
+
+        # Buffer tail frames for next clip's crossfade
+        tail_start = extend_before + core - xfade_written
+        tail_end = tail_start + extend_after
+        prev_tail_frames = remapped[tail_start:tail_end] if extend_after > 0 else []
+
+        if (clip_idx + 1) % 20 == 0 or clip_idx == len(clip_schedule) - 1:
+            elapsed = _time.time() - start_time
+            fps_actual = global_frame / elapsed if elapsed > 0 else 0
+            eta = (total_output_frames - global_frame) / fps_actual / 60 if fps_actual > 0 else 0
+            _log(f"  [{clip_idx+1}/{len(clip_schedule)}] frame {global_frame}/{total_output_frames} ({fps_actual:.0f} fps, ETA {eta:.1f}m)")
+
+    out.release()
+    elapsed = _time.time() - start_time
+    _log(f"  Stitch+effects done in {elapsed:.0f}s ({global_frame / elapsed:.0f} fps)")
+    _log(f"  Output: {global_frame} frames ({global_frame / fps:.2f}s, expected {total_output_frames / fps:.2f}s)")
+
+    # Re-encode + mux audio
     audio_path = meta["_audio_resolved"]
-    _log(f"Phase 3: Muxing audio from {audio_path}...")
+    _log(f"Phase 3: Re-encoding + muxing audio from {audio_path}...")
+
+    if preview:
+        encode_opts = ["-preset", "ultrafast", "-crf", "28"]
+    else:
+        encode_opts = ["-preset", "fast", "-crf", "18"]
+
     subprocess.run([
         "ffmpeg", "-y",
-        "-i", no_audio,
+        "-i", tmp_path,
         "-i", audio_path,
-        "-c:v", "copy", "-c:a", "aac",
-        "-map", "0:v:0", "-map", "1:a:0",
+        "-map", "0:v", "-map", "1:a",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", *encode_opts,
+        "-c:a", "aac",
         "-shortest",
         output_path,
     ], capture_output=True, check=True)
+    Path(tmp_path).unlink(missing_ok=True)
 
     _log(f"Final output: {output_path}")
     return output_path

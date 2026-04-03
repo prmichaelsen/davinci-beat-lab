@@ -675,8 +675,33 @@ def make_handler(work_dir: Path):
                                     shutil.copy2(str(f), str(dst_slot / f.name))
                 from beatlab.db import get_transition, update_transition
                 src_tr = get_transition(project_dir, source_id)
-                if src_tr and src_tr.get("selected"):
-                    update_transition(project_dir, target_id, selected=src_tr["selected"])
+                if src_tr:
+                    updates = {}
+                    if src_tr.get("selected"):
+                        updates["selected"] = src_tr["selected"]
+                    if src_tr.get("action"):
+                        updates["action"] = src_tr["action"]
+                    if updates:
+                        update_transition(project_dir, target_id, **updates)
+
+                # Extract first frame as keyframe image for the target's from-kf
+                dst_tr = get_transition(project_dir, target_id)
+                if dst_tr and dst_tr.get("from"):
+                    from_kf_id = dst_tr["from"]
+                    sel_video = project_dir / "selected_transitions" / f"{target_id}_slot_0.mp4"
+                    if sel_video.exists():
+                        import subprocess as sp
+                        import threading
+                        def _extract():
+                            try:
+                                sel_kf_dir = project_dir / "selected_keyframes"
+                                sel_kf_dir.mkdir(parents=True, exist_ok=True)
+                                sp.run(["ffmpeg", "-y", "-i", str(sel_video), "-vframes", "1", "-q:v", "2",
+                                        str(sel_kf_dir / f"{from_kf_id}.png")], capture_output=True, timeout=10)
+                            except Exception:
+                                pass
+                        threading.Thread(target=_extract, daemon=True).start()
+
                 _log(f"duplicate-transition-video: {source_id} -> {target_id}")
                 return self._json_response({"success": True})
 
@@ -702,6 +727,40 @@ def make_handler(work_dir: Path):
                 fields = {"label": body.get("label", ""), "label_color": body.get("labelColor", "")}
                 if "tags" in body:
                     fields["tags"] = body["tags"]
+                update_transition(project_dir, body["transitionId"], **fields)
+                return self._json_response({"success": True})
+
+            # POST /api/projects/:name/update-keyframe-style
+            m = re.match(r"^/api/projects/([^/]+)/update-keyframe-style$", path)
+            if m:
+                body = self._read_json_body()
+                if body is None: return
+                project_dir = self._require_project_dir(m.group(1))
+                if project_dir is None: return
+                from beatlab.db import update_keyframe
+                fields = {}
+                if "blendMode" in body:
+                    fields["blend_mode"] = body["blendMode"]
+                if "opacity" in body:
+                    fields["opacity"] = body["opacity"]
+                update_keyframe(project_dir, body["keyframeId"], **fields)
+                return self._json_response({"success": True})
+
+            # POST /api/projects/:name/update-transition-style
+            m = re.match(r"^/api/projects/([^/]+)/update-transition-style$", path)
+            if m:
+                body = self._read_json_body()
+                if body is None: return
+                project_dir = self._require_project_dir(m.group(1))
+                if project_dir is None: return
+                from beatlab.db import update_transition
+                fields = {}
+                if "blendMode" in body:
+                    fields["blend_mode"] = body["blendMode"]
+                if "opacity" in body:
+                    fields["opacity"] = body["opacity"]
+                if "opacityCurve" in body:
+                    fields["opacity_curve"] = body["opacityCurve"]
                 update_transition(project_dir, body["transitionId"], **fields)
                 return self._json_response({"success": True})
 
@@ -737,6 +796,34 @@ def make_handler(work_dir: Path):
                 update_keyframe(project_dir, kf_id, selected=v, candidates=all_cands)
                 _log(f"assign-keyframe-image: {source_path} -> {kf_id} as v{v} (selected={v})")
                 return self._json_response({"success": True, "selected": v})
+
+            # POST /api/projects/:name/save-as-still
+            m = re.match(r"^/api/projects/([^/]+)/save-as-still$", path)
+            if m:
+                body = self._read_json_body()
+                if body is None: return
+                project_dir = self._require_project_dir(m.group(1))
+                if project_dir is None: return
+                source_path = body.get("sourcePath")
+                name = body.get("name")
+                if not source_path: return self._error(400, "BAD_REQUEST", "Missing 'sourcePath'")
+                import shutil
+                src = project_dir / source_path
+                if not src.exists(): return self._error(404, "NOT_FOUND", f"Source not found: {source_path}")
+                stills_dir = project_dir / "assets" / "stills"
+                stills_dir.mkdir(parents=True, exist_ok=True)
+                # Auto-name if not provided
+                if not name:
+                    name = src.stem + src.suffix
+                # Avoid overwriting
+                dest = stills_dir / name
+                counter = 1
+                while dest.exists():
+                    dest = stills_dir / f"{src.stem}_{counter}{src.suffix}"
+                    counter += 1
+                shutil.copy2(str(src), str(dest))
+                _log(f"save-as-still: {source_path} -> assets/stills/{dest.name}")
+                return self._json_response({"success": True, "name": dest.name, "path": f"assets/stills/{dest.name}"})
 
             # POST /api/projects/:name/markers/add
             m = re.match(r"^/api/projects/([^/]+)/markers/add$", path)
@@ -1032,6 +1119,8 @@ def make_handler(work_dir: Path):
                     "trackId": kf.get("track_id", "track_1"),
                     "label": kf.get("label", ""),
                     "labelColor": kf.get("label_color", ""),
+                    "blendMode": kf.get("blend_mode", ""),
+                    "opacity": kf.get("opacity"),
                     "candidates": candidate_files,
                     "context": {
                         "mood": ctx.get("mood", ""),
@@ -1113,10 +1202,14 @@ def make_handler(work_dir: Path):
                     "slots": tr.get("slots", 1),
                     "action": tr.get("action", ""),
                     "useGlobalPrompt": tr.get("use_global_prompt", True),
+                    "includeSectionDesc": tr.get("include_section_desc", True),
                     "trackId": tr.get("track_id", "track_1"),
                     "label": tr.get("label", ""),
                     "labelColor": tr.get("label_color", ""),
                     "tags": tr.get("tags", []),
+                    "blendMode": tr.get("blend_mode", ""),
+                    "opacity": tr.get("opacity"),
+                    "opacityCurve": tr.get("opacity_curve"),
                     "candidates": slot_candidates,
                     "hasSelectedVideos": has_selected_videos,
                     "selected": selected_list,
@@ -1478,7 +1571,7 @@ def make_handler(work_dir: Path):
                 from beatlab.db import (
                     add_keyframe as db_add_kf, get_keyframes as db_get_kfs,
                     next_keyframe_id, next_transition_id,
-                    add_transition as db_add_tr, delete_transition as db_del_tr,
+                    add_transition as db_add_tr, update_transition as db_update_tr,
                     get_transitions as db_get_trs, transaction,
                 )
 
@@ -1505,58 +1598,54 @@ def make_handler(work_dir: Path):
                 prev_kf = sorted_kfs[new_idx - 1] if new_idx > 0 else None
                 next_kf = sorted_kfs[new_idx + 1] if new_idx < len(sorted_kfs) - 1 else None
 
-                # Wire transitions: split spanning transition or create new ones
-                from datetime import datetime, timezone
+                # Wire transitions: relink existing spanning transition + create new one
+                prev_time = parse_ts(prev_kf["timestamp"]) if prev_kf else None
+                next_time = parse_ts(next_kf["timestamp"]) if next_kf else None
+
                 old_tr = None
                 if prev_kf and next_kf:
                     all_trs = db_get_trs(project_dir)
                     old_tr = next((t for t in all_trs if t["from"] == prev_kf["id"] and t["to"] == next_kf["id"]), None)
-                    if old_tr:
-                        db_del_tr(project_dir, old_tr["id"], datetime.now(timezone.utc).isoformat())
 
-                prev_time = parse_ts(prev_kf["timestamp"]) if prev_kf else None
-                next_time = parse_ts(next_kf["timestamp"]) if next_kf else None
-
-                if prev_kf:
+                if old_tr:
+                    # Relink: old_tr keeps its video, just points to new_kf now
                     dur_before = round(new_time - prev_time, 2)
-                    tr1_id = next_transition_id(project_dir)
-                    db_add_tr(project_dir, {
-                        "id": tr1_id, "from": prev_kf["id"], "to": new_id,
-                        "duration_seconds": dur_before, "slots": 1,
-                        "action": "", "use_global_prompt": False, "selected": None,
-                        "remap": {"method": "linear", "target_duration": dur_before},
-                    })
-                if next_kf:
+                    db_update_tr(project_dir, old_tr["id"], to=new_id, duration_seconds=dur_before,
+                                 remap={"method": "linear", "target_duration": dur_before})
+                    _log(f"  Relinked {old_tr['id']}: {prev_kf['id']} -> {new_id} (was -> {next_kf['id']})")
+
+                    # Blank transition from new_kf -> next_kf
                     dur_after = round(next_time - new_time, 2)
                     tr2_id = next_transition_id(project_dir)
-                    # Inherit video + candidates from the split transition
-                    inherited_selected = None
-                    if old_tr and old_tr.get("selected") and old_tr["selected"] not in (None, [None]):
-                        import shutil as _sh
-                        old_sel = project_dir / "selected_transitions" / f"{old_tr['id']}_slot_0.mp4"
-                        if old_sel.exists():
-                            new_sel = project_dir / "selected_transitions" / f"{tr2_id}_slot_0.mp4"
-                            new_sel.parent.mkdir(parents=True, exist_ok=True)
-                            _sh.copy2(str(old_sel), str(new_sel))
-                            inherited_selected = 1
-                        old_cands = project_dir / "transition_candidates" / old_tr["id"]
-                        if old_cands.is_dir():
-                            new_cands = project_dir / "transition_candidates" / tr2_id
-                            new_cands.mkdir(parents=True, exist_ok=True)
-                            for slot_dir in old_cands.iterdir():
-                                if slot_dir.is_dir():
-                                    dst_slot = new_cands / slot_dir.name
-                                    dst_slot.mkdir(parents=True, exist_ok=True)
-                                    for f in slot_dir.iterdir():
-                                        _sh.copy2(str(f), str(dst_slot / f.name))
-                        _log(f"  Inherited video from {old_tr['id']} to {tr2_id}")
                     db_add_tr(project_dir, {
                         "id": tr2_id, "from": new_id, "to": next_kf["id"],
                         "duration_seconds": dur_after, "slots": 1,
-                        "action": old_tr.get("action", "") if old_tr else "",
-                        "use_global_prompt": False, "selected": inherited_selected,
+                        "action": "", "use_global_prompt": False, "selected": None,
                         "remap": {"method": "linear", "target_duration": dur_after},
+                        "track_id": track_id,
                     })
+                else:
+                    # No spanning transition — create new transitions to neighbors
+                    if prev_kf:
+                        dur_before = round(new_time - prev_time, 2)
+                        tr1_id = next_transition_id(project_dir)
+                        db_add_tr(project_dir, {
+                            "id": tr1_id, "from": prev_kf["id"], "to": new_id,
+                            "duration_seconds": dur_before, "slots": 1,
+                            "action": "", "use_global_prompt": False, "selected": None,
+                            "remap": {"method": "linear", "target_duration": dur_before},
+                            "track_id": track_id,
+                        })
+                    if next_kf:
+                        dur_after = round(next_time - new_time, 2)
+                        tr2_id = next_transition_id(project_dir)
+                        db_add_tr(project_dir, {
+                            "id": tr2_id, "from": new_id, "to": next_kf["id"],
+                            "duration_seconds": dur_after, "slots": 1,
+                            "action": "", "use_global_prompt": False, "selected": None,
+                            "remap": {"method": "linear", "target_duration": dur_after},
+                            "track_id": track_id,
+                        })
                 _log(f"  Wired: {prev_kf['id'] if prev_kf else '(start)'} -> {new_id} -> {next_kf['id'] if next_kf else '(end)'}")
 
                 _log(f"  Created {new_id} at {timestamp}")
@@ -2571,11 +2660,14 @@ def make_handler(work_dir: Path):
                 if not tr:
                     return self._error(404, "NOT_FOUND", f"Transition {tr_id} not found")
 
+                include_section_desc = body.get("includeSectionDesc")
                 updates = {}
                 if action is not None:
                     updates["action"] = action
                 if use_global is not None:
                     updates["use_global_prompt"] = use_global
+                if include_section_desc is not None:
+                    updates["include_section_desc"] = include_section_desc
                 if updates:
                     update_transition(project_dir, tr_id, **updates)
 

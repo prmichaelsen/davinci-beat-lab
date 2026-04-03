@@ -91,7 +91,8 @@ def _ensure_schema(conn: sqlite3.Connection):
             use_global_prompt INTEGER NOT NULL DEFAULT 0,
             selected TEXT NOT NULL DEFAULT '[]',
             remap TEXT NOT NULL DEFAULT '{"method":"linear","target_duration":0}',
-            deleted_at TEXT
+            deleted_at TEXT,
+            include_section_desc INTEGER NOT NULL DEFAULT 1
         );
 
         CREATE TABLE IF NOT EXISTS effects (
@@ -170,6 +171,22 @@ def _ensure_schema(conn: sqlite3.Connection):
     if "tags" not in tr_cols:
         conn.execute("ALTER TABLE transitions ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'")
 
+    # Add blend_mode/opacity columns to keyframes if missing
+    kf_cols = {row[1] for row in conn.execute("PRAGMA table_info(keyframes)").fetchall()}
+    if "blend_mode" not in kf_cols:
+        conn.execute("ALTER TABLE keyframes ADD COLUMN blend_mode TEXT NOT NULL DEFAULT ''")
+    if "opacity" not in kf_cols:
+        conn.execute("ALTER TABLE keyframes ADD COLUMN opacity REAL")
+
+    # Add blend_mode/opacity columns to transitions if missing
+    tr_cols2 = {row[1] for row in conn.execute("PRAGMA table_info(transitions)").fetchall()}
+    if "blend_mode" not in tr_cols2:
+        conn.execute("ALTER TABLE transitions ADD COLUMN blend_mode TEXT NOT NULL DEFAULT ''")
+    if "opacity" not in tr_cols2:
+        conn.execute("ALTER TABLE transitions ADD COLUMN opacity REAL")
+    if "opacity_curve" not in tr_cols2:
+        conn.execute("ALTER TABLE transitions ADD COLUMN opacity_curve TEXT")
+
     # Add chroma_key column to tracks if missing
     track_cols = {row[1] for row in conn.execute("PRAGMA table_info(tracks)").fetchall()}
     if "chroma_key" not in track_cols:
@@ -233,6 +250,8 @@ def _row_to_keyframe(row: sqlite3.Row) -> dict:
         "track_id": row["track_id"] if "track_id" in row.keys() else "track_1",
         "label": row["label"] if "label" in row.keys() else "",
         "label_color": row["label_color"] if "label_color" in row.keys() else "",
+        "blend_mode": row["blend_mode"] if "blend_mode" in row.keys() else "",
+        "opacity": row["opacity"] if "opacity" in row.keys() else None,
         "deleted_at": row["deleted_at"],
     }
 
@@ -261,11 +280,12 @@ def get_binned_keyframes(project_dir: Path) -> list[dict]:
 def add_keyframe(project_dir: Path, kf: dict):
     conn = get_db(project_dir)
     conn.execute(
-        """INSERT OR REPLACE INTO keyframes (id, timestamp, section, source, prompt, selected, candidates, context, deleted_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        """INSERT OR REPLACE INTO keyframes (id, timestamp, section, source, prompt, selected, candidates, context, deleted_at, track_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (kf["id"], kf["timestamp"], kf.get("section", ""), kf.get("source", ""),
          kf.get("prompt", ""), kf.get("selected"), json.dumps(kf.get("candidates", [])),
-         json.dumps(kf.get("context")) if kf.get("context") else None, kf.get("deleted_at")),
+         json.dumps(kf.get("context")) if kf.get("context") else None, kf.get("deleted_at"),
+         kf.get("track_id", "track_1")),
     )
     conn.commit()
 
@@ -331,7 +351,11 @@ def _row_to_transition(row: sqlite3.Row) -> dict:
         "label": row["label"] if "label" in row.keys() else "",
         "label_color": row["label_color"] if "label_color" in row.keys() else "",
         "tags": json.loads(row["tags"]) if "tags" in row.keys() and row["tags"] else [],
+        "blend_mode": row["blend_mode"] if "blend_mode" in row.keys() else "",
+        "opacity": row["opacity"] if "opacity" in row.keys() else None,
+        "opacity_curve": json.loads(row["opacity_curve"]) if "opacity_curve" in row.keys() and row["opacity_curve"] else None,
         "deleted_at": row["deleted_at"],
+        "include_section_desc": bool(row["include_section_desc"]) if "include_section_desc" in row.keys() else True,
     }
 
 
@@ -363,13 +387,22 @@ def add_transition(project_dir: Path, tr: dict):
         selected = [selected]
     elif selected is None:
         selected = [None]
+    # Derive track_id from the 'from' keyframe if not explicitly provided
+    track_id = tr.get("track_id")
+    if not track_id:
+        from_kf = tr.get("from", "")
+        if from_kf:
+            row = conn.execute("SELECT track_id FROM keyframes WHERE id = ?", (from_kf,)).fetchone()
+            track_id = row["track_id"] if row else "track_1"
+        else:
+            track_id = "track_1"
     conn.execute(
-        """INSERT OR REPLACE INTO transitions (id, from_kf, to_kf, duration_seconds, slots, action, use_global_prompt, selected, remap, deleted_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        """INSERT OR REPLACE INTO transitions (id, from_kf, to_kf, duration_seconds, slots, action, use_global_prompt, selected, remap, deleted_at, track_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (tr["id"], tr.get("from", ""), tr.get("to", ""), tr.get("duration_seconds", 0),
          tr.get("slots", 1), tr.get("action", ""), int(tr.get("use_global_prompt", False)),
          json.dumps(selected), json.dumps(tr.get("remap", {"method": "linear", "target_duration": 0})),
-         tr.get("deleted_at")),
+         tr.get("deleted_at"), track_id),
     )
     conn.commit()
 
@@ -395,7 +428,11 @@ def update_transition(project_dir: Path, tr_id: str, **fields):
             val = json.dumps(val)
         elif key == "use_global_prompt":
             val = int(val)
+        elif key == "include_section_desc":
+            val = int(val)
         elif key == "tags":
+            val = json.dumps(val) if isinstance(val, list) else val
+        elif key == "opacity_curve":
             val = json.dumps(val) if isinstance(val, list) else val
         sets.append(f"{col} = ?")
         values.append(val)

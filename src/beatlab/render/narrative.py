@@ -1296,6 +1296,39 @@ def _remap_with_curve(
     shutil.rmtree(str(out_dir))
 
 
+def _blend_frames(base, overlay, mode: str = "normal", opacity: float = 1.0):
+    """Composite overlay frame onto base using blend mode (OpenCV, matching WebGL compositor)."""
+    import cv2
+    import numpy as np
+
+    if base is None:
+        return overlay
+    if overlay is None:
+        return base
+
+    # Normalize to float 0-1
+    b = base.astype(np.float32) / 255.0
+    o = overlay.astype(np.float32) / 255.0
+
+    if mode == "multiply":
+        blended = b * o
+    elif mode == "screen":
+        blended = 1.0 - (1.0 - b) * (1.0 - o)
+    elif mode == "overlay":
+        mask = (b < 0.5).astype(np.float32)
+        blended = mask * (2.0 * b * o) + (1.0 - mask) * (1.0 - 2.0 * (1.0 - b) * (1.0 - o))
+    elif mode == "difference":
+        blended = np.abs(b - o)
+    elif mode == "add":
+        blended = np.minimum(b + o, 1.0)
+    else:  # normal
+        blended = o
+
+    # Mix with opacity
+    result = b * (1.0 - opacity) + blended * opacity
+    return np.clip(result * 255, 0, 255).astype(np.uint8)
+
+
 def assemble_final(yaml_path: str, output_path: str, max_time: float | None = None) -> str:
     """Time-remap selected transitions, concatenate, and mux audio.
 
@@ -1618,6 +1651,92 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
             cap0.release()
             break
 
+    # Load overlay tracks from DB for multi-track compositing
+    overlay_tracks = []
+    if (work_dir / "project.db").exists():
+        from beatlab.db import get_tracks, get_keyframes as db_get_kfs, get_transitions as db_get_trs
+        tracks = get_tracks(work_dir)
+        # Sort by zOrder ascending — track_1 (zOrder 0) is base, higher zOrder overlays on top
+        tracks.sort(key=lambda t: t.get("z_order", 0))
+        all_db_kfs = db_get_kfs(work_dir)
+        all_db_trs = db_get_trs(work_dir)
+
+        for track in tracks[1:]:  # skip first track (base, already handled by clip_schedule)
+            if not track.get("enabled", True):
+                continue
+            tid = track["id"]
+            blend_mode = track.get("blend_mode", "normal")
+            opacity = track.get("base_opacity", 1.0)
+            tkfs = sorted(
+                [kf for kf in all_db_kfs if kf.get("track_id") == tid and not kf.get("deleted_at")],
+                key=lambda k: _parse_ts(k["timestamp"])
+            )
+            ttrs = [tr for tr in all_db_trs if tr.get("track_id") == tid and not tr.get("deleted_at")]
+
+            # Pre-load overlay clips: for each transition, load video frames; for keyframes, load still
+            overlay_clips = []
+            for tr in ttrs:
+                from_kf = next((k for k in tkfs if k["id"] == tr["from"]), None)
+                to_kf = next((k for k in tkfs if k["id"] == tr["to"]), None)
+                if not from_kf or not to_kf:
+                    continue
+                ft = _parse_ts(from_kf["timestamp"])
+                tt = _parse_ts(to_kf["timestamp"])
+                sel = tr.get("selected")
+                video_path = work_dir / "selected_transitions" / f"{tr['id']}_slot_0.mp4"
+                if sel and sel not in (0, "null") and video_path.exists():
+                    overlay_clips.append({"from_ts": ft, "to_ts": tt, "video": str(video_path), "still": None})
+                else:
+                    # Use from-keyframe image as still
+                    kf_img = work_dir / "selected_keyframes" / f"{tr['from']}.png"
+                    if kf_img.exists():
+                        overlay_clips.append({"from_ts": ft, "to_ts": tt, "video": None, "still": str(kf_img)})
+
+            # Also add keyframes that have no outgoing transition (hold stills)
+            tr_from_ids = {tr["from"] for tr in ttrs}
+            for kf in tkfs:
+                if kf["id"] not in tr_from_ids:
+                    kf_img = work_dir / "selected_keyframes" / f"{kf['id']}.png"
+                    if kf_img.exists():
+                        kft = _parse_ts(kf["timestamp"])
+                        # Hold until next keyframe or end
+                        next_kf = next((k for k in tkfs if _parse_ts(k["timestamp"]) > kft), None)
+                        end_t = _parse_ts(next_kf["timestamp"]) if next_kf else kft + 1.0
+                        overlay_clips.append({"from_ts": kft, "to_ts": end_t, "video": None, "still": str(kf_img)})
+
+            if overlay_clips:
+                overlay_tracks.append({"blend_mode": blend_mode, "opacity": opacity, "clips": overlay_clips})
+                _log(f"  Overlay track {tid}: {len(overlay_clips)} clips, blend={blend_mode}, opacity={opacity}")
+
+    def _composite_overlays(base_frame, t, ow, oh):
+        """Composite overlay tracks onto base frame at timeline time t."""
+        result = base_frame
+        for otrack in overlay_tracks:
+            frame = None
+            for oclip in otrack["clips"]:
+                if oclip["from_ts"] <= t < oclip["to_ts"]:
+                    if oclip["video"]:
+                        progress = (t - oclip["from_ts"]) / (oclip["to_ts"] - oclip["from_ts"]) if oclip["to_ts"] > oclip["from_ts"] else 0
+                        if "_cap" not in oclip:
+                            oclip["_cap"] = cv2.VideoCapture(oclip["video"])
+                            oclip["_nframes"] = int(oclip["_cap"].get(cv2.CAP_PROP_FRAME_COUNT))
+                        cap = oclip["_cap"]
+                        idx = min(int(progress * oclip["_nframes"]), oclip["_nframes"] - 1)
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+                        ret, f = cap.read()
+                        if ret:
+                            frame = cv2.resize(f, (ow, oh), interpolation=cv2.INTER_LINEAR)
+                    elif oclip["still"]:
+                        if "_img" not in oclip:
+                            oclip["_img"] = cv2.imread(oclip["still"])
+                            if oclip["_img"] is not None:
+                                oclip["_img"] = cv2.resize(oclip["_img"], (ow, oh), interpolation=cv2.INTER_LINEAR)
+                        frame = oclip["_img"]
+                    break
+            if frame is not None:
+                result = _blend_frames(result, frame, otrack["blend_mode"], otrack["opacity"])
+        return result
+
     preview = output_path.endswith("_preview.mp4")
     if preview:
         w, h = w // 2, h // 2
@@ -1691,6 +1810,7 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
                 blended = cv2.addWeighted(prev_tail_frames[j], 1.0 - alpha, remapped[j], alpha, 0)
                 t = global_frame / fps
                 blended = _apply_frame_effects(blended, t, w, h)
+                blended = _composite_overlays(blended, t, w, h)
                 out.write(blended)
                 global_frame += 1
                 xfade_written += 1
@@ -1701,8 +1821,26 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
         for fi in range(core_start, min(core_end, len(remapped))):
             t = global_frame / fps
             frame = _apply_frame_effects(remapped[fi], t, w, h)
+            frame = _composite_overlays(frame, t, w, h)
             out.write(frame)
             global_frame += 1
+
+        # Drift correction: force global_frame to match expected timeline position
+        expected_frame = round(sched["to_ts"] * fps)
+        if global_frame < expected_frame:
+            # Behind — duplicate last frame to catch up
+            last_frame = remapped[min(core_end - 1, len(remapped) - 1)] if remapped else None
+            while global_frame < expected_frame and last_frame is not None:
+                t = global_frame / fps
+                corrected = _apply_frame_effects(last_frame.copy(), t, w, h)
+                corrected = _composite_overlays(corrected, t, w, h)
+                out.write(corrected)
+                global_frame += 1
+        elif global_frame > expected_frame:
+            # Ahead — adjust global_frame counter so next clip starts correctly.
+            # We can't un-write frames, but we can prevent writing extra on the next clip
+            # by resetting the counter. The extra frames become slightly faster playback.
+            global_frame = expected_frame
 
         # Buffer tail frames for next clip's crossfade
         tail_start = extend_before + core - xfade_written

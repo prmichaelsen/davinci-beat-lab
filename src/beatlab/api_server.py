@@ -234,7 +234,7 @@ def make_handler(work_dir: Path):
             _structural_routes = {
                 "add-keyframe", "duplicate-keyframe", "delete-keyframe", "batch-delete-keyframes", "restore-keyframe",
                 "delete-transition", "restore-transition",
-                "split-transition", "insert-pool-item",
+                "split-transition", "insert-pool-item", "paste-group",
                 "version/commit",
             }
             _use_lock = _proj_name and _route_name in _structural_routes
@@ -303,6 +303,11 @@ def make_handler(work_dir: Path):
             m = re.match(r"^/api/projects/([^/]+)/duplicate-keyframe$", path)
             if m:
                 return self._handle_duplicate_keyframe(m.group(1))
+
+            # POST /api/projects/:name/paste-group
+            m = re.match(r"^/api/projects/([^/]+)/paste-group$", path)
+            if m:
+                return self._handle_paste_group(m.group(1))
 
             # POST /api/projects/:name/delete-keyframe
             m = re.match(r"^/api/projects/([^/]+)/delete-keyframe$", path)
@@ -1822,6 +1827,161 @@ def make_handler(work_dir: Path):
                 self._json_response({"success": True, "keyframe": {"id": new_id, "timestamp": timestamp}})
             except Exception as e:
                 _log(f"  FAILED: {e}")
+                import traceback
+                traceback.print_exc()
+                self._error(500, "INTERNAL_ERROR", str(e))
+
+        def _handle_paste_group(self, project_name: str):
+            """POST /api/projects/:name/paste-group — duplicate a group of keyframes+transitions to a new position/track.
+
+            Body: { "keyframeIds": ["kf_001", ...], "targetTime": "0:30.00", "targetTrackId": "track_2" }
+            """
+            body = self._read_json_body()
+            if body is None:
+                return
+
+            kf_ids = body.get("keyframeIds", [])
+            target_time_str = body.get("targetTime")
+            target_track = body.get("targetTrackId", "track_1")
+            if not kf_ids or not target_time_str:
+                return self._error(400, "BAD_REQUEST", "Missing 'keyframeIds' or 'targetTime'")
+
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
+                return
+
+            try:
+                from beatlab.db import (
+                    get_keyframe as db_get_kf, add_keyframe as db_add_kf,
+                    get_transitions as db_get_trs, add_transition as db_add_tr,
+                    next_keyframe_id, next_transition_id, update_transition,
+                )
+                import shutil
+
+                def parse_ts(ts):
+                    parts = str(ts).split(":")
+                    if len(parts) == 2:
+                        return int(parts[0]) * 60 + float(parts[1])
+                    return float(ts) if isinstance(ts, (int, float)) else 0
+
+                def secs_to_ts(s):
+                    m = int(s) // 60
+                    sec = s - m * 60
+                    return f"{m}:{sec:05.2f}"
+
+                target_time = parse_ts(target_time_str)
+
+                # 1. Read source keyframes, sort by time
+                src_kfs = []
+                for kid in kf_ids:
+                    kf = db_get_kf(project_dir, kid)
+                    if kf:
+                        src_kfs.append(kf)
+                if not src_kfs:
+                    return self._error(404, "NOT_FOUND", "No valid keyframes found")
+
+                src_kfs.sort(key=lambda k: parse_ts(k["timestamp"]))
+                min_time = parse_ts(src_kfs[0]["timestamp"])
+
+                # 2. Create new keyframes with offset times
+                id_map = {}  # old_kf_id -> new_kf_id
+                created_kfs = []
+                for src in src_kfs:
+                    offset = parse_ts(src["timestamp"]) - min_time
+                    new_time = target_time + offset
+                    new_ts = secs_to_ts(new_time)
+                    new_id = next_keyframe_id(project_dir)
+                    id_map[src["id"]] = new_id
+
+                    # Copy candidate files
+                    src_cand_dir = project_dir / "keyframe_candidates" / "candidates" / f"section_{src['id']}"
+                    dst_cand_dir = project_dir / "keyframe_candidates" / "candidates" / f"section_{new_id}"
+                    new_candidates = []
+                    if src_cand_dir.exists():
+                        dst_cand_dir.mkdir(parents=True, exist_ok=True)
+                        for f in sorted(src_cand_dir.iterdir()):
+                            if f.suffix.lower() in ('.png', '.jpg', '.jpeg'):
+                                shutil.copy2(str(f), str(dst_cand_dir / f.name))
+                                new_candidates.append(f"keyframe_candidates/candidates/section_{new_id}/{f.name}")
+
+                    # Copy selected keyframe image
+                    src_sel = project_dir / "selected_keyframes" / f"{src['id']}.png"
+                    if src_sel.exists():
+                        dst_sel = project_dir / "selected_keyframes" / f"{new_id}.png"
+                        dst_sel.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(str(src_sel), str(dst_sel))
+
+                    db_add_kf(project_dir, {
+                        "id": new_id, "timestamp": new_ts,
+                        "section": src.get("section", ""),
+                        "source": f"selected_keyframes/{new_id}.png",
+                        "prompt": src.get("prompt", ""),
+                        "candidates": new_candidates,
+                        "selected": src.get("selected"),
+                        "track_id": target_track,
+                        "label": src.get("label", ""),
+                        "label_color": src.get("label_color", ""),
+                        "blend_mode": src.get("blend_mode", ""),
+                        "opacity": src.get("opacity"),
+                    })
+                    created_kfs.append({"id": new_id, "timestamp": new_ts})
+
+                # 3. Find transitions between source kfs and duplicate them
+                src_kf_set = set(kf_ids)
+                all_trs = db_get_trs(project_dir)
+                internal_trs = [t for t in all_trs if t["from"] in src_kf_set and t["to"] in src_kf_set]
+
+                created_trs = []
+                for src_tr in internal_trs:
+                    new_from = id_map.get(src_tr["from"])
+                    new_to = id_map.get(src_tr["to"])
+                    if not new_from or not new_to:
+                        continue
+
+                    new_tr_id = next_transition_id(project_dir)
+
+                    # Copy transition video candidates
+                    src_cand = project_dir / "transition_candidates" / src_tr["id"]
+                    if src_cand.is_dir():
+                        dst_cand = project_dir / "transition_candidates" / new_tr_id
+                        dst_cand.mkdir(parents=True, exist_ok=True)
+                        for slot_dir in src_cand.iterdir():
+                            if slot_dir.is_dir():
+                                dst_slot = dst_cand / slot_dir.name
+                                dst_slot.mkdir(parents=True, exist_ok=True)
+                                for f in slot_dir.iterdir():
+                                    shutil.copy2(str(f), str(dst_slot / f.name))
+
+                    # Copy selected transition video
+                    src_sel = project_dir / "selected_transitions" / f"{src_tr['id']}_slot_0.mp4"
+                    if src_sel.exists():
+                        dst_sel = project_dir / "selected_transitions" / f"{new_tr_id}_slot_0.mp4"
+                        dst_sel.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(str(src_sel), str(dst_sel))
+
+                    db_add_tr(project_dir, {
+                        "id": new_tr_id, "from": new_from, "to": new_to,
+                        "duration_seconds": src_tr.get("duration_seconds", 0),
+                        "slots": src_tr.get("slots", 1),
+                        "action": src_tr.get("action", ""),
+                        "use_global_prompt": src_tr.get("use_global_prompt", False),
+                        "selected": src_tr.get("selected"),
+                        "remap": src_tr.get("remap", {"method": "linear", "target_duration": 0}),
+                        "track_id": target_track,
+                        "blend_mode": src_tr.get("blend_mode", ""),
+                        "opacity": src_tr.get("opacity"),
+                        "opacity_curve": src_tr.get("opacity_curve"),
+                    })
+                    created_trs.append({"id": new_tr_id, "from": new_from, "to": new_to})
+
+                _log(f"paste-group: {len(created_kfs)} kfs, {len(created_trs)} trs pasted at {target_time_str} on {target_track}")
+                self._json_response({
+                    "success": True,
+                    "keyframes": created_kfs,
+                    "transitions": created_trs,
+                })
+            except Exception as e:
+                _log(f"paste-group FAILED: {e}")
                 import traceback
                 traceback.print_exc()
                 self._error(500, "INTERNAL_ERROR", str(e))

@@ -753,7 +753,9 @@ def make_handler(work_dir: Path):
                     fields["blend_mode"] = body["blendMode"]
                 if "opacity" in body:
                     fields["opacity"] = body["opacity"]
-                update_keyframe(project_dir, body["keyframeId"], **fields)
+                kf_id = body["keyframeId"]
+                _log(f"update-keyframe-style: {kf_id} {fields}")
+                update_keyframe(project_dir, kf_id, **fields)
                 return self._json_response({"success": True})
 
             # POST /api/projects/:name/update-transition-style
@@ -771,7 +773,9 @@ def make_handler(work_dir: Path):
                     fields["opacity"] = body["opacity"]
                 if "opacityCurve" in body:
                     fields["opacity_curve"] = body["opacityCurve"]
-                update_transition(project_dir, body["transitionId"], **fields)
+                tr_id = body["transitionId"]
+                _log(f"update-transition-style: {tr_id} {fields}")
+                update_transition(project_dir, tr_id, **fields)
                 return self._json_response({"success": True})
 
             # POST /api/projects/:name/assign-keyframe-image
@@ -1777,6 +1781,7 @@ def make_handler(work_dir: Path):
                 if src_selected.exists():
                     shutil.copy2(str(src_selected), str(dst_selected))
 
+                track_id = source_kf.get("track_id", "track_1")
                 new_kf = {
                     "id": new_id, "timestamp": timestamp,
                     "section": source_kf.get("section", ""),
@@ -1784,11 +1789,11 @@ def make_handler(work_dir: Path):
                     "prompt": source_kf.get("prompt", ""),
                     "candidates": new_candidates,
                     "selected": source_kf.get("selected"),
+                    "track_id": track_id,
                 }
                 db_add_kf(project_dir, new_kf)
 
                 # Wire up transitions (same logic as add-keyframe — filter by track)
-                track_id = source_kf.get("track_id", "track_1")
                 all_kfs = [k for k in db_get_kfs(project_dir) if k.get("track_id", "track_1") == track_id]
                 sorted_kfs = sorted(all_kfs, key=lambda k: parse_ts(k["timestamp"]))
                 new_idx = next((i for i, k in enumerate(sorted_kfs) if k["id"] == new_id), -1)
@@ -2671,6 +2676,10 @@ def make_handler(work_dir: Path):
                             "-vframes", "1", "-q:v", "2",
                             str(sel_kf_dir / f"{new_kf_id}.png")], capture_output=True, timeout=10)
                     _log(f"  Extracted keyframe frame at {split_at:.2f}s -> {new_kf_id}.png")
+                    # Mark keyframe as having a selected image
+                    from beatlab.db import update_keyframe as _upd_kf
+                    import time as _time
+                    _upd_kf(project_dir, new_kf_id, selected=int(_time.time()))
 
                     def _split_video():
                         try:

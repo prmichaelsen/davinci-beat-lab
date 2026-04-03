@@ -1481,18 +1481,35 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
     # Remove hard_cuts
     effect_events = [e for e in effect_events if e.get("effect") != "hard_cut"]
 
-    def _is_suppressed(t, effect):
+    def _effect_category(effect):
+        if effect in ("zoom_pulse", "zoom_bounce", "zoom"):
+            return "zoom"
+        if effect in ("shake_x", "shake_y", "shake"):
+            return "shake"
+        if effect in ("glow_swell", "glow"):
+            return "glow"
+        if effect in ("echo", "echo_pulse"):
+            return "echo"
+        if effect in ("contrast_pop",):
+            return "pulse"
+        return effect
+
+    def _is_suppressed(t, effect, is_layered=False):
+        category = _effect_category(effect)
         for sup in suppressions:
             if sup["from"] <= t <= sup["to"]:
-                et = sup.get("effectTypes")
-                if et is None:
-                    return True
-                if effect in ("zoom_pulse", "zoom_bounce") and "zoom" in et:
-                    return True
-                if effect in ("shake_x", "shake_y") and "shake" in et:
-                    return True
-                if effect in et:
-                    return True
+                if is_layered:
+                    layer_types = sup.get("layerEffectTypes")
+                    if not layer_types:
+                        continue
+                    if category in layer_types or effect in layer_types:
+                        return True
+                else:
+                    et = sup.get("effectTypes")
+                    if et is None:
+                        return True
+                    if category in et or effect in et:
+                        return True
         return False
 
     def _get_event_intensity(t, event):
@@ -1554,7 +1571,7 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
             ei = _get_event_intensity(t, event)
             if ei < 0.01:
                 continue
-            if _is_suppressed(et, event["effect"]):
+            if _is_suppressed(et, event["effect"], event.get("is_layered", False)):
                 continue
 
             effect = event["effect"]
@@ -1622,6 +1639,15 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
         t_lerp = (p - x0) / (x1 - x0)
         return y0 + t_lerp * (y1 - y0)
 
+    def _get_tr_effects(wd, tr_id):
+        try:
+            from beatlab.db import get_transition_effects
+            if (wd / "project.db").exists():
+                return get_transition_effects(wd, tr_id)
+        except Exception:
+            pass
+        return []
+
     clip_schedule = []
     acc = 0
     for i, ci in enumerate(clips_info):
@@ -1638,7 +1664,7 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
             "to_ts": ci["to_ts"],
             "remap_method": remap.get("method", "linear"),
             "curve_points": remap.get("curve_points"),
-            "effects": get_transition_effects(work_dir, ci["tr"]["id"]) if (work_dir / "project.db").exists() else [],
+            "effects": _get_tr_effects(work_dir, ci["tr"]["id"]),
         })
         acc += core
 

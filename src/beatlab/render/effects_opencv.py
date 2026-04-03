@@ -385,6 +385,7 @@ def _apply_rules_client(onsets: dict, rules: list[dict], sections_only: bool = T
                         "intensity": min(1.0, intensity * 0.8),
                         "sustain": 0,
                         "stem_source": f"{stem}/{band}",
+                        "is_layered": True,
                     })
 
     events.sort(key=lambda e: e["time"])
@@ -459,22 +460,39 @@ def apply_effects_ai(
             if suppressions:
                 _log(f"  Loaded {len(suppressions)} suppressions from DB")
 
-    def _is_suppressed(t: float, effect: str) -> bool:
+    def _effect_category(effect: str) -> str:
+        """Map detailed effect names to suppression categories."""
+        if effect in ("zoom_pulse", "zoom_bounce", "zoom"):
+            return "zoom"
+        if effect in ("shake_x", "shake_y", "shake"):
+            return "shake"
+        if effect in ("glow_swell", "glow"):
+            return "glow"
+        if effect in ("echo", "echo_pulse"):
+            return "echo"
+        if effect in ("contrast_pop",):
+            return "pulse"
+        return effect
+
+    def _is_suppressed(t: float, effect: str, is_layered: bool = False) -> bool:
         """Check if an effect at time t is suppressed."""
+        category = _effect_category(effect)
         for sup in suppressions:
             if sup["from"] <= t <= sup["to"]:
-                effect_types = sup.get("effectTypes")
-                if effect_types is None:
-                    return True  # suppress all
-                # Map effect names to suppression categories
-                if effect in ("zoom_pulse", "zoom_bounce") and "zoom" in effect_types:
-                    return True
-                if effect in ("shake_x", "shake_y") and "shake" in effect_types:
-                    return True
-                if effect == "flash" and "pulse" in effect_types:
-                    return True
-                if effect in effect_types:
-                    return True
+                if is_layered:
+                    # Layered: only suppressed if layerEffectTypes includes this category
+                    layer_types = sup.get("layerEffectTypes")
+                    if not layer_types:
+                        continue  # no layer suppression → layers pass through
+                    if category in layer_types or effect in layer_types:
+                        return True
+                else:
+                    # Primary: check effectTypes (None = suppress all primary)
+                    effect_types = sup.get("effectTypes")
+                    if effect_types is None:
+                        return True
+                    if category in effect_types or effect in effect_types:
+                        return True
         return False
 
     cap = cv2.VideoCapture(video_path)
@@ -599,7 +617,7 @@ def apply_effects_ai(
                 continue
 
             # Check suppression
-            if suppressions and _is_suppressed(event_time + time_offset, event["effect"]):
+            if suppressions and _is_suppressed(event_time + time_offset, event["effect"], event.get("is_layered", False)):
                 continue
 
             effect = event["effect"]

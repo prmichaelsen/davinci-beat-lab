@@ -9,8 +9,21 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+import time as _time
 from pathlib import Path
 from contextlib import contextmanager
+
+
+def _retry_on_locked(fn, max_retries=5, delay=0.2):
+    """Retry a DB operation on sqlite3.OperationalError (database is locked)."""
+    for attempt in range(max_retries):
+        try:
+            return fn()
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e) and attempt < max_retries - 1:
+                _time.sleep(delay * (attempt + 1))
+            else:
+                raise
 
 
 # Per-project connection pool (one connection per thread)
@@ -27,11 +40,12 @@ def get_db(project_dir: Path) -> sqlite3.Connection:
 
     with _conn_lock:
         if thread_key not in _connections:
-            conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
+            conn = sqlite3.connect(db_path, check_same_thread=False, timeout=60)
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
             conn.execute("PRAGMA foreign_keys=ON")
+            conn.execute("PRAGMA busy_timeout=60000")
             if db_path not in _migrated_dbs:
                 _ensure_schema(conn)
                 _migrated_dbs.add(db_path)
@@ -197,6 +211,11 @@ def _ensure_schema(conn: sqlite3.Connection):
     if "opacity_curve" not in tr_cols2:
         conn.execute("ALTER TABLE transitions ADD COLUMN opacity_curve TEXT")
 
+    # Add layer_effect_types to suppressions if missing
+    sup_cols = {row[1] for row in conn.execute("PRAGMA table_info(suppressions)").fetchall()}
+    if "layer_effect_types" not in sup_cols:
+        conn.execute("ALTER TABLE suppressions ADD COLUMN layer_effect_types TEXT")
+
     # Add chroma_key column to tracks if missing
     track_cols = {row[1] for row in conn.execute("PRAGMA table_info(tracks)").fetchall()}
     if "chroma_key" not in track_cols:
@@ -289,15 +308,17 @@ def get_binned_keyframes(project_dir: Path) -> list[dict]:
 
 def add_keyframe(project_dir: Path, kf: dict):
     conn = get_db(project_dir)
-    conn.execute(
-        """INSERT OR REPLACE INTO keyframes (id, timestamp, section, source, prompt, selected, candidates, context, deleted_at, track_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (kf["id"], kf["timestamp"], kf.get("section", ""), kf.get("source", ""),
-         kf.get("prompt", ""), kf.get("selected"), json.dumps(kf.get("candidates", [])),
-         json.dumps(kf.get("context")) if kf.get("context") else None, kf.get("deleted_at"),
-         kf.get("track_id", "track_1")),
-    )
-    conn.commit()
+    def _do():
+        conn.execute(
+            """INSERT OR REPLACE INTO keyframes (id, timestamp, section, source, prompt, selected, candidates, context, deleted_at, track_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (kf["id"], kf["timestamp"], kf.get("section", ""), kf.get("source", ""),
+             kf.get("prompt", ""), kf.get("selected"), json.dumps(kf.get("candidates", [])),
+             json.dumps(kf.get("context")) if kf.get("context") else None, kf.get("deleted_at"),
+             kf.get("track_id", "track_1")),
+        )
+        conn.commit()
+    _retry_on_locked(_do)
 
 
 def update_keyframe(project_dir: Path, kf_id: str, **fields):
@@ -311,8 +332,7 @@ def update_keyframe(project_dir: Path, kf_id: str, **fields):
         sets.append(f"{col} = ?")
         values.append(val)
     values.append(kf_id)
-    conn.execute(f"UPDATE keyframes SET {', '.join(sets)} WHERE id = ?", values)
-    conn.commit()
+    _retry_on_locked(lambda: (conn.execute(f"UPDATE keyframes SET {', '.join(sets)} WHERE id = ?", values), conn.commit()))
 
 
 def delete_keyframe(project_dir: Path, kf_id: str, deleted_at: str):
@@ -406,15 +426,17 @@ def add_transition(project_dir: Path, tr: dict):
             track_id = row["track_id"] if row else "track_1"
         else:
             track_id = "track_1"
-    conn.execute(
-        """INSERT OR REPLACE INTO transitions (id, from_kf, to_kf, duration_seconds, slots, action, use_global_prompt, selected, remap, deleted_at, track_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (tr["id"], tr.get("from", ""), tr.get("to", ""), tr.get("duration_seconds", 0),
-         tr.get("slots", 1), tr.get("action", ""), int(tr.get("use_global_prompt", False)),
-         json.dumps(selected), json.dumps(tr.get("remap", {"method": "linear", "target_duration": 0})),
-         tr.get("deleted_at"), track_id),
-    )
-    conn.commit()
+    def _do_insert():
+        conn.execute(
+            """INSERT OR REPLACE INTO transitions (id, from_kf, to_kf, duration_seconds, slots, action, use_global_prompt, selected, remap, deleted_at, track_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (tr["id"], tr.get("from", ""), tr.get("to", ""), tr.get("duration_seconds", 0),
+             tr.get("slots", 1), tr.get("action", ""), int(tr.get("use_global_prompt", False)),
+             json.dumps(selected), json.dumps(tr.get("remap", {"method": "linear", "target_duration": 0})),
+             tr.get("deleted_at"), track_id),
+        )
+        conn.commit()
+    _retry_on_locked(_do_insert)
 
 
 def update_transition(project_dir: Path, tr_id: str, **fields):
@@ -447,8 +469,7 @@ def update_transition(project_dir: Path, tr_id: str, **fields):
         sets.append(f"{col} = ?")
         values.append(val)
     values.append(tr_id)
-    conn.execute(f"UPDATE transitions SET {', '.join(sets)} WHERE id = ?", values)
-    conn.commit()
+    _retry_on_locked(lambda: (conn.execute(f"UPDATE transitions SET {', '.join(sets)} WHERE id = ?", values), conn.commit()))
 
 
 def delete_transition(project_dir: Path, tr_id: str, deleted_at: str):
@@ -570,9 +591,10 @@ def save_effects(project_dir: Path, effects: list[dict], suppressions: list[dict
         )
     for sup in suppressions:
         conn.execute(
-            "INSERT INTO suppressions (id, from_time, to_time, effect_types) VALUES (?, ?, ?, ?)",
+            "INSERT INTO suppressions (id, from_time, to_time, effect_types, layer_effect_types) VALUES (?, ?, ?, ?, ?)",
             (sup["id"], sup["from"], sup["to"],
-             json.dumps(sup.get("effectTypes")) if sup.get("effectTypes") else None),
+             json.dumps(sup.get("effectTypes")) if sup.get("effectTypes") else None,
+             json.dumps(sup.get("layerEffectTypes")) if sup.get("layerEffectTypes") else None),
         )
     conn.commit()
 
@@ -581,7 +603,8 @@ def get_suppressions(project_dir: Path) -> list[dict]:
     conn = get_db(project_dir)
     rows = conn.execute("SELECT * FROM suppressions ORDER BY from_time").fetchall()
     return [{"id": r["id"], "from": r["from_time"], "to": r["to_time"],
-             "effectTypes": json.loads(r["effect_types"]) if r["effect_types"] else None}
+             "effectTypes": json.loads(r["effect_types"]) if r["effect_types"] else None,
+             "layerEffectTypes": json.loads(r["layer_effect_types"]) if "layer_effect_types" in r.keys() and r["layer_effect_types"] else None}
             for r in rows]
 
 

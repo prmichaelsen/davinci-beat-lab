@@ -210,6 +210,11 @@ def _ensure_schema(conn: sqlite3.Connection):
         conn.execute("ALTER TABLE transitions ADD COLUMN opacity REAL")
     if "opacity_curve" not in tr_cols2:
         conn.execute("ALTER TABLE transitions ADD COLUMN opacity_curve TEXT")
+    for curve_col in ("red_curve", "green_curve", "blue_curve", "black_curve", "hue_shift_curve"):
+        if curve_col not in tr_cols2:
+            conn.execute(f"ALTER TABLE transitions ADD COLUMN {curve_col} TEXT")
+    if "is_adjustment" not in tr_cols2:
+        conn.execute("ALTER TABLE transitions ADD COLUMN is_adjustment INTEGER NOT NULL DEFAULT 0")
 
     # Add layer_effect_types to suppressions if missing
     sup_cols = {row[1] for row in conn.execute("PRAGMA table_info(suppressions)").fetchall()}
@@ -310,12 +315,13 @@ def add_keyframe(project_dir: Path, kf: dict):
     conn = get_db(project_dir)
     def _do():
         conn.execute(
-            """INSERT OR REPLACE INTO keyframes (id, timestamp, section, source, prompt, selected, candidates, context, deleted_at, track_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT OR REPLACE INTO keyframes (id, timestamp, section, source, prompt, selected, candidates, context, deleted_at, track_id, label, label_color, blend_mode, opacity)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (kf["id"], kf["timestamp"], kf.get("section", ""), kf.get("source", ""),
              kf.get("prompt", ""), kf.get("selected"), json.dumps(kf.get("candidates", [])),
              json.dumps(kf.get("context")) if kf.get("context") else None, kf.get("deleted_at"),
-             kf.get("track_id", "track_1")),
+             kf.get("track_id", "track_1"), kf.get("label", ""), kf.get("label_color", ""),
+             kf.get("blend_mode", ""), kf.get("opacity")),
         )
         conn.commit()
     _retry_on_locked(_do)
@@ -384,6 +390,13 @@ def _row_to_transition(row: sqlite3.Row) -> dict:
         "blend_mode": row["blend_mode"] if "blend_mode" in row.keys() else "",
         "opacity": row["opacity"] if "opacity" in row.keys() else None,
         "opacity_curve": json.loads(row["opacity_curve"]) if "opacity_curve" in row.keys() and row["opacity_curve"] else None,
+        "saturation_curve": json.loads(row["saturation_curve"]) if "saturation_curve" in row.keys() and row["saturation_curve"] else None,
+        "red_curve": json.loads(row["red_curve"]) if "red_curve" in row.keys() and row["red_curve"] else None,
+        "green_curve": json.loads(row["green_curve"]) if "green_curve" in row.keys() and row["green_curve"] else None,
+        "blue_curve": json.loads(row["blue_curve"]) if "blue_curve" in row.keys() and row["blue_curve"] else None,
+        "black_curve": json.loads(row["black_curve"]) if "black_curve" in row.keys() and row["black_curve"] else None,
+        "hue_shift_curve": json.loads(row["hue_shift_curve"]) if "hue_shift_curve" in row.keys() and row["hue_shift_curve"] else None,
+        "is_adjustment": bool(row["is_adjustment"]) if "is_adjustment" in row.keys() else False,
         "deleted_at": row["deleted_at"],
         "include_section_desc": bool(row["include_section_desc"]) if "include_section_desc" in row.keys() else True,
     }
@@ -427,13 +440,18 @@ def add_transition(project_dir: Path, tr: dict):
         else:
             track_id = "track_1"
     def _do_insert():
+        opacity_curve = tr.get("opacity_curve")
         conn.execute(
-            """INSERT OR REPLACE INTO transitions (id, from_kf, to_kf, duration_seconds, slots, action, use_global_prompt, selected, remap, deleted_at, track_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT OR REPLACE INTO transitions (id, from_kf, to_kf, duration_seconds, slots, action, use_global_prompt, selected, remap, deleted_at, track_id, label, label_color, tags, blend_mode, opacity, opacity_curve)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (tr["id"], tr.get("from", ""), tr.get("to", ""), tr.get("duration_seconds", 0),
              tr.get("slots", 1), tr.get("action", ""), int(tr.get("use_global_prompt", False)),
              json.dumps(selected), json.dumps(tr.get("remap", {"method": "linear", "target_duration": 0})),
-             tr.get("deleted_at"), track_id),
+             tr.get("deleted_at"), track_id,
+             tr.get("label", ""), tr.get("label_color", ""),
+             json.dumps(tr.get("tags", [])) if isinstance(tr.get("tags"), list) else tr.get("tags", "[]"),
+             tr.get("blend_mode", ""), tr.get("opacity"),
+             json.dumps(opacity_curve) if isinstance(opacity_curve, list) else opacity_curve),
         )
         conn.commit()
     _retry_on_locked(_do_insert)
@@ -462,12 +480,16 @@ def update_transition(project_dir: Path, tr_id: str, **fields):
             val = int(val)
         elif key == "include_section_desc":
             val = int(val)
+        elif key == "is_adjustment":
+            val = int(val)
         elif key == "tags":
             val = json.dumps(val) if isinstance(val, list) else val
-        elif key == "opacity_curve":
+        elif key in ("opacity_curve", "red_curve", "green_curve", "blue_curve", "black_curve", "hue_shift_curve", "saturation_curve"):
             val = json.dumps(val) if isinstance(val, list) else val
         sets.append(f"{col} = ?")
         values.append(val)
+    if not sets:
+        return
     values.append(tr_id)
     _retry_on_locked(lambda: (conn.execute(f"UPDATE transitions SET {', '.join(sets)} WHERE id = ?", values), conn.commit()))
 

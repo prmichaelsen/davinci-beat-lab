@@ -1824,7 +1824,10 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
                 ret, frame = cap.read()
                 if not ret:
                     break
-                if preview:
+                fh, fw = frame.shape[:2]
+                if fw != w or fh != h:
+                    frame = cv2.resize(frame, (w, h), interpolation=cv2.INTER_AREA if preview else cv2.INTER_LINEAR)
+                elif preview:
                     frame = cv2.resize(frame, (w, h), interpolation=cv2.INTER_AREA)
                 source_frames.append(frame)
             cap.release()

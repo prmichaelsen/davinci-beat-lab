@@ -398,7 +398,8 @@ def make_handler(work_dir: Path):
                 if project_dir is None: return
                 from beatlab.db import add_track as db_add_track, get_tracks as db_get_tracks
                 existing = db_get_tracks(project_dir)
-                track_id = f"track_{len(existing) + 1}"
+                max_num = max((int(t["id"].replace("track_", "")) for t in existing if t["id"].startswith("track_")), default=0)
+                track_id = f"track_{max_num + 1}"
                 # Add at top (highest z_order = rendered on top in compositor)
                 z_order = max((t["z_order"] for t in existing), default=-1) + 1
                 db_add_track(project_dir, {"id": track_id, "name": body.get("name", f"Track {len(existing) + 1}"), "z_order": z_order, **{k: v for k, v in body.items() if k in ("blend_mode", "base_opacity", "enabled")}})
@@ -783,6 +784,20 @@ def make_handler(work_dir: Path):
                     fields["opacity"] = body["opacity"]
                 if "opacityCurve" in body:
                     fields["opacity_curve"] = body["opacityCurve"]
+                if "redCurve" in body:
+                    fields["red_curve"] = body["redCurve"]
+                if "greenCurve" in body:
+                    fields["green_curve"] = body["greenCurve"]
+                if "blueCurve" in body:
+                    fields["blue_curve"] = body["blueCurve"]
+                if "blackCurve" in body:
+                    fields["black_curve"] = body["blackCurve"]
+                if "hueShiftCurve" in body:
+                    fields["hue_shift_curve"] = body["hueShiftCurve"]
+                if "saturationCurve" in body:
+                    fields["saturation_curve"] = body["saturationCurve"]
+                if "isAdjustment" in body:
+                    fields["is_adjustment"] = int(body["isAdjustment"])
                 tr_id = body["transitionId"]
                 _log(f"update-transition-style: {tr_id} {fields}")
                 update_transition(project_dir, tr_id, **fields)
@@ -1088,6 +1103,7 @@ def make_handler(work_dir: Path):
 
         def _handle_browse(self, subpath: str):
             """GET /api/browse?path=subdir — browse .beatlab_work directory tree."""
+            _log(f"browse: path={subpath or '/'}")
             target = (work_dir / subpath).resolve() if subpath else work_dir.resolve()
 
             if not str(target).startswith(str(work_dir.resolve())):
@@ -1118,6 +1134,7 @@ def make_handler(work_dir: Path):
 
         def _handle_list_projects(self):
             """GET /api/projects — list all projects in work dir."""
+            _log(f"list-projects: listing projects")
             projects = []
             for entry in sorted(work_dir.iterdir()):
                 if not entry.is_dir():
@@ -1143,6 +1160,7 @@ def make_handler(work_dir: Path):
 
         def _handle_get_keyframes(self, project_name: str):
             """GET /api/projects/:name/keyframes — load keyframe data for editor."""
+            _log(f"get-keyframes: {project_name}")
             project_dir = self._get_project_dir(project_name)
             if project_dir is None:
                 return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
@@ -1284,6 +1302,13 @@ def make_handler(work_dir: Path):
                     "blendMode": tr.get("blend_mode", ""),
                     "opacity": tr.get("opacity"),
                     "opacityCurve": tr.get("opacity_curve"),
+                    "redCurve": tr.get("red_curve"),
+                    "greenCurve": tr.get("green_curve"),
+                    "blueCurve": tr.get("blue_curve"),
+                    "blackCurve": tr.get("black_curve"),
+                    "hueShiftCurve": tr.get("hue_shift_curve"),
+                    "saturationCurve": tr.get("saturation_curve"),
+                    "isAdjustment": tr.get("is_adjustment", False),
                     "candidates": slot_candidates,
                     "hasSelectedVideos": has_selected_videos,
                     "selected": selected_list,
@@ -1309,6 +1334,7 @@ def make_handler(work_dir: Path):
 
         def _handle_get_beats(self, project_name: str):
             """GET /api/projects/:name/beats — load beats.json."""
+            _log(f"get-beats: {project_name}")
             beats_path = work_dir / project_name / "beats.json"
             if not beats_path.exists():
                 return self._error(404, "NOT_FOUND", "No beats.json found")
@@ -1367,6 +1393,7 @@ def make_handler(work_dir: Path):
                 return
 
             try:
+                _log(f"select-slot-keyframes: {len(selections)} selections")
                 import shutil
                 selected_dir = project_dir / "selected_slot_keyframes"
                 selected_dir.mkdir(parents=True, exist_ok=True)
@@ -1449,6 +1476,7 @@ def make_handler(work_dir: Path):
                 return
 
             try:
+                _log(f"update-timestamp: {kf_id} -> {new_timestamp}")
                 from beatlab.db import update_keyframe, get_transitions, update_transition
 
                 def parse_ts(ts):
@@ -1508,6 +1536,7 @@ def make_handler(work_dir: Path):
 
         def _handle_get_bin(self, project_name: str):
             """GET /api/projects/:name/bin — list binned (soft-deleted) keyframes and transitions."""
+            _log(f"get-bin: {project_name}")
             project_dir = self._get_project_dir(project_name)
             if project_dir is None:
                 return self._json_response({"bin": [], "transitionBin": []})
@@ -1545,6 +1574,7 @@ def make_handler(work_dir: Path):
 
         def _handle_get_descriptions(self, project_name: str):
             """GET /api/projects/:name/descriptions — parse descriptions.md into structured sections."""
+            _log(f"get-descriptions: {project_name}")
             project_dir = work_dir / project_name
             desc_path = project_dir / "descriptions.md"
             if not desc_path.exists():
@@ -1582,6 +1612,7 @@ def make_handler(work_dir: Path):
 
         def _handle_get_pool(self, project_name: str):
             """GET /api/projects/:name/pool — list pool assets (unassigned keyframe images and video segments)."""
+            _log(f"get-pool: {project_name}")
             project_dir = work_dir / project_name
             pool_dir = project_dir / "pool"
             if not pool_dir.is_dir():
@@ -1901,7 +1932,7 @@ def make_handler(work_dir: Path):
                 src_kfs = []
                 for kid in kf_ids:
                     kf = db_get_kf(project_dir, kid)
-                    if kf:
+                    if kf and not kf.get("deleted_at"):
                         src_kfs.append(kf)
                 if not src_kfs:
                     return self._error(404, "NOT_FOUND", "No valid keyframes found")
@@ -1997,6 +2028,11 @@ def make_handler(work_dir: Path):
                         "blend_mode": src_tr.get("blend_mode", ""),
                         "opacity": src_tr.get("opacity"),
                         "opacity_curve": src_tr.get("opacity_curve"),
+                        "red_curve": src_tr.get("red_curve"),
+                        "green_curve": src_tr.get("green_curve"),
+                        "blue_curve": src_tr.get("blue_curve"),
+                        "black_curve": src_tr.get("black_curve"),
+                        "hue_shift_curve": src_tr.get("hue_shift_curve"),
                     })
                     created_trs.append({"id": new_tr_id, "from": new_from, "to": new_to})
 
@@ -2247,6 +2283,7 @@ def make_handler(work_dir: Path):
                 return
 
             try:
+                _log(f"set-base-image: {kf_id} from {still_name}")
                 import shutil
                 source = project_dir / "assets" / "stills" / still_name
                 if not source.exists():
@@ -2341,6 +2378,7 @@ def make_handler(work_dir: Path):
 
         def _handle_get_bench(self, project_name: str):
             """GET /api/projects/:name/bench — list benched items with usage tracking."""
+            _log(f"get-bench: {project_name}")
             project_dir = self._get_project_dir(project_name)
             if project_dir is None:
                 return self._json_response({"items": []})
@@ -2589,6 +2627,7 @@ def make_handler(work_dir: Path):
                 return
 
             try:
+                _log(f"bench-remove: {bench_id}")
                 from beatlab.db import remove_from_bench
                 remove_from_bench(project_dir, bench_id)
                 self._json_response({"success": True})
@@ -2908,6 +2947,7 @@ def make_handler(work_dir: Path):
                 return
 
             try:
+                _log(f"delete-transition: {tr_id}")
                 from beatlab.db import delete_transition as db_del_tr
                 from datetime import datetime, timezone
                 now = datetime.now(timezone.utc).isoformat()
@@ -2995,6 +3035,7 @@ def make_handler(work_dir: Path):
                 return
 
             try:
+                _log(f"update-transition-remap: {tr_id} method={method}")
                 from beatlab.db import get_transition, update_transition
                 tr = get_transition(project_dir, tr_id)
                 if not tr:
@@ -3187,6 +3228,7 @@ def make_handler(work_dir: Path):
                 return
 
             try:
+                _log(f"enhance-transition-action: {tr_id}")
                 import base64
                 import os
                 from beatlab.db import get_transition
@@ -3254,6 +3296,7 @@ def make_handler(work_dir: Path):
             if yaml_path is None:
                 return
 
+            _log(f"generate-slot-keyframe-candidates: tr_id={tr_id or 'all'}")
             from beatlab.ws_server import job_manager
             job_id = job_manager.create_job("slot_keyframe_candidates", total=0, meta={"transitionId": tr_id or "all", "project": project_name})
 
@@ -3638,6 +3681,7 @@ def make_handler(work_dir: Path):
                 return
 
             try:
+                _log(f"update-meta: {list(k for k in ('motion_prompt', 'default_transition_prompt') if k in body)}")
                 from beatlab.db import get_meta, set_meta
                 meta = get_meta(project_dir)
                 for key in ("motion_prompt", "default_transition_prompt"):
@@ -3651,6 +3695,7 @@ def make_handler(work_dir: Path):
 
         def _handle_get_audio_intelligence(self, project_name: str):
             """GET /api/projects/:name/audio-intelligence — return processed beat events from audio intelligence file."""
+            _log(f"get-audio-intelligence: {project_name}")
             project_dir = work_dir / project_name
 
             # Determine which file to use
@@ -3706,6 +3751,7 @@ def make_handler(work_dir: Path):
 
         def _handle_get_settings(self, project_name: str):
             """GET /api/projects/:name/settings — read project settings from settings.yaml."""
+            _log(f"get-settings: {project_name}")
             import yaml as pyyaml
             settings_path = work_dir / project_name / "settings.yaml"
             defaults = {
@@ -3732,6 +3778,7 @@ def make_handler(work_dir: Path):
             if body is None:
                 return
 
+            _log(f"update-settings: settings updated")
             import yaml as pyyaml
             settings_path = work_dir / project_name / "settings.yaml"
 
@@ -3753,6 +3800,7 @@ def make_handler(work_dir: Path):
 
         def _handle_get_watched_folders(self, project_name: str):
             """GET /api/projects/:name/watched-folders — list persisted watched folders."""
+            _log(f"get-watched-folders: {project_name}")
             project_dir = self._get_project_dir(project_name)
             if project_dir is None:
                 return self._json_response({"watchedFolders": []})
@@ -3769,6 +3817,7 @@ def make_handler(work_dir: Path):
 
         def _handle_get_effects(self, project_name: str):
             """GET /api/projects/:name/effects — load user-authored effects."""
+            _log(f"get-effects: {project_name}")
             project_dir = self._get_project_dir(project_name)
             if project_dir is None:
                 return self._json_response({"effects": [], "suppressions": []})
@@ -3798,6 +3847,7 @@ def make_handler(work_dir: Path):
                 from beatlab.db import save_effects
                 effects = body.get("effects", [])
                 suppressions = body.get("suppressions", [])
+                _log(f"update-effects: {len(effects)} effects, {len(suppressions)} suppressions")
                 save_effects(project_dir, effects, suppressions)
                 self._json_response({"success": True})
             except Exception as e:
@@ -3818,6 +3868,7 @@ def make_handler(work_dir: Path):
                 return self._error(500, "INTERNAL_ERROR", "Folder watcher not initialized")
 
             try:
+                _log(f"watch-folder: {folder_path}")
                 result = folder_watcher.add_watch(project_name, folder_path)
 
                 # Persist to YAML
@@ -3844,6 +3895,7 @@ def make_handler(work_dir: Path):
             if not folder_path:
                 return self._error(400, "BAD_REQUEST", "Missing 'folderPath'")
 
+            _log(f"unwatch-folder: {folder_path}")
             from beatlab.ws_server import folder_watcher
             if folder_watcher:
                 folder_watcher.remove_watch(project_name, folder_path)
@@ -3889,6 +3941,7 @@ def make_handler(work_dir: Path):
                 return self._error(404, "NOT_FOUND", f"Source path not found: {source_path}")
 
             try:
+                _log(f"import: source={source_path}")
                 from beatlab.project import load_project, save_project
                 import shutil
                 from datetime import datetime, timezone
@@ -4017,6 +4070,7 @@ def make_handler(work_dir: Path):
 
         def _handle_ls(self, project_name: str, subpath: str):
             """GET /api/projects/:name/ls?path=subdir — list directory contents."""
+            _log(f"ls: {project_name} path={subpath or '/'}")
             project_root = (work_dir / project_name).resolve()
             target = (project_root / subpath).resolve()
 
@@ -4041,6 +4095,7 @@ def make_handler(work_dir: Path):
 
         def _handle_video_thumbnail(self, project_name: str, file_path: str):
             """GET /api/projects/:name/thumbnail/* — extract and serve first frame of a video as JPEG."""
+            _log(f"video-thumbnail: {file_path}")
             import subprocess as sp
             import tempfile
 
@@ -4078,6 +4133,7 @@ def make_handler(work_dir: Path):
 
         def _handle_serve_file(self, project_name: str, file_path: str):
             """GET /api/projects/:name/files/* — serve project files with Range support and caching."""
+            _log(f"serve-file: {file_path}")
             full_path = (work_dir / project_name / file_path).resolve()
 
             # Path traversal prevention
@@ -4175,6 +4231,7 @@ def make_handler(work_dir: Path):
 
         def _handle_get_narrative(self, project_name: str):
             """GET /api/projects/:name/narrative — return sections from narrative.yaml."""
+            _log(f"get-narrative: {project_name}")
             from beatlab.project import load_project
             project_dir = work_dir / project_name
             if not project_dir.is_dir():
@@ -4188,6 +4245,7 @@ def make_handler(work_dir: Path):
             body = self._read_json_body()
             if body is None:
                 return
+            _log(f"update-narrative: {len(body.get('sections', []))} sections")
             project_dir = work_dir / project_name
             if not project_dir.is_dir():
                 return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
@@ -4198,6 +4256,7 @@ def make_handler(work_dir: Path):
 
         def _handle_get_timelines(self, project_name: str):
             """GET /api/projects/:name/timelines — list available timelines."""
+            _log(f"get-timelines: {project_name}")
             from beatlab.project import get_timelines
             project_dir = work_dir / project_name
             if not project_dir.is_dir():
@@ -4221,6 +4280,7 @@ def make_handler(work_dir: Path):
             if not project_dir.is_dir():
                 return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
             try:
+                _log(f"timeline-switch: {name}")
                 switch_timeline(project_dir, name)
                 self._json_response({"success": True, "active": name})
             except ValueError as e:
@@ -4240,6 +4300,7 @@ def make_handler(work_dir: Path):
             if not project_dir.is_dir():
                 return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
             try:
+                _log(f"timeline-import: source={source_path}")
                 result = import_timeline(project_dir, source_path, timeline_name)
                 self._json_response({"success": True, **result})
             except Exception as e:
@@ -4259,6 +4320,7 @@ def make_handler(work_dir: Path):
             if not project_dir.is_dir():
                 return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
             try:
+                _log(f"timeline-create: {name}")
                 create_timeline(project_dir, name, copy_from)
                 self._json_response({"success": True, "name": name})
             except ValueError as e:
@@ -4286,6 +4348,7 @@ def make_handler(work_dir: Path):
                 return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
 
             self._ensure_git_repo(project_dir)
+            _log(f"version-commit: {message[:50]}")
 
             # Lock per-project to prevent concurrent git/YAML operations
             lock = _get_project_lock(project_name)
@@ -4313,6 +4376,7 @@ def make_handler(work_dir: Path):
 
         def _handle_version_history(self, project_name: str):
             """GET /api/projects/:name/version/history"""
+            _log(f"version-history: {project_name}")
             import subprocess as sp
             project_dir = work_dir / project_name
             if not project_dir.is_dir():
@@ -4383,6 +4447,7 @@ def make_handler(work_dir: Path):
                 return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
 
             self._ensure_git_repo(project_dir)
+            _log(f"version-checkout: {sha}")
 
             # Get original commit message
             msg_result = sp.run(
@@ -4426,6 +4491,7 @@ def make_handler(work_dir: Path):
                 return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
 
             self._ensure_git_repo(project_dir)
+            _log(f"version-branch: {name} create={create}")
 
             if create:
                 result = sp.run(
@@ -4445,6 +4511,7 @@ def make_handler(work_dir: Path):
 
         def _handle_version_diff(self, project_name: str):
             """GET /api/projects/:name/version/diff — show uncommitted changes."""
+            _log(f"version-diff: {project_name}")
             import subprocess as sp
             project_dir = work_dir / project_name
             if not project_dir.is_dir():
@@ -4514,6 +4581,7 @@ def make_handler(work_dir: Path):
                 return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
 
             self._ensure_git_repo(project_dir)
+            _log(f"version-delete-branch: {name}")
 
             # Check not current branch
             current = sp.run(
@@ -4682,6 +4750,7 @@ def make_handler(work_dir: Path):
             from urllib.parse import parse_qs
             qs = parse_qs(urlparse(self.path).query)
             section_label = qs.get("section", [""])[0]
+            _log(f"get-section-settings: section={section_label}")
 
             project_dir = self._get_project_dir(project_name)
             if project_dir is None:
@@ -4716,6 +4785,7 @@ def make_handler(work_dir: Path):
                 return
 
             try:
+                _log(f"section-settings: {section_label}")
                 from beatlab.db import set_meta
                 import json
 

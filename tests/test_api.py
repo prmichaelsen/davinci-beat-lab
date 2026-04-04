@@ -2065,3 +2065,194 @@ class TestPasteGroup:
 
         assert len(result["keyframes"]) == 1
         assert len(result["transitions"]) == 0
+
+    def test_paste_does_not_mutate_source(self, project_env):
+        """Source kfs/trs should be completely unchanged after paste."""
+        env = project_env
+        pd = env["project_dir"]
+
+        r1 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {
+            "timestamp": "0:00.00", "prompt": "Original prompt",
+        })
+        r2 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+        kf1 = r1["keyframe"]["id"]
+
+        # Snapshot source state
+        data_before = get_editor_data(env)
+        src_kf = next(k for k in data_before["keyframes"] if k["id"] == kf1)
+        src_trs = [t for t in data_before["transitions"]]
+
+        # Paste
+        api(env, "POST", f"/api/projects/{env['project_name']}/paste-group", {
+            "keyframeIds": [r1["keyframe"]["id"], r2["keyframe"]["id"]],
+            "targetTime": "0:30.00",
+            "targetTrackId": "track_2",
+        })
+
+        # Source should be identical
+        data_after = get_editor_data(env)
+        src_kf_after = next(k for k in data_after["keyframes"] if k["id"] == kf1)
+        assert src_kf_after["prompt"] == "Original prompt"
+        assert src_kf_after["trackId"] == "track_1"
+        assert src_kf_after["timestamp"] == src_kf["timestamp"]
+
+    def test_paste_subset_of_chain(self, project_env):
+        """Pasting 2 of 4 kfs should only copy the transition between those 2."""
+        env = project_env
+
+        ids = []
+        for ts in ["0:00.00", "0:05.00", "0:10.00", "0:15.00"]:
+            r = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": ts})
+            ids.append(r["keyframe"]["id"])
+
+        # Paste only kf[1] and kf[2] (5s and 10s)
+        result = api(env, "POST", f"/api/projects/{env['project_name']}/paste-group", {
+            "keyframeIds": [ids[1], ids[2]],
+            "targetTime": "0:30.00",
+            "targetTrackId": "track_1",
+        })
+
+        assert len(result["keyframes"]) == 2
+        assert len(result["transitions"]) == 1  # only the tr between kf[1]->kf[2]
+
+    def test_paste_non_adjacent_kfs(self, project_env):
+        """Pasting kfs that aren't adjacent should not copy the transitions between them."""
+        env = project_env
+
+        ids = []
+        for ts in ["0:00.00", "0:05.00", "0:10.00", "0:15.00"]:
+            r = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": ts})
+            ids.append(r["keyframe"]["id"])
+
+        # Paste kf[0] and kf[3] (0s and 15s) — they're not adjacent, no direct tr
+        result = api(env, "POST", f"/api/projects/{env['project_name']}/paste-group", {
+            "keyframeIds": [ids[0], ids[3]],
+            "targetTime": "0:30.00",
+            "targetTrackId": "track_1",
+        })
+
+        assert len(result["keyframes"]) == 2
+        assert len(result["transitions"]) == 0  # no tr between kf[0] and kf[3]
+
+    def test_paste_copies_blend_mode_and_opacity(self, project_env):
+        """Pasted kfs should preserve blend mode and opacity from source."""
+        env = project_env
+
+        r = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+        kf_id = r["keyframe"]["id"]
+
+        api(env, "POST", f"/api/projects/{env['project_name']}/update-keyframe-style", {
+            "keyframeId": kf_id, "blendMode": "screen", "opacity": 0.7,
+        })
+
+        result = api(env, "POST", f"/api/projects/{env['project_name']}/paste-group", {
+            "keyframeIds": [kf_id],
+            "targetTime": "0:30.00",
+            "targetTrackId": "track_1",
+        })
+
+        data = get_editor_data(env)
+        new_id = result["keyframes"][0]["id"]
+        new_kf = next(k for k in data["keyframes"] if k["id"] == new_id)
+        assert new_kf["blendMode"] == "screen"
+        assert new_kf["opacity"] == pytest.approx(0.7)
+
+    def test_paste_copies_tr_remap_and_opacity_curve(self, project_env):
+        """Pasted transitions should preserve remap curves and opacity curves."""
+        env = project_env
+
+        r1 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:00.00"})
+        r2 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+
+        trs = active_transitions(env)
+        tr_id = trs[0]["id"]
+
+        remap_curve = [[0, 0], [0.3, 0.7], [1, 1]]
+        opacity_curve = [[0, 0], [0.5, 1], [1, 0]]
+        api(env, "POST", f"/api/projects/{env['project_name']}/update-transition-remap", {
+            "transitionId": tr_id, "targetDuration": 5.0, "method": "curve", "curvePoints": remap_curve,
+        })
+        api(env, "POST", f"/api/projects/{env['project_name']}/update-transition-style", {
+            "transitionId": tr_id, "blendMode": "multiply", "opacityCurve": opacity_curve,
+        })
+
+        result = api(env, "POST", f"/api/projects/{env['project_name']}/paste-group", {
+            "keyframeIds": [r1["keyframe"]["id"], r2["keyframe"]["id"]],
+            "targetTime": "0:30.00",
+            "targetTrackId": "track_1",
+        })
+
+        data = get_editor_data(env)
+        new_tr_id = result["transitions"][0]["id"]
+        new_tr = next(t for t in data["transitions"] if t["id"] == new_tr_id)
+        assert new_tr["blendMode"] == "multiply"
+        assert new_tr["opacityCurve"] == opacity_curve
+        assert new_tr["remap"]["method"] == "curve"
+
+    def test_paste_with_deleted_source_kf(self, project_env):
+        """Pasting with a deleted kf ID should skip it gracefully."""
+        env = project_env
+
+        r1 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:00.00"})
+        r2 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+
+        api(env, "POST", f"/api/projects/{env['project_name']}/delete-keyframe", {
+            "keyframeId": r1["keyframe"]["id"],
+        })
+
+        result = api(env, "POST", f"/api/projects/{env['project_name']}/paste-group", {
+            "keyframeIds": [r1["keyframe"]["id"], r2["keyframe"]["id"]],
+            "targetTime": "0:30.00",
+            "targetTrackId": "track_1",
+        })
+
+        # Should only paste the non-deleted kf
+        assert len(result["keyframes"]) == 1
+
+    def test_paste_twice_creates_independent_copies(self, project_env):
+        """Pasting the same group twice should create two independent sets."""
+        env = project_env
+
+        ids = []
+        for ts in ["0:00.00", "0:05.00"]:
+            r = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": ts})
+            ids.append(r["keyframe"]["id"])
+
+        r1 = api(env, "POST", f"/api/projects/{env['project_name']}/paste-group", {
+            "keyframeIds": ids, "targetTime": "0:20.00", "targetTrackId": "track_1",
+        })
+        r2 = api(env, "POST", f"/api/projects/{env['project_name']}/paste-group", {
+            "keyframeIds": ids, "targetTime": "0:40.00", "targetTrackId": "track_1",
+        })
+
+        # All IDs should be unique
+        all_ids = [k["id"] for k in r1["keyframes"]] + [k["id"] for k in r2["keyframes"]]
+        assert len(all_ids) == len(set(all_ids)), "Pasted IDs should be unique"
+
+        # Both pastes should have their own transitions
+        assert len(r1["transitions"]) == 1
+        assert len(r2["transitions"]) == 1
+        assert r1["transitions"][0]["id"] != r2["transitions"][0]["id"]
+
+    def test_paste_cross_track_kfs_all_go_to_target(self, project_env):
+        """Pasting kfs from mixed tracks should place all on the target track."""
+        env = project_env
+
+        r1 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {
+            "timestamp": "0:00.00", "trackId": "track_1",
+        })
+        r2 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {
+            "timestamp": "0:05.00", "trackId": "track_2",
+        })
+
+        result = api(env, "POST", f"/api/projects/{env['project_name']}/paste-group", {
+            "keyframeIds": [r1["keyframe"]["id"], r2["keyframe"]["id"]],
+            "targetTime": "0:30.00",
+            "targetTrackId": "track_3",
+        })
+
+        data = get_editor_data(env)
+        new_ids = {k["id"] for k in result["keyframes"]}
+        for kf in data["keyframes"]:
+            if kf["id"] in new_ids:
+                assert kf["trackId"] == "track_3"

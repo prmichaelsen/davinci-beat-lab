@@ -2256,3 +2256,121 @@ class TestPasteGroup:
         for kf in data["keyframes"]:
             if kf["id"] in new_ids:
                 assert kf["trackId"] == "track_3"
+
+    def test_paste_copies_all_curves(self, project_env):
+        """Pasted transitions should copy all curve types."""
+        env = project_env
+
+        r1 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:00.00"})
+        r2 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+
+        trs = active_transitions(env)
+        tr_id = trs[0]["id"]
+
+        curves = {
+            "opacityCurve": [[0, 0], [0.5, 1], [1, 0.5]],
+            "redCurve": [[0, 1], [1, 0.5]],
+            "greenCurve": [[0, 0.8], [1, 1]],
+            "blueCurve": [[0, 1], [0.5, 0], [1, 1]],
+            "blackCurve": [[0, 0], [1, 0.3]],
+            "hueShiftCurve": [[0, 0], [1, 0.5]],
+            "saturationCurve": [[0, 1], [1, 0.2]],
+        }
+        api(env, "POST", f"/api/projects/{env['project_name']}/update-transition-style", {
+            "transitionId": tr_id, **curves,
+        })
+
+        result = api(env, "POST", f"/api/projects/{env['project_name']}/paste-group", {
+            "keyframeIds": [r1["keyframe"]["id"], r2["keyframe"]["id"]],
+            "targetTime": "0:30.00",
+            "targetTrackId": "track_1",
+        })
+
+        data = get_editor_data(env)
+        new_tr = next(t for t in data["transitions"] if t["id"] == result["transitions"][0]["id"])
+        for key, expected in curves.items():
+            assert new_tr[key] == expected, f"{key}: {new_tr.get(key)} != {expected}"
+
+    def test_paste_copies_adjustment_flag(self, project_env):
+        """Pasted adjustment transitions should preserve the isAdjustment flag."""
+        env = project_env
+
+        r1 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:00.00"})
+        r2 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+
+        trs = active_transitions(env)
+        tr_id = trs[0]["id"]
+
+        api(env, "POST", f"/api/projects/{env['project_name']}/update-transition-style", {
+            "transitionId": tr_id, "isAdjustment": True,
+        })
+
+        result = api(env, "POST", f"/api/projects/{env['project_name']}/paste-group", {
+            "keyframeIds": [r1["keyframe"]["id"], r2["keyframe"]["id"]],
+            "targetTime": "0:30.00",
+            "targetTrackId": "track_1",
+        })
+
+        data = get_editor_data(env)
+        new_tr = next(t for t in data["transitions"] if t["id"] == result["transitions"][0]["id"])
+        assert new_tr["isAdjustment"] is True
+
+    def test_paste_copies_transition_effects(self, project_env):
+        """Pasted transitions should copy their strobe/effects."""
+        env = project_env
+
+        r1 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:00.00"})
+        r2 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+
+        trs = active_transitions(env)
+        tr_id = trs[0]["id"]
+
+        # Add a strobe effect
+        fx_result = api(env, "POST", f"/api/projects/{env['project_name']}/transition-effects/add", {
+            "transitionId": tr_id,
+            "type": "strobe",
+            "params": {"period": 0.125, "duty": 0.5},
+        })
+        assert fx_result["success"] is True
+
+        result = api(env, "POST", f"/api/projects/{env['project_name']}/paste-group", {
+            "keyframeIds": [r1["keyframe"]["id"], r2["keyframe"]["id"]],
+            "targetTime": "0:30.00",
+            "targetTrackId": "track_1",
+        })
+
+        data = get_editor_data(env)
+        new_tr = next(t for t in data["transitions"] if t["id"] == result["transitions"][0]["id"])
+        assert len(new_tr["effects"]) == 1
+        assert new_tr["effects"][0]["type"] == "strobe"
+        assert new_tr["effects"][0]["params"]["period"] == pytest.approx(0.125)
+        assert new_tr["effects"][0]["params"]["duty"] == pytest.approx(0.5)
+
+    def test_paste_copies_labels_and_tags(self, project_env):
+        """Pasted transitions should copy labels, colors, and tags."""
+        env = project_env
+
+        r1 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:00.00"})
+        r2 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+
+        trs = active_transitions(env)
+        tr_id = trs[0]["id"]
+
+        api(env, "POST", f"/api/projects/{env['project_name']}/update-transition-label", {
+            "transitionId": tr_id,
+            "label": "Hero Dissolve",
+            "labelColor": "#ff00ff",
+            "tags": ["hero", "dissolve"],
+        })
+
+        result = api(env, "POST", f"/api/projects/{env['project_name']}/paste-group", {
+            "keyframeIds": [r1["keyframe"]["id"], r2["keyframe"]["id"]],
+            "targetTime": "0:30.00",
+            "targetTrackId": "track_1",
+        })
+
+        data = get_editor_data(env)
+        new_tr = next(t for t in data["transitions"] if t["id"] == result["transitions"][0]["id"])
+        assert new_tr["label"] == "Hero Dissolve"
+        assert new_tr["labelColor"] == "#ff00ff"
+        assert new_tr["tags"] == ["hero", "dissolve"]

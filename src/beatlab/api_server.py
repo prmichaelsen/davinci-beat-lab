@@ -796,6 +796,8 @@ def make_handler(work_dir: Path):
                     fields["hue_shift_curve"] = body["hueShiftCurve"]
                 if "saturationCurve" in body:
                     fields["saturation_curve"] = body["saturationCurve"]
+                if "chromaKey" in body:
+                    fields["chroma_key"] = body["chromaKey"]
                 if "isAdjustment" in body:
                     fields["is_adjustment"] = int(body["isAdjustment"])
                 tr_id = body["transitionId"]
@@ -1308,6 +1310,7 @@ def make_handler(work_dir: Path):
                     "blackCurve": tr.get("black_curve"),
                     "hueShiftCurve": tr.get("hue_shift_curve"),
                     "saturationCurve": tr.get("saturation_curve"),
+                    "chromaKey": tr.get("chroma_key"),
                     "isAdjustment": tr.get("is_adjustment", False),
                     "candidates": slot_candidates,
                     "hasSelectedVideos": has_selected_videos,
@@ -2033,7 +2036,18 @@ def make_handler(work_dir: Path):
                         "blue_curve": src_tr.get("blue_curve"),
                         "black_curve": src_tr.get("black_curve"),
                         "hue_shift_curve": src_tr.get("hue_shift_curve"),
+                        "saturation_curve": src_tr.get("saturation_curve"),
+                        "is_adjustment": src_tr.get("is_adjustment", False),
+                        "label": src_tr.get("label", ""),
+                        "label_color": src_tr.get("label_color", ""),
+                        "tags": src_tr.get("tags", []),
                     })
+
+                    # Copy transition effects
+                    from beatlab.db import get_transition_effects, add_transition_effect
+                    for fx in get_transition_effects(project_dir, src_tr["id"]):
+                        add_transition_effect(project_dir, new_tr_id, fx["type"], fx.get("params"))
+
                     created_trs.append({"id": new_tr_id, "from": new_from, "to": new_to})
 
                 _log(f"paste-group: {len(created_kfs)} kfs, {len(created_trs)} trs pasted at {target_time_str} on {target_track}")

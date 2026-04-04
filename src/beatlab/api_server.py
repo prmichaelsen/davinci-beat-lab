@@ -768,6 +768,40 @@ def make_handler(work_dir: Path):
                 _log(f"escalate-keyframe: {kf_id} count={count}")
                 return self._json_response({"jobId": job_id, "keyframeId": kf_id})
 
+            # POST /api/projects/:name/copy-transition-style
+            m = re.match(r"^/api/projects/([^/]+)/copy-transition-style$", path)
+            if m:
+                body = self._read_json_body()
+                if body is None: return
+                source_id = body.get("sourceId")
+                target_id = body.get("targetId")
+                if not source_id or not target_id: return self._error(400, "BAD_REQUEST", "Missing sourceId or targetId")
+                project_dir = self._require_project_dir(m.group(1))
+                if project_dir is None: return
+                from beatlab.db import get_transition, update_transition, get_transition_effects, add_transition_effect, delete_transition_effect
+                src = get_transition(project_dir, source_id)
+                if not src: return self._error(404, "NOT_FOUND", f"Source {source_id} not found")
+
+                # Copy style fields
+                style_fields = {}
+                for key in ("blend_mode", "opacity", "opacity_curve", "red_curve", "green_curve", "blue_curve", "black_curve", "hue_shift_curve", "saturation_curve", "is_adjustment"):
+                    if src.get(key) is not None:
+                        style_fields[key] = src[key]
+                    elif key in ("blend_mode",):
+                        style_fields[key] = src.get(key, "")
+                if style_fields:
+                    update_transition(project_dir, target_id, **style_fields)
+
+                # Copy effects: clear existing, then add source's
+                existing_fx = get_transition_effects(project_dir, target_id)
+                for fx in existing_fx:
+                    delete_transition_effect(project_dir, fx["id"])
+                for fx in get_transition_effects(project_dir, source_id):
+                    add_transition_effect(project_dir, target_id, fx["type"], fx.get("params"))
+
+                _log(f"copy-transition-style: {source_id} -> {target_id} ({len(style_fields)} fields, {len(get_transition_effects(project_dir, source_id))} effects)")
+                return self._json_response({"success": True})
+
             # POST /api/projects/:name/duplicate-transition-video
             m = re.match(r"^/api/projects/([^/]+)/duplicate-transition-video$", path)
             if m:
@@ -2527,7 +2561,8 @@ def make_handler(work_dir: Path):
                 import traceback as _tb
                 from beatlab.db import get_keyframes, get_transitions, add_to_bench
 
-                _log(f"bench-capture: {project_name} time={time_sec}")
+                track_id = body.get("trackId", "track_1")
+                _log(f"bench-capture: {project_name} time={time_sec} track={track_id}")
 
                 def parse_ts(ts):
                     parts = str(ts).split(":")
@@ -2535,8 +2570,8 @@ def make_handler(work_dir: Path):
                         return int(parts[0]) * 60 + float(parts[1])
                     return float(ts) if isinstance(ts, (int, float)) else 0
 
-                # Find keyframe at or before this time
-                all_kfs = [kf for kf in get_keyframes(project_dir) if kf.get("deleted_at") is None]
+                # Find keyframe at or before this time on the selected track
+                all_kfs = [kf for kf in get_keyframes(project_dir) if kf.get("deleted_at") is None and kf.get("track_id", "track_1") == track_id]
                 sorted_kfs = sorted(all_kfs, key=lambda k: parse_ts(k["timestamp"]))
                 current_kf = None
                 for k in sorted_kfs:
@@ -2545,8 +2580,8 @@ def make_handler(work_dir: Path):
                     else:
                         break
 
-                # Find active transition at this time
-                all_trs = [tr for tr in get_transitions(project_dir) if tr.get("deleted_at") is None]
+                # Find active transition at this time on the selected track
+                all_trs = [tr for tr in get_transitions(project_dir) if tr.get("deleted_at") is None and tr.get("track_id", "track_1") == track_id]
                 active_tr = None
                 tr_from_time = 0.0
                 tr_to_time = 0.0

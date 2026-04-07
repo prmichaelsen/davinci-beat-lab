@@ -25,6 +25,9 @@ out/
 *.swo
 *~
 
+# Project work directory (backed up via volume snapshots)
+.beatlab_work/
+
 # OS
 .DS_Store
 Thumbs.db

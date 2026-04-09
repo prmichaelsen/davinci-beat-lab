@@ -144,11 +144,21 @@ def make_handler(work_dir: Path):
                 project_dir = self._require_project_dir(m.group(1))
                 if project_dir is None: return
                 from datetime import datetime as _dt
+                import yaml as _yaml
+                # Load manifest for names
+                manifest_path = project_dir / "checkpoints.yaml"
+                name_map = {}
+                if manifest_path.exists():
+                    with open(manifest_path) as _mf:
+                        for entry in (_yaml.safe_load(_mf) or []):
+                            if isinstance(entry, dict):
+                                name_map[entry.get("filename", "")] = entry.get("name", "")
                 checkpoints = []
                 for f in sorted(project_dir.glob("project.db.checkpoint-*"), reverse=True):
                     stat = f.stat()
                     checkpoints.append({
                         "filename": f.name,
+                        "name": name_map.get(f.name, ""),
                         "created": _dt.fromtimestamp(stat.st_mtime).isoformat(),
                         "size_bytes": stat.st_size,
                     })
@@ -436,6 +446,8 @@ def make_handler(work_dir: Path):
             # POST /api/projects/:name/checkpoint
             m = re.match(r"^/api/projects/([^/]+)/checkpoint$", path)
             if m:
+                body = self._read_json_body()
+                if body is None: return
                 project_dir = self._require_project_dir(m.group(1))
                 if project_dir is None: return
                 import sqlite3 as _sqlite3
@@ -444,6 +456,7 @@ def make_handler(work_dir: Path):
                 if not db_path.exists():
                     return self._error(404, "NOT_FOUND", "No project.db found")
                 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                name = body.get("name", "")
                 filename = f"project.db.checkpoint-{ts}"
                 dst = project_dir / filename
                 # Use SQLite backup API — safe for WAL-mode databases
@@ -454,8 +467,19 @@ def make_handler(work_dir: Path):
                 finally:
                     dst_conn.close()
                     src_conn.close()
-                _log(f"checkpoint: {m.group(1)} -> {filename}")
-                return self._json_response({"success": True, "filename": filename})
+                # Save metadata to checkpoints.yaml
+                import yaml as _yaml
+                manifest_path = project_dir / "checkpoints.yaml"
+                manifest = []
+                if manifest_path.exists():
+                    with open(manifest_path) as _mf:
+                        manifest = _yaml.safe_load(_mf) or []
+                manifest.append({"filename": filename, "name": name or "", "created": datetime.now().isoformat()})
+                with open(manifest_path, "w") as _mf:
+                    _yaml.dump(manifest, _mf, default_flow_style=False)
+
+                _log(f"checkpoint: {m.group(1)} -> {filename}{' (' + name + ')' if name else ''}")
+                return self._json_response({"success": True, "filename": filename, "name": name})
 
             # POST /api/projects/:name/checkpoint/restore
             m = re.match(r"^/api/projects/([^/]+)/checkpoint/restore$", path)

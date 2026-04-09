@@ -170,6 +170,42 @@ def _ensure_schema(conn: sqlite3.Connection):
             z_order INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_tr_effects ON transition_effects(transition_id);
+
+        CREATE TABLE IF NOT EXISTS sections (
+            id TEXT PRIMARY KEY,
+            label TEXT NOT NULL DEFAULT '',
+            start TEXT NOT NULL DEFAULT '0:00',
+            "end" TEXT,
+            mood TEXT NOT NULL DEFAULT '',
+            energy TEXT NOT NULL DEFAULT '',
+            instruments TEXT NOT NULL DEFAULT '[]',
+            motifs TEXT NOT NULL DEFAULT '[]',
+            events TEXT NOT NULL DEFAULT '[]',
+            visual_direction TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            sort_order INTEGER NOT NULL DEFAULT 0
+        );
+    """)
+
+    # ── Undo system ──
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS undo_log (
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,
+            undo_group INTEGER NOT NULL,
+            sql_text TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS undo_groups (
+            id INTEGER PRIMARY KEY,
+            description TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            undone INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS undo_state (
+            key TEXT PRIMARY KEY,
+            value INTEGER
+        );
+        INSERT OR IGNORE INTO undo_state VALUES ('current_group', 0);
+        INSERT OR IGNORE INTO undo_state VALUES ('active', 1);
     """)
 
     # ── Migration: add track_id to keyframes/transitions if missing ──
@@ -243,6 +279,28 @@ def _ensure_schema(conn: sqlite3.Connection):
             conn.execute("INSERT OR IGNORE INTO tracks (id, name, z_order, blend_mode, base_opacity, enabled) VALUES ('track_1', 'Track 1', 0, 'normal', 1.0, 1)")
     except Exception:
         pass  # another thread may have inserted it
+
+    # ── Undo triggers (AFTER all migrations so PRAGMA table_info sees all columns) ──
+    _undo_tracked_tables = ["keyframes", "transitions", "suppressions", "effects", "tracks", "transition_effects", "markers"]
+    for table in _undo_tracked_tables:
+        cols_info = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        col_names = [row[1] for row in cols_info]
+        if not col_names:
+            continue
+
+        # Drop + recreate so triggers always reflect latest columns
+        conn.execute(f"DROP TRIGGER IF EXISTS {table}_insert_undo")
+        conn.execute(f"DROP TRIGGER IF EXISTS {table}_update_undo")
+        conn.execute(f"DROP TRIGGER IF EXISTS {table}_delete_undo")
+
+        conn.execute(f"CREATE TRIGGER {table}_insert_undo AFTER INSERT ON {table} WHEN (SELECT value FROM undo_state WHERE key='active') = 1 BEGIN INSERT INTO undo_log (undo_group, sql_text) SELECT value, 'DELETE FROM {table} WHERE id=' || quote(NEW.id) FROM undo_state WHERE key='current_group'; END;")
+
+        set_clauses = " || ',' || ".join([f"'{col}=' || quote(OLD.{col})" for col in col_names])
+        conn.execute(f"CREATE TRIGGER {table}_update_undo AFTER UPDATE ON {table} WHEN (SELECT value FROM undo_state WHERE key='active') = 1 BEGIN INSERT INTO undo_log (undo_group, sql_text) SELECT value, 'UPDATE {table} SET ' || {set_clauses} || ' WHERE id=' || quote(OLD.id) FROM undo_state WHERE key='current_group'; END;")
+
+        col_list = ", ".join(col_names)
+        val_exprs = " || ',' || ".join([f"quote(OLD.{col})" for col in col_names])
+        conn.execute(f"CREATE TRIGGER {table}_delete_undo AFTER DELETE ON {table} WHEN (SELECT value FROM undo_state WHERE key='active') = 1 BEGIN INSERT INTO undo_log (undo_group, sql_text) SELECT value, 'INSERT INTO {table} ({col_list}) VALUES (' || {val_exprs} || ')' FROM undo_state WHERE key='current_group'; END;")
 
 
 # ── Meta operations ─────────────────────────────────────────────────
@@ -1097,3 +1155,148 @@ def export_to_yaml(project_dir: Path):
     }
     with open(project_dir / "timeline.yaml", "w") as f:
         yaml.dump(timeline, f, default_flow_style=False, allow_unicode=True, sort_keys=False, width=1000)
+
+
+# ── Undo / Redo operations ────────────────────────────────────────
+
+
+def undo_begin(project_dir: Path, description: str) -> int:
+    conn = get_db(project_dir)
+    conn.execute("UPDATE undo_state SET value = value + 1 WHERE key = 'current_group'")
+    group_id = conn.execute("SELECT value FROM undo_state WHERE key = 'current_group'").fetchone()[0]
+    from datetime import datetime, timezone
+    conn.execute(
+        "INSERT INTO undo_groups (id, description, timestamp) VALUES (?, ?, ?)",
+        (group_id, description, datetime.now(timezone.utc).isoformat())
+    )
+    # Clear redo history
+    conn.execute("DELETE FROM undo_log WHERE undo_group IN (SELECT id FROM undo_groups WHERE undone = 1)")
+    conn.execute("DELETE FROM undo_groups WHERE undone = 1")
+    # Prune old history (keep max 1000 groups)
+    conn.execute("""
+        DELETE FROM undo_log WHERE undo_group IN (
+            SELECT id FROM undo_groups WHERE id NOT IN (
+                SELECT id FROM undo_groups ORDER BY id DESC LIMIT 1000
+            )
+        )
+    """)
+    conn.execute("DELETE FROM undo_groups WHERE id NOT IN (SELECT id FROM undo_groups ORDER BY id DESC LIMIT 1000)")
+    conn.commit()
+    return group_id
+
+
+def undo_execute(project_dir: Path) -> dict | None:
+    conn = get_db(project_dir)
+    group = conn.execute(
+        "SELECT id, description, timestamp FROM undo_groups WHERE undone = 0 ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if not group:
+        return None
+    group_id = group["id"]
+
+    conn.execute("UPDATE undo_state SET value = 0 WHERE key = 'active'")
+    rows = conn.execute(
+        "SELECT sql_text FROM undo_log WHERE undo_group = ? ORDER BY seq DESC",
+        (group_id,)
+    ).fetchall()
+    for row in rows:
+        conn.execute(row["sql_text"])
+    conn.execute("UPDATE undo_groups SET undone = 1 WHERE id = ?", (group_id,))
+    conn.execute("UPDATE undo_state SET value = 1 WHERE key = 'active'")
+    conn.commit()
+    return {"id": group_id, "description": group["description"], "timestamp": group["timestamp"]}
+
+
+def redo_execute(project_dir: Path) -> dict | None:
+    conn = get_db(project_dir)
+    group = conn.execute(
+        "SELECT id, description, timestamp FROM undo_groups WHERE undone = 1 ORDER BY id ASC LIMIT 1"
+    ).fetchone()
+    if not group:
+        return None
+    # Re-execute: we need to replay the original operation, but we don't store forward SQL.
+    # Instead, redo by undoing the undo: the undo_log for this group was the INVERSE of the original.
+    # We can't redo with this design — return None for now.
+    return None
+
+
+def undo_history(project_dir: Path, limit: int = 50) -> list[dict]:
+    conn = get_db(project_dir)
+    rows = conn.execute(
+        "SELECT id, description, timestamp, undone FROM undo_groups ORDER BY id DESC LIMIT ?",
+        (limit,)
+    ).fetchall()
+    return [{"id": r["id"], "description": r["description"], "timestamp": r["timestamp"], "undone": bool(r["undone"])} for r in rows]
+
+
+# ── Sections ──
+
+def _row_to_section(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "label": row["label"],
+        "start": row["start"],
+        "end": row["end"],
+        "mood": row["mood"],
+        "energy": row["energy"],
+        "instruments": json.loads(row["instruments"]),
+        "motifs": json.loads(row["motifs"]),
+        "events": json.loads(row["events"]),
+        "visual_direction": row["visual_direction"],
+        "notes": row["notes"],
+    }
+
+
+def _migrate_sections_from_yaml(conn: sqlite3.Connection, project_dir: Path):
+    """One-time migration: import sections from narrative.yaml into DB."""
+    yaml_path = project_dir / "narrative.yaml"
+    if yaml_path.exists():
+        import yaml
+        with open(yaml_path) as f:
+            data = yaml.safe_load(f) or {}
+        sections = data.get("sections", [])
+        for i, sec in enumerate(sections):
+            conn.execute(
+                """INSERT OR IGNORE INTO sections (id, label, start, "end", mood, energy, instruments, motifs, events, visual_direction, notes, sort_order)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (sec.get("id", f"section_{i}"), sec.get("label", ""),
+                 sec.get("start", "0:00"), sec.get("end"),
+                 sec.get("mood", ""), sec.get("energy", ""),
+                 json.dumps(sec.get("instruments", [])),
+                 json.dumps(sec.get("motifs", [])),
+                 json.dumps(sec.get("events", [])),
+                 sec.get("visual_direction", ""),
+                 sec.get("notes", ""), i),
+            )
+    conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('sections_migrated', '1')")
+    conn.commit()
+
+
+def get_sections(project_dir: Path) -> list[dict]:
+    conn = get_db(project_dir)
+    row = conn.execute("SELECT value FROM meta WHERE key = 'sections_migrated'").fetchone()
+    if not row:
+        _migrate_sections_from_yaml(conn, project_dir)
+    rows = conn.execute('SELECT * FROM sections ORDER BY sort_order').fetchall()
+    return [_row_to_section(r) for r in rows]
+
+
+def set_sections(project_dir: Path, sections: list[dict]):
+    conn = get_db(project_dir)
+    conn.execute("DELETE FROM sections")
+    for i, sec in enumerate(sections):
+        conn.execute(
+            """INSERT INTO sections (id, label, start, "end", mood, energy, instruments, motifs, events, visual_direction, notes, sort_order)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (sec.get("id", f"section_{i}"), sec.get("label", ""),
+             sec.get("start", "0:00"), sec.get("end"),
+             sec.get("mood", ""), sec.get("energy", ""),
+             json.dumps(sec.get("instruments", [])),
+             json.dumps(sec.get("motifs", [])),
+             json.dumps(sec.get("events", [])),
+             sec.get("visual_direction", ""),
+             sec.get("notes", ""), i),
+        )
+    # Mark migrated so get_sections doesn't re-check yaml
+    conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('sections_migrated', '1')")
+    conn.commit()

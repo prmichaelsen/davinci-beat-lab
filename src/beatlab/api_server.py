@@ -4363,15 +4363,16 @@ def make_handler(work_dir: Path):
                 _log(f"watch-folder: {folder_path}")
                 result = folder_watcher.add_watch(project_name, folder_path)
 
-                # Persist to YAML
-                from beatlab.project import load_project, save_project
+                # Persist to DB
+                from beatlab.db import get_meta, set_meta
                 project_dir = work_dir / project_name
-                data = load_project(project_dir)
-                watched = data.get("watched_folders", [])
+                meta = get_meta(project_dir)
+                watched = meta.get("watched_folders", [])
+                if not isinstance(watched, list):
+                    watched = []
                 if folder_path not in watched:
                     watched.append(folder_path)
-                data["watched_folders"] = watched
-                save_project(data, project_dir)
+                set_meta(project_dir, "watched_folders", watched)
 
                 self._json_response({"success": True, **result})
             except Exception as e:
@@ -4392,16 +4393,17 @@ def make_handler(work_dir: Path):
             if folder_watcher:
                 folder_watcher.remove_watch(project_name, folder_path)
 
-            # Remove from YAML
-            from beatlab.project import load_project, save_project
+            # Remove from DB
+            from beatlab.db import get_meta, set_meta
             project_dir = work_dir / project_name
             if project_dir.is_dir():
-                data = load_project(project_dir)
-                watched = data.get("watched_folders", [])
+                meta = get_meta(project_dir)
+                watched = meta.get("watched_folders", [])
+                if not isinstance(watched, list):
+                    watched = []
                 if folder_path in watched:
                     watched.remove(folder_path)
-                data["watched_folders"] = watched
-                save_project(data, project_dir)
+                set_meta(project_dir, "watched_folders", watched)
 
             self._json_response({"success": True})
 
@@ -4434,36 +4436,22 @@ def make_handler(work_dir: Path):
 
             try:
                 _log(f"import: source={source_path}")
-                from beatlab.project import load_project, save_project
+                from beatlab.db import get_db, add_keyframe, add_transition, next_keyframe_id, next_transition_id
                 import shutil
                 from datetime import datetime, timezone
 
                 project_dir = work_dir / project_name
-                parsed = load_project(project_dir)
-                if parsed.get("_format") == "empty":
-                    parsed = {"meta": {"title": project_name, "fps": 24, "resolution": [1920, 1080]}, "keyframes": [], "transitions": [], "_format": "legacy", "_work_dir": str(project_dir)}
+                get_db(project_dir)  # ensure DB exists
 
-                keyframes = parsed.get("keyframes", [])
-                transitions = parsed.get("transitions", [])
-                kf_bin = parsed.get("bin", [])
-                tr_bin = parsed.get("transition_bin", [])
-
-                # Find next IDs
-                all_kf_ids = [kf.get("id", "") for kf in keyframes + kf_bin]
-                max_kf = max((int(m.group(1)) for kid in all_kf_ids if (m := __import__('re').match(r'kf_(\d+)', kid))), default=0)
-
-                all_tr_ids = [tr.get("id", "") for tr in transitions + tr_bin]
-                max_tr = max((int(m.group(1)) for tid in all_tr_ids if (m := __import__('re').match(r'tr_(\d+)', tid))), default=0)
+                # Get starting IDs
+                kf_num = int(next_keyframe_id(project_dir).replace("kf_", ""))
+                tr_num = int(next_transition_id(project_dir).replace("tr_", ""))
 
                 # Collect files
                 IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.webp'}
                 VIDEO_EXTS = {'.mp4', '.webm', '.mov'}
 
-                files = []
-                if source.is_dir():
-                    files = sorted(source.iterdir())
-                else:
-                    files = [source]
+                files = sorted(source.iterdir()) if source.is_dir() else [source]
 
                 now = datetime.now(timezone.utc).isoformat()
                 selected_kf_dir = project_dir / "selected_keyframes"
@@ -4497,17 +4485,12 @@ def make_handler(work_dir: Path):
                     ext = f.suffix.lower()
 
                     if ext in IMAGE_EXTS:
-                        max_kf += 1
-                        kf_id = f"kf_{max_kf:03d}"
-                        # Copy to selected_keyframes
+                        kf_id = f"kf_{kf_num:03d}"
+                        kf_num += 1
                         dest = selected_kf_dir / f"{kf_id}.png"
-                        if ext == '.png':
-                            shutil.copy2(str(f), str(dest))
-                        else:
-                            # Convert to PNG via copy (browser handles format)
-                            shutil.copy2(str(f), str(dest))
+                        shutil.copy2(str(f), str(dest))
 
-                        kf_entry = {
+                        add_keyframe(project_dir, {
                             "id": kf_id,
                             "timestamp": format_ts(current_ts),
                             "section": "",
@@ -4517,37 +4500,28 @@ def make_handler(work_dir: Path):
                             "candidates": [],
                             "selected": 1,
                             "deleted_at": now,
-                        }
-                        kf_bin.append(kf_entry)
+                        })
                         imported_kf.append(kf_id)
                         current_ts += 1.0
 
                     elif ext in VIDEO_EXTS:
-                        max_tr += 1
-                        tr_id = f"tr_{max_tr:03d}"
-                        # Copy to selected_transitions
+                        tr_id = f"tr_{tr_num:03d}"
+                        tr_num += 1
                         dest = selected_tr_dir / f"{tr_id}_slot_0{ext}"
                         shutil.copy2(str(f), str(dest))
 
-                        tr_entry = {
+                        add_transition(project_dir, {
                             "id": tr_id,
                             "from": "",
                             "to": "",
                             "duration_seconds": 0,
                             "slots": 1,
                             "action": f"Imported from {f.name}",
-                            "candidates": [],
                             "selected": [],
                             "remap": {"method": "linear", "target_duration": 0},
                             "deleted_at": now,
-                        }
-                        tr_bin.append(tr_entry)
+                        })
                         imported_tr.append(tr_id)
-
-                parsed["bin"] = kf_bin
-                parsed["transition_bin"] = tr_bin
-
-                save_project(parsed, project_dir)
 
                 self._json_response({
                     "success": True,
@@ -4752,29 +4726,27 @@ def make_handler(work_dir: Path):
         # ── Narrative / Timeline Handlers ─────────────────────────
 
         def _handle_get_narrative(self, project_name: str):
-            """GET /api/projects/:name/narrative — return sections from narrative.yaml."""
+            """GET /api/projects/:name/narrative — return sections from DB."""
             _log(f"get-narrative: {project_name}")
-            from beatlab.project import load_project
-            project_dir = work_dir / project_name
-            if not project_dir.is_dir():
-                return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
-            data = load_project(project_dir)
-            self._json_response({"sections": data.get("sections", [])})
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None: return
+            from beatlab.db import get_sections
+            self._json_response({"sections": get_sections(project_dir)})
 
         def _handle_update_narrative(self, project_name: str):
-            """POST /api/projects/:name/narrative — update sections."""
-            from beatlab.project import load_project, save_project
+            """POST /api/projects/:name/narrative — update sections in DB."""
             body = self._read_json_body()
             if body is None:
                 return
-            _log(f"update-narrative: {len(body.get('sections', []))} sections")
-            project_dir = work_dir / project_name
-            if not project_dir.is_dir():
-                return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
-            data = load_project(project_dir)
-            data["sections"] = body.get("sections", data.get("sections", []))
-            save_project(data, project_dir)
-            self._json_response({"success": True, "sections": len(data["sections"])})
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None: return
+            from beatlab.db import get_sections, set_sections
+            sections = body.get("sections")
+            if sections is not None:
+                _log(f"update-narrative: {len(sections)} sections")
+                set_sections(project_dir, sections)
+            result = get_sections(project_dir)
+            self._json_response({"success": True, "sections": len(result)})
 
         def _handle_get_timelines(self, project_name: str):
             """GET /api/projects/:name/timelines — list available timelines."""

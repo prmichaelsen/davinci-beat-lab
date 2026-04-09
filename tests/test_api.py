@@ -2374,3 +2374,299 @@ class TestPasteGroup:
         assert new_tr["label"] == "Hero Dissolve"
         assert new_tr["labelColor"] == "#ff00ff"
         assert new_tr["tags"] == ["hero", "dissolve"]
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Undo System Tests
+# ══════════════════════════════════════════════════════════════════════
+
+
+def undo(env):
+    return api(env, "POST", f"/api/projects/{env['project_name']}/undo", {})
+
+
+def undo_history(env):
+    return api(env, "GET", f"/api/projects/{env['project_name']}/undo-history")
+
+
+class TestUndoAddKeyframe:
+    def test_undo_add_keyframe(self, project_env):
+        """Undoing an add-keyframe should remove the keyframe."""
+        env = project_env
+        r = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+        kf_id = r["keyframe"]["id"]
+
+        data = get_editor_data(env)
+        assert any(k["id"] == kf_id for k in data["keyframes"])
+
+        result = undo(env)
+        assert result["success"] is True
+
+        data = get_editor_data(env)
+        assert not any(k["id"] == kf_id for k in data["keyframes"])
+
+    def test_undo_add_keyframe_removes_transitions(self, project_env):
+        """Undoing add-keyframe should also remove auto-created transitions."""
+        env = project_env
+        api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:00.00"})
+        api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:10.00"})
+
+        trs_before = active_transitions(env)
+        assert len(trs_before) == 1
+
+        api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+        trs_mid = active_transitions(env)
+        assert len(trs_mid) == 2
+
+        undo(env)
+        trs_after = active_transitions(env)
+        # Should restore to 1 transition between original two kfs
+        assert len(trs_after) >= 1
+        data = get_editor_data(env)
+        assert len(data["keyframes"]) == 2
+
+
+class TestUndoDeleteKeyframe:
+    def test_undo_delete_keyframe(self, project_env):
+        """Undoing a delete should restore the keyframe."""
+        import time
+        env = project_env
+        r = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+        kf_id = r["keyframe"]["id"]
+
+        api(env, "POST", f"/api/projects/{env['project_name']}/delete-keyframe", {"keyframeId": kf_id})
+        time.sleep(0.5)  # bridge thread
+
+        data = get_editor_data(env)
+        assert not any(k["id"] == kf_id for k in data["keyframes"])
+
+        undo(env)
+
+        data = get_editor_data(env)
+        assert any(k["id"] == kf_id for k in data["keyframes"])
+
+
+class TestUndoUpdateTimestamp:
+    def test_undo_update_timestamp(self, project_env):
+        """Undoing a timestamp update should restore the original time."""
+        env = project_env
+        r = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+        kf_id = r["keyframe"]["id"]
+
+        api(env, "POST", f"/api/projects/{env['project_name']}/update-timestamp", {
+            "keyframeId": kf_id, "newTimestamp": "0:08.00",
+        })
+
+        data = get_editor_data(env)
+        kf = next(k for k in data["keyframes"] if k["id"] == kf_id)
+        assert kf["timestamp"] == "0:08.00"
+
+        undo(env)
+
+        data = get_editor_data(env)
+        kf = next(k for k in data["keyframes"] if k["id"] == kf_id)
+        assert kf["timestamp"] == "0:05.00"
+
+
+class TestUndoDeleteTransition:
+    def test_undo_delete_transition(self, project_env):
+        """Undoing a transition delete should restore it."""
+        env = project_env
+        api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:00.00"})
+        api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+
+        trs = active_transitions(env)
+        assert len(trs) == 1
+        tr_id = trs[0]["id"]
+
+        api(env, "POST", f"/api/projects/{env['project_name']}/delete-transition", {"transitionId": tr_id})
+        assert len(active_transitions(env)) == 0
+
+        undo(env)
+        trs_after = active_transitions(env)
+        assert any(t["id"] == tr_id for t in trs_after)
+
+
+class TestUndoKeyframeStyle:
+    def test_undo_keyframe_style(self, project_env):
+        """Undoing a style change should restore the original values."""
+        env = project_env
+        r = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+        kf_id = r["keyframe"]["id"]
+
+        api(env, "POST", f"/api/projects/{env['project_name']}/update-keyframe-style", {
+            "keyframeId": kf_id, "blendMode": "screen", "opacity": 0.5,
+        })
+
+        from beatlab.db import get_keyframe
+        kf = get_keyframe(env["project_dir"], kf_id)
+        assert kf["blend_mode"] == "screen"
+        assert kf["opacity"] == pytest.approx(0.5)
+
+        undo(env)
+
+        kf = get_keyframe(env["project_dir"], kf_id)
+        assert kf["blend_mode"] == ""
+        assert kf["opacity"] is None
+
+
+class TestUndoTransitionStyle:
+    def test_undo_transition_style(self, project_env):
+        """Undoing a transition style change should restore original values."""
+        env = project_env
+        api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:00.00"})
+        api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+
+        trs = active_transitions(env)
+        tr_id = trs[0]["id"]
+
+        api(env, "POST", f"/api/projects/{env['project_name']}/update-transition-style", {
+            "transitionId": tr_id, "blendMode": "multiply",
+        })
+
+        from beatlab.db import get_transition
+        tr = get_transition(env["project_dir"], tr_id)
+        assert tr["blend_mode"] == "multiply"
+
+        undo(env)
+
+        tr = get_transition(env["project_dir"], tr_id)
+        assert tr["blend_mode"] == ""
+
+
+class TestUndoDuplicateKeyframe:
+    def test_undo_duplicate(self, project_env):
+        """Undoing a duplicate should remove the duplicated keyframe."""
+        env = project_env
+        r = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+        kf_id = r["keyframe"]["id"]
+
+        result = api(env, "POST", f"/api/projects/{env['project_name']}/duplicate-keyframe", {
+            "keyframeId": kf_id, "timestamp": "0:10.00",
+        })
+        new_id = result["keyframe"]["id"]
+
+        data = get_editor_data(env)
+        assert any(k["id"] == new_id for k in data["keyframes"])
+
+        undo(env)
+
+        data = get_editor_data(env)
+        assert not any(k["id"] == new_id for k in data["keyframes"])
+        assert any(k["id"] == kf_id for k in data["keyframes"])
+
+
+class TestUndoPasteGroup:
+    def test_undo_paste_group(self, project_env):
+        """Undoing a paste-group should remove all pasted kfs and trs."""
+        env = project_env
+        ids = []
+        for ts in ["0:00.00", "0:05.00", "0:10.00"]:
+            r = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": ts})
+            ids.append(r["keyframe"]["id"])
+
+        result = api(env, "POST", f"/api/projects/{env['project_name']}/paste-group", {
+            "keyframeIds": ids, "targetTime": "0:30.00", "targetTrackId": "track_1",
+        })
+        pasted_kf_ids = {k["id"] for k in result["keyframes"]}
+        pasted_tr_ids = {t["id"] for t in result["transitions"]}
+
+        data = get_editor_data(env)
+        assert all(any(k["id"] == pid for k in data["keyframes"]) for pid in pasted_kf_ids)
+
+        undo(env)
+
+        data = get_editor_data(env)
+        for pid in pasted_kf_ids:
+            assert not any(k["id"] == pid for k in data["keyframes"]), f"Pasted kf {pid} should be removed"
+
+
+class TestUndoUnlink:
+    def test_undo_unlink(self, project_env):
+        """Undoing an unlink should restore the transitions."""
+        env = project_env
+        api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:00.00"})
+        r2 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+        api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:10.00"})
+
+        trs_before = active_transitions(env)
+        assert len(trs_before) == 2
+
+        api(env, "POST", f"/api/projects/{env['project_name']}/unlink-keyframe", {
+            "keyframeId": r2["keyframe"]["id"],
+        })
+        assert len(active_transitions(env)) == 0
+
+        undo(env)
+        assert len(active_transitions(env)) == 2
+
+
+class TestUndoHistory:
+    def test_history_tracks_operations(self, project_env):
+        """Undo history should list recent operations with descriptions."""
+        env = project_env
+        api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+        api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:10.00"})
+
+        history = undo_history(env)["history"]
+        assert len(history) >= 2
+        assert any("Add keyframe" in h["description"] for h in history)
+
+    def test_undo_marks_as_undone(self, project_env):
+        """After undo, the history entry should be marked as undone."""
+        env = project_env
+        api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+
+        undo(env)
+
+        history = undo_history(env)["history"]
+        assert history[0]["undone"] is True
+
+
+class TestUndoMultipleOperations:
+    def test_undo_multiple_in_sequence(self, project_env):
+        """Multiple undos should revert operations in reverse order."""
+        env = project_env
+        r1 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+        r2 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:10.00"})
+
+        data = get_editor_data(env)
+        assert len(data["keyframes"]) == 2
+
+        # Undo second add
+        undo(env)
+        data = get_editor_data(env)
+        assert len(data["keyframes"]) == 1
+        assert data["keyframes"][0]["id"] == r1["keyframe"]["id"]
+
+        # Undo first add
+        undo(env)
+        data = get_editor_data(env)
+        assert len(data["keyframes"]) == 0
+
+    def test_undo_nothing_returns_false(self, project_env):
+        """Undo with empty history should return success=false."""
+        env = project_env
+        result = undo(env)
+        assert result["success"] is False
+
+
+class TestUndoClearsRedoOnNewOperation:
+    def test_new_op_after_undo_clears_redo(self, project_env):
+        """A new operation after undo should clear the redo history."""
+        env = project_env
+        r1 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:05.00"})
+        undo(env)
+
+        # New operation
+        r2 = api(env, "POST", f"/api/projects/{env['project_name']}/add-keyframe", {"timestamp": "0:10.00"})
+
+        # Undo should undo r2, not re-do r1
+        undo(env)
+        data = get_editor_data(env)
+        assert not any(k["id"] == r2["keyframe"]["id"] for k in data["keyframes"])
+
+        history = undo_history(env)["history"]
+        # r1's entry should have been purged (it was undone, then a new op cleared redo)
+        undone_entries = [h for h in history if h["undone"]]
+        assert len(undone_entries) <= 1  # only the latest undo

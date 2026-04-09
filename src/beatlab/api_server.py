@@ -3493,6 +3493,8 @@ def make_handler(work_dir: Path):
                 return
 
             try:
+                from beatlab.db import undo_begin as _ub_remap
+                _ub_remap(project_dir, f"Update transition remap {tr_id}")
                 _log(f"update-transition-remap: {tr_id} method={method}")
                 from beatlab.db import get_transition, update_transition
                 tr = get_transition(project_dir, tr_id)

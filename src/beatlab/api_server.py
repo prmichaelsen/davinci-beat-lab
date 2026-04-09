@@ -164,6 +164,14 @@ def make_handler(work_dir: Path):
                     })
                 return self._json_response({"checkpoints": checkpoints, "active": "project.db"})
 
+            # GET /api/projects/:name/undo-history
+            m = re.match(r"^/api/projects/([^/]+)/undo-history$", path)
+            if m:
+                project_dir = self._require_project_dir(m.group(1))
+                if project_dir is None: return
+                from beatlab.db import undo_history
+                return self._json_response({"history": undo_history(project_dir)})
+
             # GET /api/projects/:name/settings
             m = re.match(r"^/api/projects/([^/]+)/settings$", path)
             if m:
@@ -258,15 +266,15 @@ def make_handler(work_dir: Path):
             if m:
                 return self._handle_get_pool(m.group(1))
 
-            # GET /api/projects/:name/version/history
+            # GET /api/projects/:name/version/history (deprecated — git removed)
             m = re.match(r"^/api/projects/([^/]+)/version/history$", path)
             if m:
-                return self._handle_version_history(m.group(1))
+                return self._json_response({"commits": [], "branch": "", "branches": []})
 
-            # GET /api/projects/:name/version/diff
+            # GET /api/projects/:name/version/diff (deprecated — git removed)
             m = re.match(r"^/api/projects/([^/]+)/version/diff$", path)
             if m:
-                return self._handle_version_diff(m.group(1))
+                return self._json_response({"changes": []})
 
             # GET /api/projects/:name/effects
             m = re.match(r"^/api/projects/([^/]+)/effects$", path)
@@ -304,7 +312,7 @@ def make_handler(work_dir: Path):
                 "add-keyframe", "duplicate-keyframe", "delete-keyframe", "batch-delete-keyframes", "restore-keyframe",
                 "delete-transition", "restore-transition",
                 "split-transition", "insert-pool-item", "paste-group",
-                "version/commit",
+                "checkpoint",
             }
             _use_lock = _proj_name and _route_name in _structural_routes
 
@@ -442,6 +450,30 @@ def make_handler(work_dir: Path):
             m = re.match(r"^/api/projects/([^/]+)/assign-pool-video$", path)
             if m:
                 return self._handle_assign_pool_video(m.group(1))
+
+            # POST /api/projects/:name/undo
+            m = re.match(r"^/api/projects/([^/]+)/undo$", path)
+            if m:
+                project_dir = self._require_project_dir(m.group(1))
+                if project_dir is None: return
+                from beatlab.db import undo_execute
+                result = undo_execute(project_dir)
+                if result:
+                    _log(f"undo: {result['description']}")
+                    return self._json_response({"success": True, **result})
+                return self._json_response({"success": False, "message": "Nothing to undo"})
+
+            # POST /api/projects/:name/redo
+            m = re.match(r"^/api/projects/([^/]+)/redo$", path)
+            if m:
+                project_dir = self._require_project_dir(m.group(1))
+                if project_dir is None: return
+                from beatlab.db import redo_execute
+                result = redo_execute(project_dir)
+                if result:
+                    _log(f"redo: {result['description']}")
+                    return self._json_response({"success": True, **result})
+                return self._json_response({"success": False, "message": "Nothing to redo"})
 
             # POST /api/projects/:name/checkpoint
             m = re.match(r"^/api/projects/([^/]+)/checkpoint$", path)
@@ -939,7 +971,7 @@ def make_handler(work_dir: Path):
 
                 # Copy style fields
                 style_fields = {}
-                for key in ("blend_mode", "opacity", "opacity_curve", "red_curve", "green_curve", "blue_curve", "black_curve", "hue_shift_curve", "saturation_curve", "invert_curve", "is_adjustment", "hidden", "mask_center_x", "mask_center_y", "mask_radius", "mask_feather", "transform_x", "transform_y"):
+                for key in ("blend_mode", "opacity", "opacity_curve", "red_curve", "green_curve", "blue_curve", "black_curve", "hue_shift_curve", "saturation_curve", "invert_curve", "chroma_key", "is_adjustment", "hidden", "mask_center_x", "mask_center_y", "mask_radius", "mask_feather", "transform_x", "transform_y"):
                     if src.get(key) is not None:
                         style_fields[key] = src[key]
                     elif key in ("blend_mode",):
@@ -1053,6 +1085,8 @@ def make_handler(work_dir: Path):
                 project_dir = self._require_project_dir(m.group(1))
                 if project_dir is None: return
                 from beatlab.db import update_keyframe
+                from beatlab.db import undo_begin as _ub
+                _ub(project_dir, f"Update keyframe style {body.get('keyframeId', '')}")
                 fields = {}
                 if "blendMode" in body:
                     fields["blend_mode"] = body["blendMode"]
@@ -1073,6 +1107,8 @@ def make_handler(work_dir: Path):
                 project_dir = self._require_project_dir(m.group(1))
                 if project_dir is None: return
                 from beatlab.db import update_transition
+                from beatlab.db import undo_begin as _ub
+                _ub(project_dir, f"Update transition style {body.get('transitionId', '')}")
                 fields = {}
                 if "blendMode" in body:
                     fields["blend_mode"] = body["blendMode"]
@@ -1337,25 +1373,25 @@ def make_handler(work_dir: Path):
             if m:
                 return self._handle_timeline_create(m.group(1))
 
-            # POST /api/projects/:name/version/commit
+            # POST /api/projects/:name/version/commit (deprecated — git removed, no-op)
             m = re.match(r"^/api/projects/([^/]+)/version/commit$", path)
             if m:
-                return self._handle_version_commit(m.group(1))
+                return self._json_response({"success": True, "noChanges": True})
 
-            # POST /api/projects/:name/version/checkout
+            # POST /api/projects/:name/version/checkout (deprecated)
             m = re.match(r"^/api/projects/([^/]+)/version/checkout$", path)
             if m:
-                return self._handle_version_checkout(m.group(1))
+                return self._error(410, "GONE", "Git versioning removed — use checkpoint/restore instead")
 
-            # POST /api/projects/:name/version/branch
+            # POST /api/projects/:name/version/branch (deprecated)
             m = re.match(r"^/api/projects/([^/]+)/version/branch$", path)
             if m:
-                return self._handle_version_branch(m.group(1))
+                return self._error(410, "GONE", "Git versioning removed — use checkpoint/restore instead")
 
-            # POST /api/projects/:name/version/delete-branch
+            # POST /api/projects/:name/version/delete-branch (deprecated)
             m = re.match(r"^/api/projects/([^/]+)/version/delete-branch$", path)
             if m:
-                return self._handle_version_delete_branch(m.group(1))
+                return self._error(410, "GONE", "Git versioning removed — use checkpoint/restore instead")
 
             # POST /api/projects/:name/promote-staged-candidate
             m = re.match(r"^/api/projects/([^/]+)/promote-staged-candidate$", path)
@@ -1799,6 +1835,9 @@ def make_handler(work_dir: Path):
             if project_dir is None:
                 return
 
+            from beatlab.db import undo_begin as _ub
+            _ub(project_dir, f"Update timestamp {kf_id} to {new_timestamp}")
+
             try:
                 _log(f"update-timestamp: {kf_id} -> {new_timestamp}")
                 from beatlab.db import update_keyframe, get_transitions, update_transition
@@ -1998,6 +2037,9 @@ def make_handler(work_dir: Path):
             if project_dir is None:
                 return
 
+            from beatlab.db import undo_begin
+            undo_begin(project_dir, f"Add keyframe at {timestamp}")
+
             try:
                 from beatlab.db import (
                     add_keyframe as db_add_kf, get_keyframes as db_get_kfs,
@@ -2101,6 +2143,9 @@ def make_handler(work_dir: Path):
             project_dir = self._require_project_dir(project_name)
             if project_dir is None:
                 return
+
+            from beatlab.db import undo_begin
+            undo_begin(project_dir, f"Duplicate keyframe {source_id}")
 
             try:
                 from beatlab.db import (
@@ -2231,6 +2276,9 @@ def make_handler(work_dir: Path):
             if project_dir is None:
                 return
 
+            from beatlab.db import undo_begin
+            undo_begin(project_dir, f"Paste {len(kf_ids)} keyframes")
+
             try:
                 from beatlab.db import (
                     get_keyframe as db_get_kf, add_keyframe as db_add_kf,
@@ -2359,6 +2407,7 @@ def make_handler(work_dir: Path):
                         "hue_shift_curve": src_tr.get("hue_shift_curve"),
                         "saturation_curve": src_tr.get("saturation_curve"),
                         "invert_curve": src_tr.get("invert_curve"),
+                        "chroma_key": src_tr.get("chroma_key"),
                         "is_adjustment": src_tr.get("is_adjustment", False),
                         "hidden": src_tr.get("hidden", False),
                         "mask_center_x": src_tr.get("mask_center_x"),
@@ -2404,6 +2453,9 @@ def make_handler(work_dir: Path):
             project_dir = self._require_project_dir(project_name)
             if project_dir is None:
                 return
+
+            from beatlab.db import undo_begin
+            undo_begin(project_dir, f"Delete keyframe {kf_id}")
 
             try:
                 from beatlab.db import (
@@ -3312,6 +3364,9 @@ def make_handler(work_dir: Path):
             if project_dir is None:
                 return
 
+            from beatlab.db import undo_begin
+            undo_begin(project_dir, f"Unlink keyframe {kf_id}")
+
             try:
                 from beatlab.db import get_transitions_involving, delete_transition as db_del_tr
                 from datetime import datetime, timezone
@@ -3345,6 +3400,9 @@ def make_handler(work_dir: Path):
             project_dir = self._require_project_dir(project_name)
             if project_dir is None:
                 return
+
+            from beatlab.db import undo_begin as _ub
+            _ub(project_dir, f"Delete transition {tr_id}")
 
             try:
                 _log(f"delete-transition: {tr_id}")
@@ -4792,55 +4850,11 @@ def make_handler(work_dir: Path):
 
         # ── Git Version Handlers ─────────────────────────────────
 
-        def _ensure_git_repo(self, project_dir: Path):
-            """Lazily initialize git repo in project directory."""
-            if not (project_dir / ".git").exists():
-                import subprocess as sp
-                sp.run(["git", "init"], cwd=project_dir, capture_output=True, check=True)
-                sp.run(["git", "add", "-A"], cwd=project_dir, capture_output=True, check=True)
-                sp.run(["git", "commit", "-m", "Initial project state"], cwd=project_dir, capture_output=True, check=True)
-
-        def _handle_version_commit(self, project_name: str):
-            """POST /api/projects/:name/version/commit"""
-            import subprocess as sp
-            body = self._read_json_body()
-            if body is None:
-                return
-            message = body.get("message", "Save")
-            project_dir = work_dir / project_name
-            if not project_dir.is_dir():
-                return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
-
-            self._ensure_git_repo(project_dir)
-            _log(f"version-commit: {message[:50]}")
-
-            # Lock per-project to prevent concurrent git/YAML operations
-            lock = _get_project_lock(project_name)
-            with lock:
-                return self._do_version_commit(project_dir, message)
-
-        def _do_version_commit(self, project_dir, message):
-            import subprocess as sp
-
-            # Stage all changes
-            sp.run(["git", "add", "-A"], cwd=project_dir, capture_output=True, check=True)
-
-            # Check if there's anything to commit
-            status = sp.run(["git", "status", "--porcelain"], cwd=project_dir, capture_output=True, text=True)
-            if not status.stdout.strip():
-                return self._json_response({"success": True, "noChanges": True})
-
-            # Commit
-            result = sp.run(["git", "commit", "-m", message], cwd=project_dir, capture_output=True, text=True)
-            if result.returncode != 0:
-                return self._error(500, "GIT_ERROR", result.stderr.strip())
-
-            # Get SHA
-            sha = sp.run(["git", "rev-parse", "--short", "HEAD"], cwd=project_dir, capture_output=True, text=True)
-            self._json_response({"success": True, "sha": sha.stdout.strip(), "message": message})
+        # Git versioning removed — replaced by checkpoint-based backups.
+        # version/* endpoints return no-ops or 410 GONE above.
 
         def _handle_version_history(self, project_name: str):
-            """GET /api/projects/:name/version/history"""
+            """GET /api/projects/:name/version/history — DEPRECATED (git removed)"""
             _log(f"version-history: {project_name}")
             import subprocess as sp
             project_dir = work_dir / project_name

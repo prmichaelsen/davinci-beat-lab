@@ -4177,10 +4177,14 @@ def make_handler(work_dir: Path):
                 return
 
             try:
-                from beatlab.db import save_effects
+                from beatlab.db import save_effects, get_suppressions
                 effects = body.get("effects", [])
-                suppressions = body.get("suppressions", [])
-                _log(f"update-effects: {len(effects)} effects, {len(suppressions)} suppressions")
+                # Only update suppressions if explicitly provided in the request
+                if "suppressions" in body:
+                    suppressions = body["suppressions"]
+                else:
+                    suppressions = get_suppressions(project_dir)
+                _log(f"update-effects: {len(effects)} effects, {len(suppressions)} suppressions (suppressions_in_body={'suppressions' in body})")
                 save_effects(project_dir, effects, suppressions)
                 self._json_response({"success": True})
             except Exception as e:

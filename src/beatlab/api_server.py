@@ -4397,8 +4397,39 @@ def make_handler(work_dir: Path):
                             completed_count[0] += 1
                             _log(f"    {tr_id} slot_{j['slot']} v{j['variant']} done")
                         except PromptRejectedError as e:
-                            _log(f"    ⚠ PROMPT REJECTED: {tr_id} — {e}")
-                            rejected.append(tr_id)
+                            # Retry prompt rejections up to 5 times (content filters can be flaky)
+                            max_rejection_retries = 5
+                            succeeded = False
+                            for retry_i in range(max_rejection_retries):
+                                _log(f"    ⚠ PROMPT REJECTED (attempt {retry_i + 1}/{max_rejection_retries}): {tr_id} — {e}")
+                                job_manager.update_progress(job_id, completed_count[0], f"Prompt rejected, retrying ({retry_i + 1}/{max_rejection_retries})...")
+                                import time as _time
+                                _time.sleep(5 * (retry_i + 1))
+                                try:
+                                    if no_end_frame:
+                                        client.generate_video_from_image(
+                                            image_path=j["start"], prompt=prompt,
+                                            output_path=j["output"], duration_seconds=int(slot_duration),
+                                        )
+                                    else:
+                                        client.generate_video_transition(
+                                            start_frame_path=j["start"], end_frame_path=j["end"],
+                                            prompt=prompt, output_path=j["output"],
+                                            duration_seconds=int(slot_duration),
+                                            on_status=lambda msg: job_manager.update_progress(job_id, completed_count[0], msg),
+                                        )
+                                    completed_count[0] += 1
+                                    _log(f"    {tr_id} slot_{j['slot']} v{j['variant']} succeeded on retry {retry_i + 1}")
+                                    succeeded = True
+                                    break
+                                except PromptRejectedError:
+                                    continue
+                                except Exception:
+                                    break
+                            if not succeeded:
+                                _log(f"    ⚠ PROMPT REJECTED after {max_rejection_retries} retries: {tr_id}")
+                                rejected.append(tr_id)
+                                job_manager.update_progress(job_id, completed_count[0], f"⚠ {tr_id}: prompt rejected after {max_rejection_retries} attempts")
                         except Exception as e:
                             _log(f"    ⚠ {tr_id} slot_{j['slot']} v{j['variant']} FAILED: {e}")
 
@@ -4422,7 +4453,11 @@ def make_handler(work_dir: Path):
                                 ])
                                 candidates[sd.name] = videos
 
-                    job_manager.complete_job(job_id, {"transitionId": tr_id, "candidates": candidates})
+                    result = {"transitionId": tr_id, "candidates": candidates}
+                    if rejected:
+                        result["rejected"] = rejected
+                        result["rejectionMessage"] = f"Prompt rejected for {len(rejected)} variant(s) after retries"
+                    job_manager.complete_job(job_id, result)
                 except Exception as e:
                     _log(f"[job {job_id}] FAILED: {e}")
                     import traceback

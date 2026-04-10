@@ -4404,7 +4404,7 @@ def make_handler(work_dir: Path):
                                 _log(f"    ⚠ PROMPT REJECTED (attempt {retry_i + 1}/{max_rejection_retries}): {tr_id} — {e}")
                                 job_manager.update_progress(job_id, completed_count[0], f"Prompt rejected, retrying ({retry_i + 1}/{max_rejection_retries})...")
                                 import time as _time
-                                _time.sleep(5 * (retry_i + 1))
+                                _time.sleep(2)
                                 try:
                                     if no_end_frame:
                                         client.generate_video_from_image(

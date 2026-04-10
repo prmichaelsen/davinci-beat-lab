@@ -163,6 +163,35 @@ def dump_db_to_yaml(project_dir: str | Path) -> None:
             "suppressions": suppressions,
         }
 
+        # ── Sections → narrative.yaml ──
+        sections = []
+        # Check if sections table exists (migration may not have run yet)
+        has_sections_table = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='sections'"
+        ).fetchone()
+        if has_sections_table:
+            for row in conn.execute("SELECT * FROM sections ORDER BY sort_order"):
+                sec = {
+                    "id": row["id"],
+                    "label": row["label"],
+                    "start": row["start"],
+                    "mood": row["mood"],
+                    "energy": row["energy"],
+                    "visual_direction": row["visual_direction"],
+                    "notes": row["notes"],
+                }
+                if row["end"]:
+                    sec["end"] = row["end"]
+                for json_col in ("instruments", "motifs", "events"):
+                    try:
+                        sec[json_col] = json.loads(row[json_col])
+                    except (json.JSONDecodeError, TypeError):
+                        sec[json_col] = []
+                sections.append(sec)
+
+        if sections:
+            _write_yaml({"sections": sections}, project_dir / "narrative.yaml")
+
         # ── Write files ──
         _write_yaml(project_yaml, project_dir / "project.yaml")
         _write_yaml(timeline_yaml, project_dir / "timeline.yaml")

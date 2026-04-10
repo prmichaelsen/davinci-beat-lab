@@ -1017,11 +1017,9 @@ def make_handler(work_dir: Path):
 
                 # Copy style fields
                 style_fields = {}
-                for key in ("blend_mode", "opacity", "opacity_curve", "red_curve", "green_curve", "blue_curve", "black_curve", "hue_shift_curve", "saturation_curve", "invert_curve", "chroma_key", "is_adjustment", "hidden", "mask_center_x", "mask_center_y", "mask_radius", "mask_feather", "transform_x", "transform_y", "transform_x_curve", "transform_y_curve", "transform_z_curve"):
-                    if src.get(key) is not None:
-                        style_fields[key] = src[key]
-                    elif key in ("blend_mode",):
-                        style_fields[key] = src.get(key, "")
+                for key in ("blend_mode", "opacity", "opacity_curve", "red_curve", "green_curve", "blue_curve", "black_curve", "hue_shift_curve", "saturation_curve", "invert_curve", "chroma_key", "is_adjustment", "hidden", "mask_center_x", "mask_center_y", "mask_radius", "mask_feather", "transform_x", "transform_y", "transform_x_curve", "transform_y_curve", "transform_z_curve", "anchor_x", "anchor_y"):
+                    # Copy all style fields including None (clears target's old values)
+                    style_fields[key] = src.get(key)
                 if style_fields:
                     update_transition(project_dir, target_id, **style_fields)
 
@@ -1200,6 +1198,10 @@ def make_handler(work_dir: Path):
                     fields["is_adjustment"] = int(body["isAdjustment"])
                 if "hidden" in body:
                     fields["hidden"] = body["hidden"]
+                if "anchorX" in body:
+                    fields["anchor_x"] = body["anchorX"]
+                if "anchorY" in body:
+                    fields["anchor_y"] = body["anchorY"]
                 tr_id = body["transitionId"]
                 _log(f"update-transition-style: {tr_id} {fields}")
                 update_transition(project_dir, tr_id, **fields)
@@ -1721,6 +1723,8 @@ def make_handler(work_dir: Path):
                     "transformXCurve": tr.get("transform_x_curve"),
                     "transformYCurve": tr.get("transform_y_curve"),
                     "transformZCurve": tr.get("transform_z_curve"),
+                    "anchorX": tr.get("anchor_x"),
+                    "anchorY": tr.get("anchor_y"),
                     "chromaKey": tr.get("chroma_key"),
                     "isAdjustment": tr.get("is_adjustment", False),
                     "hidden": tr.get("hidden", False),
@@ -2474,6 +2478,8 @@ def make_handler(work_dir: Path):
                         "transform_x_curve": src_tr.get("transform_x_curve"),
                         "transform_y_curve": src_tr.get("transform_y_curve"),
                         "transform_z_curve": src_tr.get("transform_z_curve"),
+                        "anchor_x": src_tr.get("anchor_x"),
+                        "anchor_y": src_tr.get("anchor_y"),
                         "label": src_tr.get("label", ""),
                         "label_color": src_tr.get("label_color", ""),
                         "tags": src_tr.get("tags", []),

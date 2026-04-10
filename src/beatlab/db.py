@@ -135,7 +135,8 @@ def _ensure_schema(conn: sqlite3.Connection):
         CREATE TABLE IF NOT EXISTS markers (
             id TEXT PRIMARY KEY,
             time REAL NOT NULL,
-            label TEXT NOT NULL DEFAULT ''
+            label TEXT NOT NULL DEFAULT '',
+            type TEXT NOT NULL DEFAULT 'note'
         );
 
         CREATE TABLE IF NOT EXISTS tracks (
@@ -288,6 +289,17 @@ def _ensure_schema(conn: sqlite3.Connection):
         conn.execute("ALTER TABLE tracks ADD COLUMN chroma_key TEXT")
     if "hidden" not in track_cols:
         conn.execute("ALTER TABLE tracks ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0")
+
+    # Add anchor_x/anchor_y columns to transitions if missing
+    tr_cols4 = {row[1] for row in conn.execute("PRAGMA table_info(transitions)").fetchall()}
+    for col in ("anchor_x", "anchor_y"):
+        if col not in tr_cols4:
+            conn.execute(f"ALTER TABLE transitions ADD COLUMN {col} REAL")
+
+    # Add type column to markers if missing
+    marker_cols = {row[1] for row in conn.execute("PRAGMA table_info(markers)").fetchall()}
+    if "type" not in marker_cols:
+        conn.execute("ALTER TABLE markers ADD COLUMN type TEXT NOT NULL DEFAULT 'note'")
 
     # Ensure default track exists
     try:
@@ -492,6 +504,8 @@ def _row_to_transition(row: sqlite3.Row) -> dict:
         "transform_x_curve": json.loads(row["transform_x_curve"]) if "transform_x_curve" in row.keys() and row["transform_x_curve"] else None,
         "transform_y_curve": json.loads(row["transform_y_curve"]) if "transform_y_curve" in row.keys() and row["transform_y_curve"] else None,
         "transform_z_curve": json.loads(row["transform_z_curve"]) if "transform_z_curve" in row.keys() and row["transform_z_curve"] else None,
+        "anchor_x": row["anchor_x"] if "anchor_x" in row.keys() else None,
+        "anchor_y": row["anchor_y"] if "anchor_y" in row.keys() else None,
         "deleted_at": row["deleted_at"],
         "include_section_desc": bool(row["include_section_desc"]) if "include_section_desc" in row.keys() else True,
         "hidden": bool(row["hidden"]) if "hidden" in row.keys() else False,
@@ -540,8 +554,8 @@ def add_transition(project_dir: Path, tr: dict):
 
     def _do_insert():
         conn.execute(
-            """INSERT OR REPLACE INTO transitions (id, from_kf, to_kf, duration_seconds, slots, action, use_global_prompt, selected, remap, deleted_at, track_id, label, label_color, tags, blend_mode, opacity, opacity_curve, red_curve, green_curve, blue_curve, black_curve, hue_shift_curve, saturation_curve, invert_curve, is_adjustment, mask_center_x, mask_center_y, mask_radius, mask_feather, transform_x, transform_y, transform_x_curve, transform_y_curve, transform_z_curve, hidden)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT OR REPLACE INTO transitions (id, from_kf, to_kf, duration_seconds, slots, action, use_global_prompt, selected, remap, deleted_at, track_id, label, label_color, tags, blend_mode, opacity, opacity_curve, red_curve, green_curve, blue_curve, black_curve, hue_shift_curve, saturation_curve, invert_curve, is_adjustment, mask_center_x, mask_center_y, mask_radius, mask_feather, transform_x, transform_y, transform_x_curve, transform_y_curve, transform_z_curve, hidden, anchor_x, anchor_y)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (tr["id"], tr.get("from", ""), tr.get("to", ""), tr.get("duration_seconds", 0),
              tr.get("slots", 1), tr.get("action", ""), int(tr.get("use_global_prompt", False)),
              json.dumps(selected), json.dumps(tr.get("remap", {"method": "linear", "target_duration": 0})),
@@ -563,7 +577,8 @@ def add_transition(project_dir: Path, tr: dict):
              _json_or_none(tr.get("transform_x_curve")),
              _json_or_none(tr.get("transform_y_curve")),
              _json_or_none(tr.get("transform_z_curve")),
-             int(tr.get("hidden", False))),
+             int(tr.get("hidden", False)),
+             tr.get("anchor_x"), tr.get("anchor_y")),
         )
         conn.commit()
     _retry_on_locked(_do_insert)
@@ -593,9 +608,9 @@ def update_transition(project_dir: Path, tr_id: str, **fields):
         elif key == "include_section_desc":
             val = int(val)
         elif key == "is_adjustment":
-            val = int(val)
+            val = int(val or 0)
         elif key == "hidden":
-            val = int(val)
+            val = int(val or 0)
         elif key == "tags":
             val = json.dumps(val) if isinstance(val, list) else val
         elif key in ("opacity_curve", "red_curve", "green_curve", "blue_curve", "black_curve", "hue_shift_curve", "saturation_curve", "invert_curve", "transform_x_curve", "transform_y_curve", "transform_z_curve"):
@@ -938,13 +953,13 @@ def delete_opacity_keyframe(project_dir: Path, okf_id: str):
 
 def get_markers(project_dir: Path) -> list[dict]:
     conn = get_db(project_dir)
-    rows = conn.execute("SELECT id, time, label FROM markers ORDER BY time").fetchall()
-    return [{"id": r["id"], "time": r["time"], "label": r["label"]} for r in rows]
+    rows = conn.execute("SELECT id, time, label, type FROM markers ORDER BY time").fetchall()
+    return [{"id": r["id"], "time": r["time"], "label": r["label"], "type": r["type"] or "note"} for r in rows]
 
 
-def add_marker(project_dir: Path, marker_id: str, time: float, label: str = ""):
+def add_marker(project_dir: Path, marker_id: str, time: float, label: str = "", marker_type: str = "note"):
     conn = get_db(project_dir)
-    conn.execute("INSERT OR REPLACE INTO markers (id, time, label) VALUES (?, ?, ?)", (marker_id, time, label))
+    conn.execute("INSERT OR REPLACE INTO markers (id, time, label, type) VALUES (?, ?, ?, ?)", (marker_id, time, label, marker_type))
     conn.commit()
 
 

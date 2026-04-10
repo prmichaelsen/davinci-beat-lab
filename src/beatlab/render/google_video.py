@@ -75,24 +75,54 @@ def _retry_video_generation(generate_fn, client, output_path, max_retries: int =
                 operation = client.operations.get(operation)
             _status(f"Veo complete ({int(time.time() - poll_start)}s)")
 
-            # Check for valid result — fail immediately on None (Vertex charges per request)
+            # Check for error on the operation itself
+            if operation.error:
+                err_msg = str(operation.error)
+                _status(f"Veo operation error: {err_msg}")
+                # Content safety errors are permanent — don't retry
+                if "safety" in err_msg.lower() or "blocked" in err_msg.lower() or "filtered" in err_msg.lower():
+                    raise PromptRejectedError(f"Veo content safety rejection: {err_msg}")
+                # Other errors are transient — retry
+                if attempt < max_retries - 1:
+                    wait = 30 * (attempt + 1)
+                    _status(f"Retrying in {wait}s (attempt {attempt + 1}/{max_retries})...")
+                    time.sleep(wait)
+                    continue
+                raise RuntimeError(f"Veo failed after {max_retries} attempts: {err_msg}")
+
+            # Check for valid result
             if operation.result is None:
-                raise PromptRejectedError(
-                    "Veo returned None result. Likely prompt rejection or content filter. "
-                    "Edit the transition action and retry. (Not retrying — Vertex charges per attempt.)"
-                )
+                _status(f"Veo returned None result (attempt {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    time.sleep(30)
+                    continue
+                raise PromptRejectedError("Veo returned None result after all retries.")
+
+            # Check RAI filtering
+            rai_count = getattr(operation.result, 'rai_media_filtered_count', 0)
+            rai_reasons = getattr(operation.result, 'rai_media_filtered_reasons', [])
+            if rai_count and rai_reasons:
+                _status(f"Veo content filtered: {rai_count} filtered, reasons: {rai_reasons}")
+
             if not operation.result.generated_videos:
-                raise PromptRejectedError(
-                    "Veo returned empty video list. Likely prompt rejection or content filter. "
-                    "Edit the transition action and retry. (Not retrying — Vertex charges per attempt.)"
-                )
+                if rai_reasons:
+                    raise PromptRejectedError(
+                        f"Veo content safety rejection — all videos filtered. "
+                        f"Reasons: {rai_reasons}. Edit the prompt and retry."
+                    )
+                _status(f"Veo returned empty video list (attempt {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    time.sleep(30)
+                    continue
+                raise PromptRejectedError("Veo returned empty video list after all retries.")
 
             generated = operation.result.generated_videos[0]
             if generated is None:
-                raise PromptRejectedError(
-                    "Veo generated video is None. Likely prompt rejection or content filter. "
-                    "Edit the transition action and retry. (Not retrying — Vertex charges per attempt.)"
-                )
+                _status(f"Veo generated video is None (attempt {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    time.sleep(30)
+                    continue
+                raise PromptRejectedError("Veo generated video is None after all retries.")
 
             return generated
 

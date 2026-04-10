@@ -1819,6 +1819,7 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
                     "mask_center_x": tr.get("mask_center_x"), "mask_center_y": tr.get("mask_center_y"),
                     "mask_radius": tr.get("mask_radius"), "mask_feather": tr.get("mask_feather"),
                     "transform_x": tr.get("transform_x"), "transform_y": tr.get("transform_y"),
+                    "transform_x_curve": tr.get("transform_x_curve"), "transform_y_curve": tr.get("transform_y_curve"), "transform_z_curve": tr.get("transform_z_curve"),
                 }
                 if sel and sel not in (0, "null") and video_path.exists():
                     clip_data.update({"video": str(video_path), "still": None})
@@ -1946,14 +1947,38 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
                     break
             if matched_clip is not None:
                 # Apply transform (shift the frame)
-                def _apply_transform(img, clip_data):
-                    tx = clip_data.get("transform_x")
-                    ty = clip_data.get("transform_y")
+                def _apply_transform(img, clip_data, progress=0):
+                    import numpy as np
+                    # Evaluate transform curves if present, fall back to static values
+                    tx_curve = clip_data.get("transform_x_curve")
+                    ty_curve = clip_data.get("transform_y_curve")
+                    tz_curve = clip_data.get("transform_z_curve")
+                    tx = _evaluate_curve(tx_curve, progress) if tx_curve else (clip_data.get("transform_x") or 0)
+                    ty = _evaluate_curve(ty_curve, progress) if ty_curve else (clip_data.get("transform_y") or 0)
+                    scale = _evaluate_curve(tz_curve, progress) if tz_curve else 1.0
+
+                    h, w = img.shape[:2]
+
+                    # Apply Z scale (centered on frame center)
+                    if abs(scale - 1.0) > 0.001:
+                        new_w, new_h = int(w * scale), int(h * scale)
+                        if new_w > 0 and new_h > 0:
+                            scaled = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+                            if scale > 1.0:
+                                x0 = (new_w - w) // 2
+                                y0 = (new_h - h) // 2
+                                img = scaled[y0:y0+h, x0:x0+w]
+                            else:
+                                result = np.zeros_like(img)
+                                x0 = (w - new_w) // 2
+                                y0 = (h - new_h) // 2
+                                result[y0:y0+new_h, x0:x0+new_w] = scaled
+                                img = result
+
+                    # Apply X/Y shift
                     if tx or ty:
-                        import numpy as np
-                        h, w = img.shape[:2]
-                        dx = int((tx or 0) * w)
-                        dy = int((ty or 0) * h)
+                        dx = int(tx * w)
+                        dy = int(ty * h)
                         M = np.float32([[1, 0, dx], [0, 1, dy]])
                         img = cv2.warpAffine(img, M, (w, h), borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
                     return img
@@ -1983,7 +2008,7 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
                     has_curves = any(matched_clip.get(k) for k in ("red_curve", "green_curve", "blue_curve", "black_curve", "saturation_curve", "hue_shift_curve", "invert_curve"))
                     if has_curves:
                         frame = _apply_color_grading(frame, matched_clip, progress)
-                    frame = _apply_transform(frame, matched_clip)
+                    frame = _apply_transform(frame, matched_clip, progress)
                     frame = _apply_radial_mask(frame, matched_clip)
                     result = _blend_frames(result, frame, clip_blend, clip_opacity)
             # Release VideoCapture handles for clips we've passed

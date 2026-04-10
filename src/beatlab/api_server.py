@@ -138,6 +138,28 @@ def make_handler(work_dir: Path):
             if m:
                 return self._handle_get_timelines(m.group(1))
 
+            # GET /api/projects/:name/workspace-views
+            m = re.match(r"^/api/projects/([^/]+)/workspace-views$", path)
+            if m:
+                project_dir = self._require_project_dir(m.group(1))
+                if project_dir is None: return
+                from beatlab.db import get_meta
+                meta = get_meta(project_dir)
+                views = {k.replace("workspace_view:", ""): v for k, v in meta.items() if k.startswith("workspace_view:")}
+                return self._json_response({"views": views})
+
+            # GET /api/projects/:name/workspace-views/:name
+            m = re.match(r"^/api/projects/([^/]+)/workspace-views/([^/]+)$", path)
+            if m:
+                project_dir = self._require_project_dir(m.group(1))
+                if project_dir is None: return
+                from beatlab.db import get_meta
+                meta = get_meta(project_dir)
+                layout = meta.get(f"workspace_view:{m.group(2)}")
+                if layout is None:
+                    return self._error(404, "NOT_FOUND", f"Workspace view not found: {m.group(2)}")
+                return self._json_response({"layout": layout})
+
             # GET /api/projects/:name/checkpoints
             m = re.match(r"^/api/projects/([^/]+)/checkpoints$", path)
             if m:
@@ -474,6 +496,30 @@ def make_handler(work_dir: Path):
                     _log(f"redo: {result['description']}")
                     return self._json_response({"success": True, **result})
                 return self._json_response({"success": False, "message": "Nothing to redo"})
+
+            # POST /api/projects/:name/workspace-views/:viewName
+            m = re.match(r"^/api/projects/([^/]+)/workspace-views/([^/]+)$", path)
+            if m:
+                project_dir = self._require_project_dir(m.group(1))
+                if project_dir is None: return
+                body = self._read_json_body()
+                if body is None: return
+                from beatlab.db import set_meta
+                set_meta(project_dir, f"workspace_view:{m.group(2)}", body.get("layout", {}))
+                _log(f"workspace-view saved: {m.group(1)} / {m.group(2)}")
+                return self._json_response({"success": True})
+
+            # POST /api/projects/:name/workspace-views/:viewName/delete
+            m = re.match(r"^/api/projects/([^/]+)/workspace-views/([^/]+)/delete$", path)
+            if m:
+                project_dir = self._require_project_dir(m.group(1))
+                if project_dir is None: return
+                from beatlab.db import get_db
+                conn = get_db(project_dir)
+                conn.execute("DELETE FROM meta WHERE key = ?", (f"workspace_view:{m.group(2)}",))
+                conn.commit()
+                _log(f"workspace-view deleted: {m.group(1)} / {m.group(2)}")
+                return self._json_response({"success": True})
 
             # POST /api/projects/:name/checkpoint
             m = re.match(r"^/api/projects/([^/]+)/checkpoint$", path)
@@ -1273,7 +1319,7 @@ def make_handler(work_dir: Path):
                 from beatlab.db import add_marker
                 marker_id = body.get("id", f"m_{int(__import__('time').time() * 1000)}")
                 _log(f"markers/add: {marker_id} time={body.get('time', 0)} label={body.get('label', '')!r}")
-                add_marker(project_dir, marker_id, body.get("time", 0), body.get("label", ""))
+                add_marker(project_dir, marker_id, body.get("time", 0), body.get("label", ""), body.get("type", "note"))
                 return self._json_response({"success": True, "id": marker_id})
 
             # POST /api/projects/:name/markers/update
@@ -1286,7 +1332,7 @@ def make_handler(work_dir: Path):
                 from beatlab.db import update_marker
                 marker_id = body.pop("id", None)
                 if not marker_id: return self._error(400, "BAD_REQUEST", "Missing 'id'")
-                updates = {k: v for k, v in body.items() if k in ("time", "label")}
+                updates = {k: v for k, v in body.items() if k in ("time", "label", "type")}
                 _log(f"markers/update: {marker_id} {updates}")
                 update_marker(project_dir, marker_id, **updates)
                 return self._json_response({"success": True})

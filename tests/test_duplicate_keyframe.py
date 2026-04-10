@@ -146,11 +146,18 @@ def _simulate_duplicate(project_dir, source_id, timestamp):
     all_trs = [t for t in db_get_trs(project_dir)
                if t.get("track_id", "track_1") == track_id and not t.get("deleted_at")]
 
-    old_tr = None
-    if prev_kf and next_kf:
-        old_tr = next((t for t in all_trs if t["from"] == prev_kf["id"] and t["to"] == next_kf["id"]), None)
-        if old_tr:
-            db_del_tr(project_dir, old_tr["id"], datetime.now(timezone.utc).isoformat())
+    # Find and remove ALL transitions spanning across the new keyframe's position
+    kf_time_map = {k["id"]: _parse_ts(k["timestamp"]) for k in sorted_kfs}
+    spanning_trs = []
+    for t in all_trs:
+        from_time = kf_time_map.get(t.get("from", ""))
+        to_time = kf_time_map.get(t.get("to", ""))
+        if from_time is not None and to_time is not None:
+            if from_time < new_time < to_time:
+                spanning_trs.append(t)
+    old_tr = spanning_trs[0] if spanning_trs else None
+    for t in spanning_trs:
+        db_del_tr(project_dir, t["id"], datetime.now(timezone.utc).isoformat())
 
     existing_from_prev = any(t["from"] == prev_kf["id"] and t["to"] == new_id for t in all_trs) if prev_kf else False
     existing_to_next = any(t["from"] == new_id and t["to"] == next_kf["id"] for t in all_trs) if next_kf else False
@@ -298,6 +305,67 @@ class TestDuplicateKeyframe:
         kfs = _get_active_kfs(project_dir)
         overlaps = _find_overlaps(trs, kfs)
         assert len(overlaps) == 0, f"Overlaps after double duplicate: {overlaps}"
+
+    def test_spanning_transition_not_immediate_neighbors(self, tmp_path):
+        """Regression: duplicating a keyframe into the middle of a transition that spans
+        across multiple keyframes (e.g., tr from kf_001 to kf_003, insert between kf_002 and kf_003)
+        should still find and remove the spanning transition, not leave it as a ghost."""
+        from beatlab.db import add_keyframe, add_transition, get_transitions, get_keyframes
+
+        project_dir = tmp_path / "test_span"
+        project_dir.mkdir()
+        (project_dir / "selected_keyframes").mkdir()
+        (project_dir / "selected_transitions").mkdir()
+
+        png = _make_png()
+
+        # 4 keyframes: kf_001 at 1:00, kf_002 at 1:10, kf_003 at 1:20, kf_004 at 1:30
+        for kf_id, ts in [("kf_001", "1:00"), ("kf_002", "1:10"), ("kf_003", "1:20"), ("kf_004", "1:30")]:
+            (project_dir / "selected_keyframes" / f"{kf_id}.png").write_bytes(png)
+            add_keyframe(project_dir, {
+                "id": kf_id, "timestamp": ts, "section": "", "source": "",
+                "prompt": "", "selected": 1, "candidates": [], "track_id": "track_1",
+            })
+
+        # Normal transitions: kf_001→kf_002, kf_002→kf_003, kf_003→kf_004
+        add_transition(project_dir, {
+            "id": "tr_001", "from": "kf_001", "to": "kf_002",
+            "duration_seconds": 10, "slots": 1, "selected": None,
+            "remap": {"method": "linear", "target_duration": 10}, "track_id": "track_1",
+        })
+        add_transition(project_dir, {
+            "id": "tr_002", "from": "kf_002", "to": "kf_003",
+            "duration_seconds": 10, "slots": 1, "selected": None,
+            "remap": {"method": "linear", "target_duration": 10}, "track_id": "track_1",
+        })
+        add_transition(project_dir, {
+            "id": "tr_003", "from": "kf_003", "to": "kf_004",
+            "duration_seconds": 10, "slots": 1, "selected": None,
+            "remap": {"method": "linear", "target_duration": 10}, "track_id": "track_1",
+        })
+
+        # Now simulate a BAD state: a spanning transition from kf_001 to kf_003
+        # (as if tr_002 got corrupted or a paste operation created it)
+        add_transition(project_dir, {
+            "id": "tr_bad", "from": "kf_001", "to": "kf_003",
+            "duration_seconds": 20, "slots": 1, "selected": None,
+            "remap": {"method": "linear", "target_duration": 20}, "track_id": "track_1",
+        })
+
+        # Duplicate kf_002 to 1:15 (between kf_002 at 1:10 and kf_003 at 1:20)
+        # The spanning tr_bad (kf_001→kf_003) covers this time range
+        new_id, tr_ids = _simulate_duplicate(project_dir, "kf_002", "1:15")
+
+        # The spanning transition tr_bad should have been found and deleted
+        trs = _get_active_trs(project_dir)
+        tr_ids_active = [t["id"] for t in trs]
+        assert "tr_bad" not in tr_ids_active, \
+            f"Spanning transition tr_bad should have been deleted but is still active: {tr_ids_active}"
+
+        # No overlaps should exist
+        kfs = _get_active_kfs(project_dir)
+        overlaps = _find_overlaps(trs, kfs)
+        assert len(overlaps) == 0, f"Overlaps after spanning transition fix: {overlaps}"
 
     def test_no_cross_track_transitions(self, tmp_path):
         """All new transitions should be on the same track as the source keyframe."""

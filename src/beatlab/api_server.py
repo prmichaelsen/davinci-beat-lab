@@ -2329,12 +2329,21 @@ def make_handler(work_dir: Path):
                 all_trs = [t for t in db_get_trs(project_dir)
                            if t.get("track_id", "track_1") == track_id and not t.get("deleted_at")]
 
-                # Find and remove spanning transition, preserving its properties
-                old_tr = None
-                if prev_kf and next_kf:
-                    old_tr = next((t for t in all_trs if t["from"] == prev_kf["id"] and t["to"] == next_kf["id"]), None)
-                    if old_tr:
-                        db_del_tr(project_dir, old_tr["id"], datetime.now(timezone.utc).isoformat())
+                # Find and remove ALL transitions that span across the new keyframe's position.
+                # This handles cases where multiple transitions cover the insertion point
+                # (e.g., a normal tr from kf_B→kf_C AND a bad spanning tr from kf_A→kf_D).
+                kf_time_map = {k["id"]: parse_ts(k["timestamp"]) for k in sorted_kfs}
+                spanning_trs = []
+                for t in all_trs:
+                    from_time = kf_time_map.get(t["from"])
+                    to_time = kf_time_map.get(t["to"])
+                    if from_time is not None and to_time is not None:
+                        if from_time < new_time < to_time:
+                            spanning_trs.append(t)
+                # Use the first one for property inheritance
+                old_tr = spanning_trs[0] if spanning_trs else None
+                for t in spanning_trs:
+                    db_del_tr(project_dir, t["id"], datetime.now(timezone.utc).isoformat())
 
                 # Check for existing transitions to avoid duplicates
                 existing_from_prev = any(t["from"] == prev_kf["id"] and t["to"] == new_id for t in all_trs) if prev_kf else False

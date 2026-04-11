@@ -1975,10 +1975,11 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
                                 result[y0:y0+new_h, x0:x0+new_w] = scaled
                                 img = result
 
-                    # Apply X/Y shift
+                    # Apply X/Y shift (negate Y to match frontend shader which flips Y for non-adjustment layers)
+                    is_adjustment = clip_data.get("is_adjustment", False)
                     if tx or ty:
                         dx = int(tx * w)
-                        dy = int(ty * h)
+                        dy = int((-ty if not is_adjustment else ty) * h)
                         M = np.float32([[1, 0, dx], [0, 1, dy]])
                         img = cv2.warpAffine(img, M, (w, h), borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
                     return img

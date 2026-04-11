@@ -274,6 +274,30 @@ def make_handler(work_dir: Path):
                             })
                 return self._json_response({"candidates": candidates})
 
+            # GET /api/projects/:name/video-candidates
+            m = re.match(r"^/api/projects/([^/]+)/video-candidates$", path)
+            if m:
+                project_dir = self._require_project_dir(m.group(1))
+                if project_dir is None: return
+                tr_cand_root = project_dir / "transition_candidates"
+                candidates = []
+                if tr_cand_root.is_dir():
+                    for tr_dir in sorted(tr_cand_root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+                        if not tr_dir.is_dir(): continue
+                        tr_id = tr_dir.name
+                        for slot_dir in sorted(tr_dir.iterdir()):
+                            if not slot_dir.is_dir(): continue
+                            for f in sorted(slot_dir.glob("v*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True):
+                                vnum = int(f.stem.replace("v", ""))
+                                candidates.append({
+                                    "transitionId": tr_id,
+                                    "slot": slot_dir.name,
+                                    "variant": vnum,
+                                    "path": f"transition_candidates/{tr_id}/{slot_dir.name}/{f.name}",
+                                    "size": f.stat().st_size,
+                                })
+                return self._json_response({"candidates": candidates})
+
             # GET /api/projects/:name/markers
             m = re.match(r"^/api/projects/([^/]+)/markers$", path)
             if m:

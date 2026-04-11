@@ -3908,6 +3908,9 @@ def make_handler(work_dir: Path):
                             "from the first image to the second, considering the musical context. "
                             "Focus on motion, transformation, and mood shift. "
                             "This will be used as a prompt for Veo video generation.\n\n"
+                            "CRITICAL: Do NOT include any text, titles, words, letters, numbers, subtitles, captions, "
+                            "or typography in your description. Veo will render any mentioned text literally on screen. "
+                            "Describe only visual imagery, motion, color, and light — never text content.\n\n"
                             "Reply with ONLY the transition description, no preamble."},
                     ]
 
@@ -3956,6 +3959,9 @@ def make_handler(work_dir: Path):
                                 "The start and end frames may look similar — describe the motion, energy, and subtle transformations "
                                 "that should occur between them. Focus on camera movement, lighting shifts, and particle/element behavior. "
                                 "This will be used as a prompt for Veo video generation.\n\n"
+                                "CRITICAL: Do NOT include any text, titles, words, letters, numbers, subtitles, captions, "
+                                "or typography in your description. Veo will render any mentioned text literally on screen. "
+                                "Describe only visual imagery, motion, color, and light — never text content.\n\n"
                                 "Reply with ONLY the description, no preamble."},
                         ]
 
@@ -4038,6 +4044,9 @@ def make_handler(work_dir: Path):
                     ])
 
                 user_content.append({"type": "text", "text":
+                    "CRITICAL: Do NOT include any text, titles, words, letters, numbers, subtitles, captions, "
+                    "or typography in your description. Veo will render any mentioned text literally on screen. "
+                    "Describe only visual imagery, motion, color, and light — never text content.\n\n"
                     "Reply with ONLY the enhanced prompt, no preamble or explanation. "
                     "Keep it to 2-4 sentences."})
 

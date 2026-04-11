@@ -4461,6 +4461,7 @@ def make_handler(work_dir: Path):
                                     prompt=prompt,
                                     output_path=j["output"],
                                     duration_seconds=int(slot_duration),
+                                    on_status=lambda msg: job_manager.update_progress(job_id, completed_count[0], msg),
                                 )
                             else:
                                 client.generate_video_transition(
@@ -4487,6 +4488,7 @@ def make_handler(work_dir: Path):
                                         client.generate_video_from_image(
                                             image_path=j["start"], prompt=prompt,
                                             output_path=j["output"], duration_seconds=int(slot_duration),
+                                            on_status=lambda msg: job_manager.update_progress(job_id, completed_count[0], msg),
                                         )
                                     else:
                                         client.generate_video_transition(

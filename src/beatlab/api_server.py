@@ -2759,87 +2759,108 @@ def make_handler(work_dir: Path):
                 # Soft-delete the keyframe
                 db_del_kf(project_dir, kf_id, now)
 
-                # Respond immediately — bridging happens in the background
-                self._json_response({"success": True, "binned": {"id": kf_id, "deleted_at": now}})
+                # Bridge neighbors SYNCHRONOUSLY before responding
+                try:
+                    from beatlab.db import (
+                        get_keyframes as db_get_kfs, get_transitions as db_get_trs,
+                        next_transition_id, add_transition as db_add_tr,
+                    )
+                    import os, shutil
 
-                # Bridge neighbors in a background thread (file I/O can be slow)
-                import threading
-                def _bridge():
-                    try:
-                        from beatlab.db import (
-                            get_keyframes as db_get_kfs, get_transitions as db_get_trs,
-                            next_transition_id, add_transition as db_add_tr,
-                        )
-                        import os
+                    def parse_ts(ts):
+                        parts = str(ts).split(":")
+                        if len(parts) == 2:
+                            return int(parts[0]) * 60 + float(parts[1])
+                        return float(ts) if isinstance(ts, (int, float)) else 0
 
-                        def parse_ts(ts):
-                            parts = str(ts).split(":")
-                            if len(parts) == 2:
-                                return int(parts[0]) * 60 + float(parts[1])
-                            return float(ts) if isinstance(ts, (int, float)) else 0
+                    removed_time = parse_ts(kf["timestamp"])
+                    kf_track = kf.get("track_id", "track_1")
 
-                        removed_time = parse_ts(kf["timestamp"])
-                        kf_track = kf.get("track_id", "track_1")
-                        all_kfs = [k for k in db_get_kfs(project_dir) if k.get("track_id", "track_1") == kf_track]
-                        sorted_kfs = sorted(all_kfs, key=lambda k: parse_ts(k["timestamp"]))
-                        prev_kf = None
-                        next_kf = None
-                        for k in sorted_kfs:
-                            t = parse_ts(k["timestamp"])
-                            if t < removed_time:
-                                prev_kf = k
-                            elif t > removed_time and next_kf is None:
-                                next_kf = k
+                    # Filter by track AND not deleted
+                    all_kfs = [k for k in db_get_kfs(project_dir)
+                               if k.get("track_id", "track_1") == kf_track and not k.get("deleted_at")]
+                    sorted_kfs = sorted(all_kfs, key=lambda k: parse_ts(k["timestamp"]))
+                    prev_kf = None
+                    next_kf = None
+                    for k in sorted_kfs:
+                        t = parse_ts(k["timestamp"])
+                        if t < removed_time:
+                            prev_kf = k
+                        elif t > removed_time and next_kf is None:
+                            next_kf = k
 
-                        if not prev_kf or not next_kf:
-                            return
+                    if prev_kf and next_kf:
+                        # Check for existing active bridge
+                        active_trs = [t for t in db_get_trs(project_dir)
+                                      if t.get("track_id") == kf_track and not t.get("deleted_at")]
+                        existing_bridge = next((t for t in active_trs
+                                                if t["from"] == prev_kf["id"] and t["to"] == next_kf["id"]), None)
 
-                        existing_bridge = next((t for t in db_get_trs(project_dir) if t["from"] == prev_kf["id"] and t["to"] == next_kf["id"]), None)
-                        if existing_bridge:
-                            _log(f"[delete-kf] {kf_id}: bridge {prev_kf['id']} -> {next_kf['id']} already exists as {existing_bridge['id']}")
-                            return
+                        if not existing_bridge:
+                            new_tr_id = next_transition_id(project_dir)
+                            pt = parse_ts(prev_kf["timestamp"])
+                            nt = parse_ts(next_kf["timestamp"])
+                            dur = round(nt - pt, 2)
 
-                        new_tr_id = next_transition_id(project_dir)
-                        pt = parse_ts(prev_kf["timestamp"])
-                        nt = parse_ts(next_kf["timestamp"])
-                        dur = round(nt - pt, 2)
+                            # Inherit properties from the best orphaned transition
+                            tr_props = {}
+                            selected = None
+                            if inherited_tr_id:
+                                inh_tr = next((t for t in orphaned if t["id"] == inherited_tr_id), None)
+                                if inh_tr:
+                                    for prop in ("action", "use_global_prompt", "blend_mode", "opacity",
+                                                 "opacity_curve", "red_curve", "green_curve", "blue_curve",
+                                                 "black_curve", "saturation_curve", "hue_shift_curve",
+                                                 "invert_curve", "chroma_key", "is_adjustment",
+                                                 "label", "label_color", "tags", "hidden"):
+                                        if inh_tr.get(prop) is not None:
+                                            tr_props[prop] = inh_tr[prop]
 
-                        selected = None
-                        if inherited_tr_id:
-                            old_sel = project_dir / "selected_transitions" / f"{inherited_tr_id}_slot_0.mp4"
-                            old_cand_dir = project_dir / "transition_candidates" / inherited_tr_id / "slot_0"
-                            if old_sel.exists():
-                                new_sel = project_dir / "selected_transitions" / f"{new_tr_id}_slot_0.mp4"
-                                # Hard link instead of copy — instant, no I/O
-                                try:
-                                    os.link(str(old_sel), str(new_sel))
-                                except OSError:
-                                    import shutil
-                                    shutil.copy2(str(old_sel), str(new_sel))
-                                selected = 1
-                                _log(f"[delete-kf] {kf_id}: inherited video from {inherited_tr_id}")
-                            if old_cand_dir.exists():
-                                new_cand_dir = project_dir / "transition_candidates" / new_tr_id / "slot_0"
-                                new_cand_dir.mkdir(parents=True, exist_ok=True)
-                                for f in old_cand_dir.iterdir():
+                                # Copy video
+                                old_sel = project_dir / "selected_transitions" / f"{inherited_tr_id}_slot_0.mp4"
+                                if old_sel.exists():
+                                    new_sel = project_dir / "selected_transitions" / f"{new_tr_id}_slot_0.mp4"
                                     try:
-                                        os.link(str(f), str(new_cand_dir / f.name))
+                                        os.link(str(old_sel), str(new_sel))
                                     except OSError:
-                                        import shutil
-                                        shutil.copy2(str(f), str(new_cand_dir / f.name))
+                                        shutil.copy2(str(old_sel), str(new_sel))
+                                    selected = 1
+                                    _log(f"[delete-kf] {kf_id}: inherited video from {inherited_tr_id}")
 
-                        db_add_tr(project_dir, {
-                            "id": new_tr_id, "from": prev_kf["id"], "to": next_kf["id"],
-                            "duration_seconds": dur, "slots": 1,
-                            "action": "", "use_global_prompt": False, "selected": selected,
-                            "remap": {"method": "linear", "target_duration": dur},
-                            "track_id": kf_track,
-                        })
-                        _log(f"[delete-kf] {kf_id}: bridged {prev_kf['id']} -> {next_kf['id']} as {new_tr_id}")
-                    except Exception as e:
-                        _log(f"[delete-kf] {kf_id}: bridge ERROR {e}")
+                                # Copy candidates
+                                old_cand_dir = project_dir / "transition_candidates" / inherited_tr_id / "slot_0"
+                                if old_cand_dir.exists():
+                                    new_cand_dir = project_dir / "transition_candidates" / new_tr_id / "slot_0"
+                                    new_cand_dir.mkdir(parents=True, exist_ok=True)
+                                    for f in old_cand_dir.iterdir():
+                                        try:
+                                            os.link(str(f), str(new_cand_dir / f.name))
+                                        except OSError:
+                                            shutil.copy2(str(f), str(new_cand_dir / f.name))
 
-                threading.Thread(target=_bridge, daemon=True).start()
+                                # Copy transition effects
+                                from beatlab.db import get_transition_effects, add_transition_effect
+                                for fx in get_transition_effects(project_dir, inherited_tr_id):
+                                    add_transition_effect(project_dir, new_tr_id, fx["type"], fx.get("params"))
+
+                            if dur > 0.05:
+                                db_add_tr(project_dir, {
+                                    "id": new_tr_id, "from": prev_kf["id"], "to": next_kf["id"],
+                                    "duration_seconds": dur, "slots": 1,
+                                    "selected": selected,
+                                    "remap": {"method": "linear", "target_duration": dur},
+                                    "track_id": kf_track,
+                                    **tr_props,
+                                })
+                                _log(f"[delete-kf] {kf_id}: bridged {prev_kf['id']} -> {next_kf['id']} as {new_tr_id}")
+                            else:
+                                _log(f"[delete-kf] {kf_id}: skip zero-length bridge ({dur}s)")
+                        else:
+                            _log(f"[delete-kf] {kf_id}: bridge already exists as {existing_bridge['id']}")
+                except Exception as e:
+                    _log(f"[delete-kf] {kf_id}: bridge ERROR {e}")
+
+                self._json_response({"success": True, "binned": {"id": kf_id, "deleted_at": now}})
 
             except Exception as e:
                 _log(f"[delete-kf] {kf_id}: ERROR {e}")

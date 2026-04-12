@@ -1824,6 +1824,8 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
                     "mask_radius": tr.get("mask_radius"), "mask_feather": tr.get("mask_feather"),
                     "transform_x": tr.get("transform_x"), "transform_y": tr.get("transform_y"),
                     "transform_x_curve": tr.get("transform_x_curve"), "transform_y_curve": tr.get("transform_y_curve"), "transform_z_curve": tr.get("transform_z_curve"),
+                    "remap_method": tr.get("remap", {}).get("method", "linear") if isinstance(tr.get("remap"), dict) else "linear",
+                    "curve_points": tr.get("remap", {}).get("curve_points") if isinstance(tr.get("remap"), dict) else None,
                 }
                 if sel and sel not in (0, "null") and video_path.exists():
                     clip_data.update({"video": str(video_path), "still": None})
@@ -1917,7 +1919,12 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
         return np.clip(f * 255, 0, 255).astype(np.uint8)
 
     def _read_overlay_frame(oclip, progress, ow, oh):
-        """Read a frame from an overlay clip at the given progress (0-1)."""
+        """Read a frame from an overlay clip at the given progress (0-1), with remap support."""
+        # Apply time remap (curve or linear)
+        p = progress
+        if oclip.get("remap_method") == "curve" and oclip.get("curve_points"):
+            p = _evaluate_curve(oclip["curve_points"], p)
+
         frame = None
         if oclip.get("video"):
             if "_cap" not in oclip:
@@ -1926,7 +1933,7 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
             cap = oclip["_cap"]
             n = oclip["_nframes"]
             if n > 0:
-                idx = min(int(progress * n), n - 1)
+                idx = min(int(p * n), n - 1)
                 cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
                 ret, f = cap.read()
                 if ret:

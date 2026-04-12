@@ -2191,9 +2191,9 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
                     if (progress * freq) % 1 > duty:
                         frame = np.zeros_like(frame)
 
-        # Apply beat-synced effects + overlay compositing
-        frame = _apply_frame_effects(frame, t, w, h)
+        # Composite overlays first, then apply beat-synced effects to the final frame
         frame = _composite_overlays(frame, t, w, h)
+        frame = _apply_frame_effects(frame, t, w, h)
         out.write(frame)
 
         if (frame_num + 1) % 1000 == 0 or frame_num == total_output_frames - 1:

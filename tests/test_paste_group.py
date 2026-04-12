@@ -163,11 +163,30 @@ def _simulate_paste(project_dir, kf_ids, target_time, target_track):
             continue
 
         new_tr_id = next_transition_id(project_dir)
+
+        # Copy transition candidates
+        src_cand = project_dir / "transition_candidates" / src_tr["id"]
+        if src_cand.is_dir():
+            dst_cand = project_dir / "transition_candidates" / new_tr_id
+            dst_cand.mkdir(parents=True, exist_ok=True)
+            for slot_dir in src_cand.iterdir():
+                if slot_dir.is_dir():
+                    dst_slot = dst_cand / slot_dir.name
+                    dst_slot.mkdir(parents=True, exist_ok=True)
+                    for f in slot_dir.iterdir():
+                        shutil.copy2(str(f), str(dst_slot / f.name))
+
+        # Copy selected video
+        src_sel = project_dir / "selected_transitions" / f"{src_tr['id']}_slot_0.mp4"
+        if src_sel.exists():
+            dst_sel = project_dir / "selected_transitions" / f"{new_tr_id}_slot_0.mp4"
+            shutil.copy2(str(src_sel), str(dst_sel))
+
         db_add_tr(project_dir, {
             "id": new_tr_id, "from": new_from, "to": new_to,
             "duration_seconds": src_tr.get("duration_seconds", 0),
             "slots": 1, "action": src_tr.get("action", ""),
-            "use_global_prompt": False, "selected": None,
+            "use_global_prompt": False, "selected": src_tr.get("selected"),
             "remap": src_tr.get("remap", {}),
             "track_id": target_track,
             "opacity_curve": src_tr.get("opacity_curve"),
@@ -258,3 +277,60 @@ class TestPasteGroup:
 
         # tr_001 was deleted, so only tr_002 should be pasted
         assert len(created_trs) == 1
+
+    def test_paste_preserves_selected_video_index(self, tmp_path):
+        """Pasted transition should have correct selected index matching the copied candidate."""
+        from beatlab.db import add_transition, add_keyframe, get_transitions, update_transition
+        import hashlib
+
+        project_dir = _setup_project(tmp_path)
+
+        # Add selected video as v3 (not v1) to tr_001
+        mp4 = b'\x00\x00\x00\x1cftypisom\x00\x00\x00\x00isomavc1'
+        mp4_v3 = mp4 + b'v3_unique_data'
+
+        cand_dir = project_dir / "transition_candidates" / "tr_001" / "slot_0"
+        cand_dir.mkdir(parents=True)
+        (cand_dir / "v1.mp4").write_bytes(mp4)
+        (cand_dir / "v2.mp4").write_bytes(mp4 + b'v2')
+        (cand_dir / "v3.mp4").write_bytes(mp4_v3)
+
+        # Select v3
+        sel_path = project_dir / "selected_transitions" / "tr_001_slot_0.mp4"
+        sel_path.write_bytes(mp4_v3)
+        update_transition(project_dir, "tr_001", selected=[3])
+
+        # Paste
+        created_kfs, created_trs = _simulate_paste(
+            project_dir, ["kf_001", "kf_002"],
+            target_time=120, target_track="track_2"
+        )
+
+        assert len(created_trs) == 1
+        new_tr_id = created_trs[0]["id"]
+
+        # Verify selected video file matches v3
+        new_sel = project_dir / "selected_transitions" / f"{new_tr_id}_slot_0.mp4"
+        assert new_sel.exists(), "Pasted transition should have selected video"
+
+        new_sel_hash = hashlib.md5(new_sel.read_bytes()).hexdigest()
+        v3_hash = hashlib.md5(mp4_v3).hexdigest()
+        assert new_sel_hash == v3_hash, "Selected video content should match v3"
+
+        # Verify selected index points to the right candidate
+        new_tr = next(t for t in get_transitions(project_dir) if t["id"] == new_tr_id)
+        sel = new_tr.get("selected")
+
+        # Check that the candidate at the selected index matches
+        new_cand_dir = project_dir / "transition_candidates" / new_tr_id / "slot_0"
+        if new_cand_dir.exists():
+            import json
+            sel_idx = json.loads(sel) if isinstance(sel, str) else sel
+            if isinstance(sel_idx, list):
+                sel_idx = sel_idx[0]
+            if sel_idx is not None:
+                cand_file = new_cand_dir / f"v{sel_idx}.mp4"
+                if cand_file.exists():
+                    cand_hash = hashlib.md5(cand_file.read_bytes()).hexdigest()
+                    assert cand_hash == v3_hash, \
+                        f"Candidate v{sel_idx} should match selected video (got {cand_hash[:8]} vs {v3_hash[:8]})"

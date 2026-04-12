@@ -1089,7 +1089,7 @@ def make_handler(work_dir: Path):
 
                 # Copy style fields
                 style_fields = {}
-                for key in ("blend_mode", "opacity", "opacity_curve", "red_curve", "green_curve", "blue_curve", "black_curve", "hue_shift_curve", "saturation_curve", "invert_curve", "chroma_key", "is_adjustment", "hidden", "mask_center_x", "mask_center_y", "mask_radius", "mask_feather", "transform_x", "transform_y", "transform_x_curve", "transform_y_curve", "transform_z_curve", "anchor_x", "anchor_y"):
+                for key in ("blend_mode", "opacity", "opacity_curve", "red_curve", "green_curve", "blue_curve", "black_curve", "hue_shift_curve", "saturation_curve", "invert_curve", "brightness_curve", "contrast_curve", "exposure_curve", "chroma_key", "is_adjustment", "hidden", "mask_center_x", "mask_center_y", "mask_radius", "mask_feather", "transform_x", "transform_y", "transform_x_curve", "transform_y_curve", "transform_z_curve", "anchor_x", "anchor_y"):
                     # Copy all style fields including None (clears target's old values)
                     style_fields[key] = src.get(key)
                 if style_fields:
@@ -1246,6 +1246,12 @@ def make_handler(work_dir: Path):
                     fields["saturation_curve"] = body["saturationCurve"]
                 if "invertCurve" in body:
                     fields["invert_curve"] = body["invertCurve"]
+                if "brightnessCurve" in body:
+                    fields["brightness_curve"] = body["brightnessCurve"]
+                if "contrastCurve" in body:
+                    fields["contrast_curve"] = body["contrastCurve"]
+                if "exposureCurve" in body:
+                    fields["exposure_curve"] = body["exposureCurve"]
                 if "maskCenterX" in body:
                     fields["mask_center_x"] = body["maskCenterX"]
                 if "maskCenterY" in body:
@@ -1823,6 +1829,9 @@ def make_handler(work_dir: Path):
                     "hueShiftCurve": tr.get("hue_shift_curve"),
                     "saturationCurve": tr.get("saturation_curve"),
                     "invertCurve": tr.get("invert_curve"),
+                    "brightnessCurve": tr.get("brightness_curve"),
+                    "contrastCurve": tr.get("contrast_curve"),
+                    "exposureCurve": tr.get("exposure_curve"),
                     "maskCenterX": tr.get("mask_center_x"),
                     "maskCenterY": tr.get("mask_center_y"),
                     "maskRadius": tr.get("mask_radius"),
@@ -2692,6 +2701,9 @@ def make_handler(work_dir: Path):
                         "hue_shift_curve": src_tr.get("hue_shift_curve"),
                         "saturation_curve": src_tr.get("saturation_curve"),
                         "invert_curve": src_tr.get("invert_curve"),
+                        "brightness_curve": src_tr.get("brightness_curve"),
+                        "contrast_curve": src_tr.get("contrast_curve"),
+                        "exposure_curve": src_tr.get("exposure_curve"),
                         "chroma_key": src_tr.get("chroma_key"),
                         "is_adjustment": src_tr.get("is_adjustment", False),
                         "hidden": src_tr.get("hidden", False),

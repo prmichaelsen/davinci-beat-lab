@@ -261,7 +261,7 @@ def _ensure_schema(conn: sqlite3.Connection):
         conn.execute("ALTER TABLE transitions ADD COLUMN opacity REAL")
     if "opacity_curve" not in tr_cols2:
         conn.execute("ALTER TABLE transitions ADD COLUMN opacity_curve TEXT")
-    for curve_col in ("red_curve", "green_curve", "blue_curve", "black_curve", "hue_shift_curve", "saturation_curve", "invert_curve"):
+    for curve_col in ("red_curve", "green_curve", "blue_curve", "black_curve", "hue_shift_curve", "saturation_curve", "invert_curve", "brightness_curve", "contrast_curve", "exposure_curve"):
         if curve_col not in tr_cols2:
             conn.execute(f"ALTER TABLE transitions ADD COLUMN {curve_col} TEXT")
     if "is_adjustment" not in tr_cols2:
@@ -505,6 +505,9 @@ def _row_to_transition(row: sqlite3.Row) -> dict:
         "black_curve": json.loads(row["black_curve"]) if "black_curve" in row.keys() and row["black_curve"] else None,
         "hue_shift_curve": json.loads(row["hue_shift_curve"]) if "hue_shift_curve" in row.keys() and row["hue_shift_curve"] else None,
         "invert_curve": json.loads(row["invert_curve"]) if "invert_curve" in row.keys() and row["invert_curve"] else None,
+        "brightness_curve": json.loads(row["brightness_curve"]) if "brightness_curve" in row.keys() and row["brightness_curve"] else None,
+        "contrast_curve": json.loads(row["contrast_curve"]) if "contrast_curve" in row.keys() and row["contrast_curve"] else None,
+        "exposure_curve": json.loads(row["exposure_curve"]) if "exposure_curve" in row.keys() and row["exposure_curve"] else None,
         "chroma_key": json.loads(row["chroma_key"]) if "chroma_key" in row.keys() and row["chroma_key"] else None,
         "is_adjustment": bool(row["is_adjustment"]) if "is_adjustment" in row.keys() else False,
         "mask_center_x": row["mask_center_x"] if "mask_center_x" in row.keys() else None,
@@ -625,7 +628,7 @@ def update_transition(project_dir: Path, tr_id: str, **fields):
             val = int(val or 0)
         elif key == "tags":
             val = json.dumps(val) if isinstance(val, list) else val
-        elif key in ("opacity_curve", "red_curve", "green_curve", "blue_curve", "black_curve", "hue_shift_curve", "saturation_curve", "invert_curve", "transform_x_curve", "transform_y_curve", "transform_z_curve"):
+        elif key in ("opacity_curve", "red_curve", "green_curve", "blue_curve", "black_curve", "hue_shift_curve", "saturation_curve", "invert_curve", "brightness_curve", "contrast_curve", "exposure_curve", "transform_x_curve", "transform_y_curve", "transform_z_curve"):
             val = json.dumps(val) if isinstance(val, list) else val
         elif key == "chroma_key":
             val = json.dumps(val) if isinstance(val, (dict, list)) else val

@@ -1955,18 +1955,30 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
         tx = _evaluate_curve(tx_curve, progress) if tx_curve else (clip_data.get("transform_x") or 0)
         ty = _evaluate_curve(ty_curve, progress) if ty_curve else (clip_data.get("transform_y") or 0)
         scale = _evaluate_curve(tz_curve, progress) if tz_curve else 1.0
+        anchor_x = clip_data.get("anchor_x", 0.5)
+        anchor_y = clip_data.get("anchor_y", 0.5)
         h, w = img.shape[:2]
         if abs(scale - 1.0) > 0.001:
+            # Scale centered on anchor point
+            ax, ay = int(anchor_x * w), int(anchor_y * h)
             new_w, new_h = int(w * scale), int(h * scale)
             if new_w > 0 and new_h > 0:
                 scaled = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+                # Offset so anchor stays in place
+                x0 = int(anchor_x * new_w) - ax
+                y0 = int(anchor_y * new_h) - ay
                 if scale > 1.0:
-                    x0, y0 = (new_w - w) // 2, (new_h - h) // 2
                     img = scaled[y0:y0+h, x0:x0+w]
                 else:
                     result = np.zeros_like(img)
-                    x0, y0 = (w - new_w) // 2, (h - new_h) // 2
-                    result[y0:y0+new_h, x0:x0+new_w] = scaled
+                    paste_x = max(0, -x0)
+                    paste_y = max(0, -y0)
+                    src_x = max(0, x0)
+                    src_y = max(0, y0)
+                    copy_w = min(new_w - src_x, w - paste_x)
+                    copy_h = min(new_h - src_y, h - paste_y)
+                    if copy_w > 0 and copy_h > 0:
+                        result[paste_y:paste_y+copy_h, paste_x:paste_x+copy_w] = scaled[src_y:src_y+copy_h, src_x:src_x+copy_w]
                     img = result
         is_adjustment = clip_data.get("is_adjustment", False)
         if tx or ty:
@@ -2052,13 +2064,22 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
             # Find active clip
             active_idx = -1
             matched_clip = None
+            raw_progress = 0.0
             progress = 0.0
             for ci, oclip in enumerate(clips):
                 if oclip["from_ts"] <= t < oclip["to_ts"]:
                     active_idx = ci
                     matched_clip = oclip
                     clip_dur = oclip["to_ts"] - oclip["from_ts"]
-                    progress = (t - oclip["from_ts"]) / clip_dur if clip_dur > 0 else 0
+                    raw_progress = (t - oclip["from_ts"]) / clip_dur if clip_dur > 0 else 0
+
+                    # Progress extension for crossfade zones (same as base track)
+                    seg_frames = round(clip_dur * fps)
+                    eff_xfade_ov = min(XFADE_FRAMES, max(2, seg_frames // 4))
+                    eff_half_xfade_ov = (eff_xfade_ov / 2) / fps
+                    ext = min(eff_half_xfade_ov / clip_dur, 0.2) if clip_dur > 0 else 0
+                    progress = ext + raw_progress * (1.0 - 2 * ext)
+                    progress = max(0.0, min(0.999, progress))
                     break
 
             if matched_clip is None:
@@ -2066,12 +2087,11 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
                 continue
 
             if matched_clip.get("is_adjustment"):
-                # Adjustment layers apply grading directly to composite
-                result = _apply_color_grading(result, matched_clip, progress)
+                result = _apply_color_grading(result, matched_clip, raw_progress)
                 result = _apply_radial_mask(result, matched_clip)
                 continue
 
-            # Process current clip frame
+            # Process current clip frame (using extended progress)
             frame, clip_opacity, clip_blend = _process_overlay_clip(matched_clip, t, progress, ow, oh)
             if frame is None:
                 continue

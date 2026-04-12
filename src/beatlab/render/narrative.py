@@ -2092,14 +2092,14 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
                 continue
 
             # Process current clip frame (using extended progress)
-            frame, clip_opacity, clip_blend = _process_overlay_clip(matched_clip, t, progress, ow, oh)
+            frame, effect_opacity, effect_blend = _process_overlay_clip(matched_clip, t, progress, ow, oh)
             if frame is None:
                 continue
 
-            # Use track-level blend/opacity as defaults
-            if not matched_clip.get("blend_mode"):
-                clip_blend = track_blend
-            if matched_clip.get("opacity") is None and not matched_clip.get("opacity_curve"):
+            # Resolve final opacity: effect opacity (includes strobe) * track default
+            clip_blend = effect_blend if matched_clip.get("blend_mode") else track_blend
+            clip_opacity = effect_opacity
+            if clip_opacity >= 1.0 and matched_clip.get("opacity") is None and not matched_clip.get("opacity_curve"):
                 clip_opacity = track_opacity
 
             # Crossfade at clip boundaries

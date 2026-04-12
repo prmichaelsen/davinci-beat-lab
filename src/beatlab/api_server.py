@@ -4412,9 +4412,9 @@ def make_handler(work_dir: Path):
 
             use_global = tr.get("use_global_prompt", True)
             if use_global and motion_prompt:
-                prompt = f"{action}. Camera and motion style: {motion_prompt}. Do not render any text on screen."
+                prompt = f"{action}. Camera and motion style: {motion_prompt}"
             else:
-                prompt = f"{action}. Do not render any text on screen."
+                prompt = action
             if duration:
                 slot_duration = duration
             else:

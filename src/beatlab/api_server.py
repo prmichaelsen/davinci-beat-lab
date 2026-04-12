@@ -2897,34 +2897,94 @@ def make_handler(work_dir: Path):
 
                 now = datetime.now(timezone.utc).isoformat()
                 deleted = []
+                deleted_set = set(kf_ids)
+
+                # Collect orphaned transitions with videos BEFORE deleting
+                inherited_videos = {}  # track_id -> best transition with video
                 for kf_id in kf_ids:
                     kf = get_keyframe(project_dir, kf_id)
                     if not kf:
                         continue
-                    # Delete orphaned transitions
+                    track = kf.get("track_id", "track_1")
                     for tr in get_transitions_involving(project_dir, kf_id):
+                        sel = tr.get("selected")
+                        if sel is not None and sel != [None] and track not in inherited_videos:
+                            inherited_videos[track] = tr
                         db_del_tr(project_dir, tr["id"], now)
                     db_del_kf(project_dir, kf_id, now)
                     deleted.append(kf_id)
 
-                # Bridge gaps: rebuild transitions between remaining neighbors
-                all_kfs = db_get_kfs(project_dir)
-                sorted_kfs = sorted(all_kfs, key=lambda k: parse_ts(k["timestamp"]))
-                all_trs = db_get_trs(project_dir)
-                existing_pairs = set((t["from"], t["to"]) for t in all_trs)
+                # Bridge gaps PER TRACK between remaining neighbors
+                tracks_affected = set()
+                for kf_id in kf_ids:
+                    kf = get_keyframe(project_dir, kf_id)
+                    if kf:
+                        tracks_affected.add(kf.get("track_id", "track_1"))
 
-                for i in range(len(sorted_kfs) - 1):
-                    a = sorted_kfs[i]
-                    b = sorted_kfs[i + 1]
-                    if (a["id"], b["id"]) not in existing_pairs:
-                        dur = round(parse_ts(b["timestamp"]) - parse_ts(a["timestamp"]), 2)
-                        tr_id = next_transition_id(project_dir)
-                        db_add_tr(project_dir, {
-                            "id": tr_id, "from": a["id"], "to": b["id"],
-                            "duration_seconds": dur, "slots": 1,
-                            "action": "", "use_global_prompt": False, "selected": None,
-                            "remap": {"method": "linear", "target_duration": dur},
-                        })
+                import os, shutil
+                from beatlab.db import get_transition_effects, add_transition_effect
+
+                for track in tracks_affected:
+                    track_kfs = [k for k in db_get_kfs(project_dir)
+                                 if k.get("track_id", "track_1") == track and not k.get("deleted_at")]
+                    sorted_kfs = sorted(track_kfs, key=lambda k: parse_ts(k["timestamp"]))
+
+                    active_trs = [t for t in db_get_trs(project_dir)
+                                  if t.get("track_id") == track and not t.get("deleted_at")]
+                    existing_pairs = set((t["from"], t["to"]) for t in active_trs)
+
+                    inh_tr = inherited_videos.get(track)
+
+                    for i in range(len(sorted_kfs) - 1):
+                        a = sorted_kfs[i]
+                        b = sorted_kfs[i + 1]
+                        if (a["id"], b["id"]) not in existing_pairs:
+                            dur = round(parse_ts(b["timestamp"]) - parse_ts(a["timestamp"]), 2)
+                            if dur <= 0.05:
+                                continue
+
+                            tr_id = next_transition_id(project_dir)
+                            tr_props = {}
+                            selected = None
+
+                            if inh_tr:
+                                for prop in ("action", "use_global_prompt", "blend_mode", "opacity",
+                                             "opacity_curve", "red_curve", "green_curve", "blue_curve",
+                                             "black_curve", "saturation_curve", "hue_shift_curve",
+                                             "invert_curve", "label", "label_color", "tags", "hidden"):
+                                    if inh_tr.get(prop) is not None:
+                                        tr_props[prop] = inh_tr[prop]
+
+                                old_sel = project_dir / "selected_transitions" / f"{inh_tr['id']}_slot_0.mp4"
+                                if old_sel.exists():
+                                    new_sel = project_dir / "selected_transitions" / f"{tr_id}_slot_0.mp4"
+                                    try:
+                                        os.link(str(old_sel), str(new_sel))
+                                    except OSError:
+                                        shutil.copy2(str(old_sel), str(new_sel))
+                                    selected = 1
+
+                                old_cand = project_dir / "transition_candidates" / inh_tr["id"] / "slot_0"
+                                if old_cand.exists():
+                                    new_cand = project_dir / "transition_candidates" / tr_id / "slot_0"
+                                    new_cand.mkdir(parents=True, exist_ok=True)
+                                    for f in old_cand.iterdir():
+                                        try:
+                                            os.link(str(f), str(new_cand / f.name))
+                                        except OSError:
+                                            shutil.copy2(str(f), str(new_cand / f.name))
+
+                                for fx in get_transition_effects(project_dir, inh_tr["id"]):
+                                    add_transition_effect(project_dir, tr_id, fx["type"], fx.get("params"))
+
+                            db_add_tr(project_dir, {
+                                "id": tr_id, "from": a["id"], "to": b["id"],
+                                "duration_seconds": dur, "slots": 1,
+                                "selected": selected,
+                                "remap": {"method": "linear", "target_duration": dur},
+                                "track_id": track,
+                                **tr_props,
+                            })
 
                 _log(f"[batch-delete-kf] {project_name}: deleted {len(deleted)} keyframes")
                 self._json_response({"success": True, "deleted": deleted})

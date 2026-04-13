@@ -2109,19 +2109,38 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
             eff_xfade = min(XFADE_FRAMES, max(2, seg_frames // 4))
             eff_half_xfade_s = (eff_xfade / 2) / fps
 
-            # Start of clip: blend with previous clip's last frame
-            if prev_state and prev_state["clip_idx"] != active_idx and (t - matched_clip["from_ts"]) < eff_half_xfade_s:
-                prev_frame = prev_state.get("frame")
-                if prev_frame is not None:
-                    blend_t = (t - matched_clip["from_ts"]) / eff_half_xfade_s
-                    alpha = 0.5 + blend_t * 0.5
-                    frame = cv2.addWeighted(prev_frame, 1.0 - alpha, frame, alpha, 0)
+            # Start of clip: blend with previous clip's frame at time t
+            if active_idx > 0 and (t - matched_clip["from_ts"]) < eff_half_xfade_s:
+                prev_clip = clips[active_idx - 1]
+                if abs(prev_clip["to_ts"] - matched_clip["from_ts"]) < 0.1:
+                    prev_dur = prev_clip["to_ts"] - prev_clip["from_ts"]
+                    prev_raw = (t - prev_clip["from_ts"]) / prev_dur if prev_dur > 0 else 0
+                    prev_seg_frames = round(prev_dur * fps)
+                    prev_eff_xfade = min(XFADE_FRAMES, max(2, prev_seg_frames // 4))
+                    prev_eff_half = (prev_eff_xfade / 2) / fps
+                    prev_ext = min(prev_eff_half / prev_dur, 0.2) if prev_dur > 0 else 0
+                    prev_progress = prev_ext + min(prev_raw, 1.0) * (1.0 - 2 * prev_ext)
+                    prev_progress = max(0.0, min(0.999, prev_progress))
+                    prev_frame, _, _ = _process_overlay_clip(prev_clip, t, prev_progress, ow, oh)
+                    if prev_frame is not None:
+                        blend_t = (t - matched_clip["from_ts"]) / eff_half_xfade_s
+                        alpha = 0.5 + blend_t * 0.5
+                        frame = cv2.addWeighted(prev_frame, 1.0 - alpha, frame, alpha, 0)
 
-            # End of clip: read next clip's first frame and start blending
+            # End of clip: read next clip's frame at time t and start blending
             if active_idx < len(clips) - 1 and (matched_clip["to_ts"] - t) < eff_half_xfade_s:
                 next_clip = clips[active_idx + 1]
                 if abs(next_clip["from_ts"] - matched_clip["to_ts"]) < 0.1:
-                    next_frame, _, _ = _process_overlay_clip(next_clip, t, 0.0, ow, oh)
+                    # Compute next clip's progress at time t with extension (matching base track)
+                    next_dur = next_clip["to_ts"] - next_clip["from_ts"]
+                    next_raw = (t - next_clip["from_ts"]) / next_dur if next_dur > 0 else 0
+                    next_seg_frames = round(next_dur * fps)
+                    next_eff_xfade = min(XFADE_FRAMES, max(2, next_seg_frames // 4))
+                    next_eff_half = (next_eff_xfade / 2) / fps
+                    next_ext = min(next_eff_half / next_dur, 0.2) if next_dur > 0 else 0
+                    next_progress = next_ext + max(0, next_raw) * (1.0 - 2 * next_ext)
+                    next_progress = max(0.0, min(0.999, next_progress))
+                    next_frame, _, _ = _process_overlay_clip(next_clip, t, next_progress, ow, oh)
                     if next_frame is not None:
                         blend_t = (matched_clip["to_ts"] - t) / eff_half_xfade_s
                         alpha = 0.5 + blend_t * 0.5

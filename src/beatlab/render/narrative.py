@@ -1969,8 +1969,8 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
         tx = _evaluate_curve(tx_curve, progress) if tx_curve else (clip_data.get("transform_x") or 0)
         ty = _evaluate_curve(ty_curve, progress) if ty_curve else (clip_data.get("transform_y") or 0)
         scale = _evaluate_curve(tz_curve, progress) if tz_curve else 1.0
-        anchor_x = clip_data.get("anchor_x", 0.5)
-        anchor_y = clip_data.get("anchor_y", 0.5)
+        anchor_x = clip_data.get("anchor_x") or 0.5
+        anchor_y = clip_data.get("anchor_y") or 0.5
         h, w = img.shape[:2]
         if abs(scale - 1.0) > 0.001:
             # Scale centered on anchor point
@@ -2052,7 +2052,7 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
             oclip["_effect_invert"] = clip_invert
 
         # Color grading
-        has_curves = any(oclip.get(k) for k in ("red_curve", "green_curve", "blue_curve", "black_curve", "saturation_curve", "hue_shift_curve", "invert_curve"))
+        has_curves = any(oclip.get(k) for k in ("red_curve", "green_curve", "blue_curve", "black_curve", "saturation_curve", "hue_shift_curve", "invert_curve", "brightness_curve", "contrast_curve", "exposure_curve"))
         if has_curves:
             frame = _apply_color_grading(frame, oclip, progress)
 

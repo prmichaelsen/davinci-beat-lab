@@ -417,6 +417,38 @@ def make_handler(work_dir: Path):
 
         def _do_POST(self, path):
 
+            # POST /api/projects/create
+            if path == "/api/projects/create":
+                body = self._read_json_body()
+                if body is None: return
+                name = body.get("name", "").strip()
+                if not name:
+                    return self._error(400, "BAD_REQUEST", "Missing 'name'")
+                project_dir = work_dir / name
+                if project_dir.exists():
+                    return self._error(409, "CONFLICT", f"Project '{name}' already exists")
+                try:
+                    project_dir.mkdir(parents=True)
+                    # Initialize DB with schema
+                    from beatlab.db import get_db, set_meta_bulk
+                    get_db(project_dir)
+                    # Set default meta
+                    meta = {
+                        "title": name,
+                        "fps": body.get("fps", 24),
+                        "resolution": body.get("resolution", [1920, 1080]),
+                        "motion_prompt": body.get("motionPrompt", ""),
+                        "default_transition_prompt": body.get("defaultTransitionPrompt", "Smooth cinematic transition"),
+                    }
+                    set_meta_bulk(project_dir, meta)
+                    # Create default track
+                    from beatlab.db import add_track
+                    add_track(project_dir, {"id": "track_1", "name": "Track 1", "z_order": 0})
+                    _log(f"create-project: {name}")
+                    return self._json_response({"success": True, "name": name})
+                except Exception as e:
+                    return self._error(500, "INTERNAL_ERROR", str(e))
+
             # POST /api/projects/:name/select-keyframes
             m = re.match(r"^/api/projects/([^/]+)/select-keyframes$", path)
             if m:

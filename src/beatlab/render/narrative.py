@@ -1844,7 +1844,8 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
                 if sel and sel not in (0, "null") and video_path.exists():
                     clip_data.update({"video": str(video_path), "still": None})
                     overlay_clips.append(clip_data)
-                else:
+                elif sel and sel not in (0, "null", [None]):
+                    # Has a selected candidate but no video file — use keyframe still
                     kf_img = work_dir / "selected_keyframes" / f"{tr['from']}.png"
                     if kf_img.exists():
                         clip_data.update({"video": None, "still": str(kf_img)})

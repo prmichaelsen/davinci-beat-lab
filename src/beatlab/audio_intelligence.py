@@ -1631,59 +1631,65 @@ def extract_layer3_rules_chunked(
     return all_rules, all_events
 
 
-def load_sections_yaml(path: str) -> list[dict]:
-    """Load manual section groups from sections.yaml.
+def _parse_time(ts) -> float:
+    """Parse time strings like '8:07' or '1:02:30' to seconds."""
+    parts = str(ts).split(":")
+    if len(parts) == 3:
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+    if len(parts) == 2:
+        return int(parts[0]) * 60 + float(parts[1])
+    return float(ts)
 
-    Returns list of {name, start, end, beat_sections, notes}.
+
+def load_sections_from_db(project_dir) -> list[dict]:
+    """Load sections from the project DB and convert to the format needed by layer 3.
+
+    Returns list of {name, start_time, end_time, notes}.
     """
-    import yaml
-    with open(path) as f:
-        data = yaml.safe_load(f)
-    groups = data.get("groups", [])
+    from pathlib import Path
+    from beatlab.db import get_sections
+
+    db_sections = get_sections(Path(project_dir))
 
     result = []
-    for g in groups:
-        # Parse time strings like "8:07" to seconds
-        def _parse_time(ts):
-            parts = str(ts).split(":")
-            if len(parts) == 2:
-                return int(parts[0]) * 60 + float(parts[1])
-            return float(ts)
-
-        start = _parse_time(g["start"])
-        end = _parse_time(g["end"])
-        beat_range = g.get("beat_sections", [0, 0])
+    for sec in db_sections:
+        start = _parse_time(sec.get("start", "0:00"))
+        end_str = sec.get("end")
+        if end_str is None:
+            continue  # skip sections without an end time
+        end = _parse_time(end_str)
 
         result.append({
-            "name": g.get("name", ""),
+            "name": sec.get("label", ""),
             "start_time": start,
             "end_time": end,
-            "beat_section_start": beat_range[0] if isinstance(beat_range, list) else 0,
-            "beat_section_end": beat_range[1] if isinstance(beat_range, list) else 0,
-            "notes": g.get("notes", ""),
+            "notes": sec.get("notes", ""),
+            "mood": sec.get("mood", ""),
+            "energy": sec.get("energy", ""),
+            "visual_direction": sec.get("visual_direction", ""),
         })
 
     return result
 
 
-def extract_layer3_rules_from_sections_yaml(
+def extract_layer3_rules_from_sections(
     layer1_data: dict,
     layer2_data: list[dict],
-    sections_yaml_path: str,
+    sections: list[dict],
     creative_direction: str | None = None,
     sensitivity: dict[str, float] | None = None,
     vocal_bleed_threshold: float = 0.25,
     bleed_exempt_stems: set[str] | None = None,
     disabled_effects: set[str] | None = None,
 ) -> tuple[list[dict], list[dict]]:
-    """Generate per-section rules using manual sections.yaml groupings.
+    """Generate per-section rules using DB sections.
 
-    Each group in sections.yaml gets its own Claude call with the group's
-    audio descriptions as context. No tailored energy guidance — Claude
-    reads the descriptions and decides.
+    Each section gets its own Claude call with the section's
+    audio descriptions as context. Mood/energy/visual_direction from the
+    DB are included as additional context for Claude.
     """
-    groups = load_sections_yaml(sections_yaml_path)
-    _log(f"  Layer 3 (sections.yaml mode): {len(groups)} manual groups")
+    groups = sections
+    _log(f"  Layer 3 (sections mode): {len(groups)} sections")
     for g in groups:
         _log(f"    {g['start_time']:.0f}s - {g['end_time']:.0f}s: {g['name']}")
 
@@ -1707,6 +1713,16 @@ def extract_layer3_rules_from_sections_yaml(
         ) if group_descs else group.get("notes", "")
 
         chunk_direction = f"Section: \"{name}\" ({start:.0f}s to {end:.0f}s, {dur:.0f}s)"
+        # Include DB section metadata if available
+        section_meta = []
+        if group.get("mood"):
+            section_meta.append(f"Mood: {group['mood']}")
+        if group.get("energy"):
+            section_meta.append(f"Energy: {group['energy']}")
+        if group.get("visual_direction"):
+            section_meta.append(f"Visual direction: {group['visual_direction']}")
+        if section_meta:
+            chunk_direction += "\n" + "\n".join(section_meta)
         chunk_direction += f"\n\nAudio descriptions:\n{desc_summary}"
         if creative_direction:
             chunk_direction = f"{creative_direction}\n\n{chunk_direction}"
@@ -1853,7 +1869,7 @@ def run_audio_intelligence_multimodel(
     vocal_bleed_threshold: float = 0.25,
     fps: float = 24.0,
     stats_mode: bool = False,
-    sections_yaml: str | None = None,
+    sections: list[dict] | None = None,
 ) -> dict:
     """Run the 3-layer pipeline using multi-model stems.
 
@@ -1872,8 +1888,8 @@ def run_audio_intelligence_multimodel(
         vocal_bleed_threshold: Confidence ratio threshold.
         fps: Video frame rate.
         stats_mode: Use stats-only Claude prompt.
-        sections_yaml: Path to sections.yaml for manual chunking. If provided, generates
-            per-section rules using the manual groupings instead of one global ruleset.
+        sections: Pre-loaded sections list (from DB via load_sections_from_db). If provided,
+            generates per-section rules instead of one global ruleset.
     """
     _log("=== Multi-Model Audio Intelligence Pipeline ===")
 
@@ -1886,11 +1902,11 @@ def run_audio_intelligence_multimodel(
     # Layer 3: Claude rules + apply
     exempt = set(drumsep_paths.keys()) | set(melodic_paths.keys())
 
-    if sections_yaml and Path(sections_yaml).exists():
-        _log(f"  Using sections.yaml for per-section rules: {sections_yaml}")
-        rules, layer3 = extract_layer3_rules_from_sections_yaml(
+    if sections:
+        _log(f"  Using {len(sections)} DB sections for per-section rules")
+        rules, layer3 = extract_layer3_rules_from_sections(
             layer1, layer2,
-            sections_yaml_path=sections_yaml,
+            sections=sections,
             creative_direction=creative_direction,
             sensitivity=sensitivity,
             vocal_bleed_threshold=vocal_bleed_threshold,

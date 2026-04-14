@@ -302,27 +302,14 @@ class FolderWatcher:
         """Import new files into the project bin."""
         import shutil
         from datetime import datetime, timezone
-        from beatlab.project import load_project, save_project
+        from beatlab.db import add_keyframe, add_transition, next_keyframe_id, next_transition_id
 
         project_dir = self._work_dir / project
         if not project_dir.is_dir():
             return
 
-        parsed = load_project(project_dir)
-        if parsed.get("_format") == "empty":
+        if not (project_dir / "project.db").exists():
             return
-
-        keyframes = parsed.get("keyframes", [])
-        kf_bin = parsed.get("bin", [])
-        tr_bin = parsed.get("transition_bin", [])
-        transitions = parsed.get("transitions", [])
-
-        import re as _re
-        all_kf_ids = [kf.get("id", "") for kf in keyframes + kf_bin]
-        max_kf = max((int(m.group(1)) for kid in all_kf_ids if (m := _re.match(r'kf_(\d+)', kid))), default=0)
-
-        all_tr_ids = [tr.get("id", "") for tr in transitions + tr_bin]
-        max_tr = max((int(m.group(1)) for tid in all_tr_ids if (m := _re.match(r'tr_(\d+)', tid))), default=0)
 
         now = datetime.now(timezone.utc).isoformat()
         selected_kf_dir = project_dir / "selected_keyframes"
@@ -338,11 +325,10 @@ class FolderWatcher:
             ext = f.suffix.lower()
 
             if ext in IMAGE_EXTS:
-                max_kf += 1
-                kf_id = f"kf_{max_kf:03d}"
+                kf_id = next_keyframe_id(project_dir)
                 dest = selected_kf_dir / f"{kf_id}.png"
                 shutil.copy2(str(f), str(dest))
-                kf_bin.append({
+                add_keyframe(project_dir, {
                     "id": kf_id,
                     "timestamp": "0:00",
                     "section": "",
@@ -356,11 +342,10 @@ class FolderWatcher:
                 imported_kf.append(kf_id)
 
             elif ext in VIDEO_EXTS:
-                max_tr += 1
-                tr_id = f"tr_{max_tr:03d}"
+                tr_id = next_transition_id(project_dir)
                 dest = selected_tr_dir / f"{tr_id}_slot_0{ext}"
                 shutil.copy2(str(f), str(dest))
-                tr_bin.append({
+                add_transition(project_dir, {
                     "id": tr_id,
                     "from": "",
                     "to": "",
@@ -376,11 +361,6 @@ class FolderWatcher:
 
         if not imported_kf and not imported_tr:
             return
-
-        parsed["bin"] = kf_bin
-        parsed["transition_bin"] = tr_bin
-
-        save_project(parsed, project_dir)
 
         summary = f"{len(imported_kf)} keyframe(s), {len(imported_tr)} transition(s)"
         _log(f"Auto-imported from watched folder: {summary}")

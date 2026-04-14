@@ -1409,7 +1409,8 @@ def audio_intelligence(video_file: str, work_dir: str, output: str | None,
 @click.option("--work-dir", default=".beatlab_work", type=str, help="Work directory")
 @click.option("--fps", default=None, type=float, help="Video frame rate")
 @click.option("--sr", default=22050, type=int, help="Sample rate")
-@click.option("--sections-yaml", default=None, type=click.Path(exists=True), help="Manual sections.yaml for per-section rule generation")
+@click.option("--sections-from-db", is_flag=True, default=False, help="Use sections from project DB for per-section rule generation")
+@click.option("--project-dir", default=".", type=click.Path(exists=True), help="Project directory containing project.db (default: current dir)")
 def audio_intelligence_multimodel(
     video_file: str, auto_separate: bool,
     vocals: str | None, kick: str | None, snare: str | None, hh: str | None,
@@ -1417,7 +1418,7 @@ def audio_intelligence_multimodel(
     bass: str | None, guitar: str | None, piano: str | None, other: str | None,
     output: str | None, descriptions: str | None, creative_direction: str | None,
     vocal_bleed_threshold: float, work_dir: str, fps: float | None, sr: int,
-    sections_yaml: str | None,
+    sections_from_db: bool, project_dir: str,
 ):
     """Run multi-model audio intelligence pipeline (InstVoc + DrumSep + Demucs 6s).
 
@@ -1493,12 +1494,15 @@ def audio_intelligence_multimodel(
 
     out_path = output or str(work.root / "audio_intelligence_multimodel.json")
 
-    # Auto-detect sections.yaml in work dir if not specified
-    if not sections_yaml:
-        auto_sections = work.root / "sections.yaml"
-        if auto_sections.exists():
-            sections_yaml = str(auto_sections)
-            _log(f"  Auto-detected sections.yaml: {auto_sections}")
+    # Load sections from DB if requested
+    sections = None
+    if sections_from_db:
+        from beatlab.audio_intelligence import load_sections_from_db
+        sections = load_sections_from_db(project_dir)
+        if sections:
+            _log(f"  Loaded {len(sections)} sections from project DB")
+        else:
+            _log("  Warning: --sections-from-db specified but no sections found in DB")
 
     result = run_audio_intelligence_multimodel(
         vocals_path=vocals,
@@ -1512,7 +1516,7 @@ def audio_intelligence_multimodel(
         sensitivity={k: 1.0 for k in ['zoom_pulse','zoom_bounce','shake_x','shake_y','flash','hard_cut','contrast_pop','glow_swell']},
         vocal_bleed_threshold=vocal_bleed_threshold,
         fps=video_fps,
-        sections_yaml=sections_yaml,
+        sections=sections,
     )
 
     _log(f"  {len(result['layer3_events'])} effect events generated")
@@ -1543,16 +1547,16 @@ def effects(video_file: str, beats: str | None, ai_events: str | None, output: s
     Add --remote to run on Vast.ai GPU for ~10x faster encoding.
 
     Examples:
-        beatlab effects video.mp4 --ai-events ai.json --config scenecraft.yaml
+        beatlab effects video.mp4 --ai-events ai.json --config scenecraft.json
         beatlab effects video.mp4 --beats beats.json
     """
     # Load config if provided
     effect_offsets = None
     config_bleed_threshold = None
     if config:
-        import yaml as pyyaml
+        import json
         with open(config) as f:
-            cfg = pyyaml.safe_load(f)
+            cfg = json.load(f)
         settings = cfg.get("settings", {})
         # Config overrides CLI defaults (but explicit CLI flags still win)
         if not hard_cuts and settings.get("hard_cuts"):
@@ -2167,23 +2171,23 @@ def _get_ai_plan(beat_map: dict, user_prompt: str | None, audio_descriptions: li
 
 @main.group()
 def narrative():
-    """Narrative keyframe pipeline — YAML-driven keyframe + Veo transition generation."""
+    """Narrative keyframe pipeline — DB-driven keyframe + Veo transition generation."""
     pass
 
 
 @narrative.command()
-@click.argument("yaml_path", type=click.Path(exists=True))
+@click.argument("project_dir", type=click.Path(exists=True))
 @click.option("--vertex/--no-vertex", default=False, help="Use Vertex AI vs AI Studio")
 @click.option("--segments", default=None, help="Filter keyframes: kf_001,kf_005-kf_010")
 @click.option("--candidates", "n_candidates", default=None, type=int, help="Override candidates per slot")
-@click.option("--dry-run", is_flag=True, help="Validate YAML and print stats only")
+@click.option("--dry-run", is_flag=True, help="Validate project and print stats only")
 @click.option("--replicate", "use_replicate", is_flag=True, help="Use Replicate API instead of Google AI Studio/Vertex")
 @click.option("--regen", default=None, help="Regen targets: 'kf_005/v1,v2;kf_007/v2' or 'kf_005;kf_007' (all variants)")
-def keyframes(yaml_path, vertex, segments, n_candidates, dry_run, use_replicate, regen):
-    """Generate keyframe candidates from narrative YAML."""
+def keyframes(project_dir, vertex, segments, n_candidates, dry_run, use_replicate, regen):
+    """Generate keyframe candidates from project DB."""
     from beatlab.render.narrative import load_narrative, narrative_stats, generate_keyframe_candidates
 
-    data = load_narrative(yaml_path)
+    data = load_narrative(project_dir)
     stats = narrative_stats(data)
     click.echo(f"Narrative: {data['meta']['title']}")
     click.echo(f"  Keyframes: {stats['keyframes']} ({stats['keyframes_with_candidates']} with candidates, {stats['keyframes_selected']} selected, {stats['existing_keyframes']} existing)")
@@ -2210,13 +2214,13 @@ def keyframes(yaml_path, vertex, segments, n_candidates, dry_run, use_replicate,
             else:
                 regen_map[part] = set()  # empty = all variants
 
-    generate_keyframe_candidates(yaml_path, vertex=vertex, candidates_per_slot=n_candidates, segment_filter=seg_filter, use_replicate=use_replicate, regen=regen_map)
+    generate_keyframe_candidates(project_dir, vertex=vertex, candidates_per_slot=n_candidates, segment_filter=seg_filter, use_replicate=use_replicate, regen=regen_map)
 
 
 @narrative.command(name="select-keyframes")
-@click.argument("yaml_path", type=click.Path(exists=True))
+@click.argument("project_dir", type=click.Path(exists=True))
 @click.argument("selections", nargs=-1, required=True)
-def select_keyframes_cmd(yaml_path, selections):
+def select_keyframes_cmd(project_dir, selections):
     """Apply keyframe selections. E.g.: kf_001:v2 kf_005:v3"""
     from beatlab.render.narrative import apply_keyframe_selection
 
@@ -2229,40 +2233,40 @@ def select_keyframes_cmd(yaml_path, selections):
         variant = int(parts[1].lstrip("v"))
         parsed[kf_id] = variant
 
-    apply_keyframe_selection(yaml_path, parsed)
+    apply_keyframe_selection(project_dir, parsed)
 
 
 @narrative.command(name="resolve-existing")
-@click.argument("yaml_path", type=click.Path(exists=True))
-def resolve_existing_cmd(yaml_path):
+@click.argument("project_dir", type=click.Path(exists=True))
+def resolve_existing_cmd(project_dir):
     """Extract boundary frames from existing transition segments into selected_keyframes/."""
     from beatlab.render.narrative import resolve_existing_boundary_frames
-    resolve_existing_boundary_frames(yaml_path)
+    resolve_existing_boundary_frames(project_dir)
 
 
 @narrative.command()
-@click.argument("yaml_path", type=click.Path(exists=True))
-def actions(yaml_path):
+@click.argument("project_dir", type=click.Path(exists=True))
+def actions(project_dir):
     """Generate LLM transition actions for empty transitions."""
     from beatlab.render.narrative import generate_transition_actions
-    generate_transition_actions(yaml_path)
+    generate_transition_actions(project_dir)
 
 
 @narrative.command(name="slot-keyframes")
-@click.argument("yaml_path", type=click.Path(exists=True))
+@click.argument("project_dir", type=click.Path(exists=True))
 @click.option("--vertex/--no-vertex", default=False)
 @click.option("--candidates", "n_candidates", default=None, type=int)
 @click.option("--replicate", "use_replicate", is_flag=True, help="Use Replicate API")
-def slot_keyframes_cmd(yaml_path, vertex, n_candidates, use_replicate):
+def slot_keyframes_cmd(project_dir, vertex, n_candidates, use_replicate):
     """Generate intermediate keyframe candidates for multi-slot transitions."""
     from beatlab.render.narrative import generate_slot_keyframe_candidates
-    generate_slot_keyframe_candidates(yaml_path, vertex=vertex, candidates_per_slot=n_candidates, use_replicate=use_replicate)
+    generate_slot_keyframe_candidates(project_dir, vertex=vertex, candidates_per_slot=n_candidates, use_replicate=use_replicate)
 
 
 @narrative.command(name="select-slot-keyframes")
-@click.argument("yaml_path", type=click.Path(exists=True))
+@click.argument("project_dir", type=click.Path(exists=True))
 @click.argument("selections", nargs=-1, required=True)
-def select_slot_keyframes_cmd(yaml_path, selections):
+def select_slot_keyframes_cmd(project_dir, selections):
     """Apply slot keyframe selections. E.g.: tr_041_slot_0:v2"""
     from beatlab.render.narrative import apply_slot_keyframe_selection
 
@@ -2275,26 +2279,26 @@ def select_slot_keyframes_cmd(yaml_path, selections):
         variant = int(parts[1].lstrip("v"))
         parsed[slot_key] = variant
 
-    apply_slot_keyframe_selection(yaml_path, parsed)
+    apply_slot_keyframe_selection(project_dir, parsed)
 
 
 @narrative.command()
-@click.argument("yaml_path", type=click.Path(exists=True))
+@click.argument("project_dir", type=click.Path(exists=True))
 @click.option("--vertex/--no-vertex", default=False)
 @click.option("--segments", default=None, help="Filter transitions: tr_001,tr_005-tr_010")
 @click.option("--candidates", "n_candidates", default=None, type=int)
-def transitions(yaml_path, vertex, segments, n_candidates):
+def transitions(project_dir, vertex, segments, n_candidates):
     """Generate Veo transition video candidates."""
     from beatlab.render.narrative import generate_transition_candidates
 
     seg_filter = _parse_kf_filter(segments) if segments else None
-    generate_transition_candidates(yaml_path, vertex=vertex, candidates_per_slot=n_candidates, segment_filter=seg_filter)
+    generate_transition_candidates(project_dir, vertex=vertex, candidates_per_slot=n_candidates, segment_filter=seg_filter)
 
 
 @narrative.command(name="select-transitions")
-@click.argument("yaml_path", type=click.Path(exists=True))
+@click.argument("project_dir", type=click.Path(exists=True))
 @click.argument("selections", nargs=-1, required=True)
-def select_transitions_cmd(yaml_path, selections):
+def select_transitions_cmd(project_dir, selections):
     """Apply transition selections. E.g.: tr_001:v2 tr_005_slot_0:v3"""
     from beatlab.render.narrative import apply_transition_selection
 
@@ -2307,19 +2311,19 @@ def select_transitions_cmd(yaml_path, selections):
         variant = int(parts[1].lstrip("v"))
         parsed[key] = variant
 
-    apply_transition_selection(yaml_path, parsed)
+    apply_transition_selection(project_dir, parsed)
 
 
 @narrative.command()
-@click.argument("yaml_path", type=click.Path(exists=True))
+@click.argument("project_dir", type=click.Path(exists=True))
 @click.option("--output", "-o", default="narrative_output.mp4", help="Output video path")
 @click.option("--start-time", default=None, type=float, help="Start time in seconds (e.g. 1590 for 26:30)")
 @click.option("--max-time", default=None, type=float, help="End time in seconds (e.g. 1620 for 27:00)")
 @click.option("--flash/--no-flash", default=False, help="Enable flash effects (off by default)")
-def assemble(yaml_path, output, start_time, max_time, flash):
+def assemble(project_dir, output, start_time, max_time, flash):
     """Time-remap, concatenate, and mux audio into final video."""
     from beatlab.render.narrative import assemble_final
-    assemble_final(yaml_path, output, start_time=start_time, max_time=max_time, enable_flash=flash)
+    assemble_final(project_dir, output, start_time=start_time, max_time=max_time, enable_flash=flash)
 
 
 @main.command(name="crossfade")
@@ -2344,11 +2348,11 @@ def crossfade_cmd(video_file: str, output: str | None, crossfade_frames: int,
     import subprocess
     from pathlib import Path
     from beatlab.render.workdir import WorkDir
-    from beatlab.project import load_project
+    from beatlab.db import load_narrative_from_db
     from beatlab.render.crossfade import concat_with_crossfade
 
     work = WorkDir(video_file, base_dir=work_dir)
-    data = load_project(work.root)
+    data = load_narrative_from_db(work.root)
 
     if not output:
         output = str(work.root / "crossfade_output.mp4")

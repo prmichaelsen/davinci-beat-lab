@@ -3,37 +3,34 @@
 from __future__ import annotations
 
 import time
-import yaml
 from pathlib import Path
 from datetime import datetime
 
-
-METRICS_FILE = ".metrics.yaml"
-
-
-def _metrics_path(work_dir: str) -> Path:
-    return Path(work_dir) / METRICS_FILE
+from beatlab.db import get_setting, set_setting
 
 
-def load_metrics(work_dir: str) -> dict:
-    """Load metrics from the work directory root."""
-    p = _metrics_path(work_dir)
-    if p.exists():
-        with open(p) as f:
-            return yaml.safe_load(f) or {}
-    return {}
+def load_metrics(project_dir: str | Path) -> dict:
+    """Load metrics from the project DB settings table."""
+    project_dir = Path(project_dir)
+    runs = get_setting(project_dir, "metrics_runs", [])
+    step_averages = get_setting(project_dir, "metrics_step_averages", {})
+    metrics = {}
+    if runs:
+        metrics["runs"] = runs
+    if step_averages:
+        metrics["step_averages"] = step_averages
+    return metrics
 
 
-def save_metrics(work_dir: str, metrics: dict) -> None:
-    """Save metrics to the work directory root."""
-    p = _metrics_path(work_dir)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    with open(p, "w") as f:
-        yaml.dump(metrics, f, default_flow_style=False, sort_keys=False)
+def save_metrics(project_dir: str | Path, metrics: dict) -> None:
+    """Save metrics to the project DB settings table."""
+    project_dir = Path(project_dir)
+    set_setting(project_dir, "metrics_runs", metrics.get("runs", []))
+    set_setting(project_dir, "metrics_step_averages", metrics.get("step_averages", {}))
 
 
 def record_step(
-    work_dir: str,
+    project_dir: str | Path,
     video_name: str,
     step: str,
     duration_seconds: float,
@@ -42,13 +39,13 @@ def record_step(
     """Record a completed step's timing and metadata.
 
     Args:
-        work_dir: Root work directory (e.g. ".beatlab_work")
+        project_dir: Path to the project directory containing project.db
         video_name: Name of the video being processed
         step: Step name (e.g. "audio_extract", "beat_analysis", "veo_render", "crossfade")
         duration_seconds: How long the step took
         metadata: Optional dict with step-specific info (frame_count, segment_count, etc.)
     """
-    metrics = load_metrics(work_dir)
+    metrics = load_metrics(project_dir)
 
     if "runs" not in metrics:
         metrics["runs"] = []
@@ -69,7 +66,7 @@ def record_step(
     # Update running averages per step
     _update_averages(metrics, step, duration_seconds, metadata)
 
-    save_metrics(work_dir, metrics)
+    save_metrics(project_dir, metrics)
 
 
 def _update_averages(metrics: dict, step: str, duration: float, metadata: dict | None) -> None:
@@ -97,7 +94,7 @@ def _update_averages(metrics: dict, step: str, duration: float, metadata: dict |
 
 
 def estimate_step(
-    work_dir: str,
+    project_dir: str | Path,
     step: str,
     segment_count: int | None = None,
     frame_count: int | None = None,
@@ -106,7 +103,7 @@ def estimate_step(
 
     Returns dict with estimated_seconds, basis (what the estimate is based on), or None if no data.
     """
-    metrics = load_metrics(work_dir)
+    metrics = load_metrics(project_dir)
     avgs = metrics.get("step_averages", {}).get(step)
 
     if not avgs:
@@ -164,8 +161,8 @@ def format_estimate(step: str, estimate: dict | None) -> str:
 class StepTimer:
     """Context manager that records step timing automatically."""
 
-    def __init__(self, work_dir: str, video_name: str, step: str, metadata: dict | None = None):
-        self.work_dir = work_dir
+    def __init__(self, project_dir: str | Path, video_name: str, step: str, metadata: dict | None = None):
+        self.project_dir = project_dir
         self.video_name = video_name
         self.step = step
         self.metadata = metadata
@@ -177,7 +174,7 @@ class StepTimer:
 
     def __exit__(self, *args):
         duration = time.time() - self._start
-        record_step(self.work_dir, self.video_name, self.step, duration, self.metadata)
+        record_step(self.project_dir, self.video_name, self.step, duration, self.metadata)
 
     def set_metadata(self, **kwargs):
         """Update metadata during the step (e.g. after discovering segment count)."""

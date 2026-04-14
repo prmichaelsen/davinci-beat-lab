@@ -1,4 +1,4 @@
-"""Narrative keyframe pipeline — YAML-driven keyframe generation and Veo transition pipeline."""
+"""Narrative keyframe pipeline — DB-driven keyframe generation and Veo transition pipeline."""
 
 from __future__ import annotations
 
@@ -10,8 +10,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-
-import yaml
 
 
 def _log(msg: str) -> None:
@@ -72,134 +70,30 @@ def _parse_timestamp(ts: str) -> float:
 # ── YAML Loading & Validation ──────────────────────────────────────
 
 
-def load_narrative(yaml_path: str) -> dict:
-    """Load and validate a narrative YAML file (legacy or split format).
+def load_narrative(project_dir: str | Path) -> dict:
+    """Load and validate narrative data from the project database.
+
+    Args:
+        project_dir: Path to the project directory containing project.db.
 
     Returns the parsed dict with timestamps converted to seconds and
-    all paths resolved relative to the YAML file's parent directory.
+    all paths resolved relative to the project directory.
     """
-    yaml_path = Path(yaml_path)
-    if not yaml_path.exists():
-        raise FileNotFoundError(f"Narrative YAML not found: {yaml_path}")
+    from beatlab.db import load_narrative_from_db
 
-    # Split format: timeline.yaml exists alongside project.yaml + narrative.yaml
-    if yaml_path.name == "timeline.yaml" or (yaml_path.parent / "timeline.yaml").exists():
-        from beatlab.project import load_project
-        data = load_project(yaml_path.parent)
-    else:
-        with open(yaml_path) as f:
-            data = yaml.safe_load(f)
+    project_dir = Path(project_dir)
+    if not (project_dir / "project.db").exists():
+        raise FileNotFoundError(f"No project.db found in: {project_dir}")
+
+    data = load_narrative_from_db(project_dir)
 
     # Validate top-level structure
-    for key in ("meta", "keyframes", "transitions"):
-        if key not in data:
-            raise ValueError(f"Missing required top-level key: {key}")
-
     meta = data["meta"]
     for key in ("title", "audio", "fps", "resolution", "candidates_per_slot", "transition_max_seconds"):
         if key not in meta:
             raise ValueError(f"Missing required meta key: {key}")
 
-    # Build keyframe index
-    kf_ids = set()
-    for kf in data["keyframes"]:
-        for key in ("id", "timestamp", "source", "prompt"):
-            if key not in kf:
-                raise ValueError(f"Keyframe missing required key: {key}")
-        if kf["id"] in kf_ids:
-            raise ValueError(f"Duplicate keyframe ID: {kf['id']}")
-        kf_ids.add(kf["id"])
-        # Parse timestamp to seconds
-        kf["_timestamp_seconds"] = _parse_timestamp(kf["timestamp"])
-
-    # Validate transitions (warn on orphaned references instead of failing)
-    valid_transitions = []
-    for tr in data["transitions"]:
-        for key in ("id", "from", "to", "duration_seconds", "slots"):
-            if key not in tr:
-                raise ValueError(f"Transition {tr.get('id', '?')} missing required key: {key}")
-        if tr["from"] not in kf_ids or tr["to"] not in kf_ids:
-            _log(f"  WARNING: Transition {tr['id']} references missing keyframe ({tr['from']} -> {tr['to']}), skipping")
-            continue
-        valid_transitions.append(tr)
-    data["transitions"] = valid_transitions
-
-    # Resolve paths relative to YAML parent
-    base_dir = yaml_path.parent
-    for kf in data["keyframes"]:
-        source = Path(kf["source"])
-        if not source.is_absolute():
-            kf["_source_resolved"] = str(base_dir / source)
-        else:
-            kf["_source_resolved"] = str(source)
-        # Resolve existing_keyframe if present
-        if kf.get("existing_keyframe"):
-            ekf = Path(kf["existing_keyframe"])
-            if not ekf.is_absolute():
-                kf["_existing_keyframe_resolved"] = str(base_dir / ekf)
-            else:
-                kf["_existing_keyframe_resolved"] = str(ekf)
-
-    # Resolve existing_segment paths on transitions
-    for tr in data["transitions"]:
-        if tr.get("existing_segment"):
-            segs = tr["existing_segment"]
-            if isinstance(segs, str):
-                segs = [segs]
-            resolved = []
-            for s in segs:
-                p = Path(s)
-                if not p.is_absolute():
-                    resolved.append(str(base_dir / p))
-                else:
-                    resolved.append(str(p))
-            tr["_existing_segment_resolved"] = resolved
-
-    audio = Path(meta["audio"])
-    if not audio.is_absolute():
-        meta["_audio_resolved"] = str(base_dir / audio)
-    else:
-        meta["_audio_resolved"] = str(audio)
-
-    data["_yaml_path"] = str(yaml_path)
-    data["_work_dir"] = str(yaml_path.parent)
-
     return data
-
-
-def save_narrative(data: dict, yaml_path: str | None = None) -> None:
-    """Write the narrative data back to YAML, stripping internal fields."""
-    # Split format: delegate to save_project
-    fmt = data.get("_format")
-    work_dir = data.get("_work_dir")
-    if fmt == "split" or (work_dir and (Path(work_dir) / "timeline.yaml").exists()):
-        from beatlab.project import save_project
-        save_project(data, Path(work_dir))
-        return
-
-    yaml_path = yaml_path or data.get("_yaml_path")
-    if not yaml_path:
-        raise ValueError("No yaml_path provided and none stored in data")
-
-    # Deep copy and strip internal fields
-    import copy
-    out = copy.deepcopy(data)
-    for key in list(out.keys()):
-        if key.startswith("_"):
-            del out[key]
-    for kf in out.get("keyframes", []):
-        for key in list(kf.keys()):
-            if key.startswith("_"):
-                del kf[key]
-    for tr in out.get("transitions", []):
-        for key in list(tr.keys()):
-            if key.startswith("_"):
-                del tr[key]
-    if "_audio_resolved" in out.get("meta", {}):
-        del out["meta"]["_audio_resolved"]
-
-    with open(yaml_path, "w") as f:
-        yaml.dump(out, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
 
 def narrative_stats(data: dict) -> dict:
@@ -398,7 +292,7 @@ def _make_replicate_stylize_fn():
     return stylize_fn
 
 
-def resolve_existing_boundary_frames(yaml_path: str) -> None:
+def resolve_existing_boundary_frames(project_dir: str | Path) -> None:
     """Extract first/last frames from existing transition segments and place them
     in selected_keyframes/ so adjacent Veo transitions can use them.
 
@@ -408,7 +302,8 @@ def resolve_existing_boundary_frames(yaml_path: str) -> None:
     - Extract last frame of the last segment -> selected_keyframes/{to_kf_id}.png
       (only if that keyframe doesn't already have a selected image)
     """
-    data = load_narrative(yaml_path)
+    project_dir = Path(project_dir)
+    data = load_narrative(project_dir)
     work_dir = Path(data["_work_dir"])
     selected_dir = work_dir / "selected_keyframes"
     selected_dir.mkdir(parents=True, exist_ok=True)
@@ -439,7 +334,7 @@ def resolve_existing_boundary_frames(yaml_path: str) -> None:
 
 
 def generate_keyframe_candidates(
-    yaml_path: str,
+    project_dir: str | Path,
     vertex: bool = False,
     candidates_per_slot: int | None = None,
     segment_filter: set[str] | None = None,
@@ -453,7 +348,8 @@ def generate_keyframe_candidates(
                e.g. {"kf_005": {"v1", "v2"}, "kf_007": set()} where empty set = all variants.
                Targeted keyframes are automatically included even without segment_filter.
     """
-    data = load_narrative(yaml_path)
+    project_dir = Path(project_dir)
+    data = load_narrative(project_dir)
     work_dir = Path(data["_work_dir"])
     n_candidates = candidates_per_slot or data["meta"]["candidates_per_slot"]
 
@@ -552,7 +448,11 @@ def generate_keyframe_candidates(
 
     if not jobs:
         _log("All keyframe candidates already generated.")
-        save_narrative(data, yaml_path)
+        # Persist any candidate/selected updates to DB
+        from beatlab.db import update_keyframe
+        for kf in data["keyframes"]:
+            if kf.get("candidates") or kf.get("selected") is not None:
+                update_keyframe(project_dir, kf["id"], candidates=kf.get("candidates", []), selected=kf.get("selected"))
         return
 
     # When 4 or fewer keyframes targeted, parallelize candidates within each keyframe
@@ -648,17 +548,21 @@ def generate_keyframe_candidates(
                 except Exception as e:
                     _log(f"  FAILED: {e}")
 
-    # Save updated YAML
-    save_narrative(data, yaml_path)
+    # Persist candidate updates to DB
+    from beatlab.db import update_keyframe
+    for kf in data["keyframes"]:
+        if kf.get("candidates") or kf.get("selected") is not None:
+            update_keyframe(project_dir, kf["id"], candidates=kf.get("candidates", []), selected=kf.get("selected"))
     _log("Keyframe candidate generation complete.")
 
 
 # ── Keyframe Selection ─────────────────────────────────────────────
 
 
-def apply_keyframe_selection(yaml_path: str, selections: dict[str, int]) -> None:
+def apply_keyframe_selection(project_dir: str | Path, selections: dict[str, int]) -> None:
     """Apply keyframe selections: {kf_id: variant_index (1-based)}."""
-    data = load_narrative(yaml_path)
+    project_dir = Path(project_dir)
+    data = load_narrative(project_dir)
     work_dir = Path(data["_work_dir"])
     selected_dir = work_dir / "selected_keyframes"
     selected_dir.mkdir(parents=True, exist_ok=True)
@@ -683,14 +587,17 @@ def apply_keyframe_selection(yaml_path: str, selections: dict[str, int]) -> None
         kf["selected"] = variant
         _log(f"  {kf_id}: selected v{variant} -> {dest}")
 
-    save_narrative(data, yaml_path)
+    # Persist selections to DB
+    from beatlab.db import update_keyframe
+    for kf_id, variant in selections.items():
+        update_keyframe(project_dir, kf_id, selected=variant)
     _log("Keyframe selections applied.")
 
 
 # ── Transition Action Generation ───────────────────────────────────
 
 
-def generate_transition_actions(yaml_path: str) -> None:
+def generate_transition_actions(project_dir: str | Path) -> None:
     """Generate LLM transition actions for transitions with empty/null action.
 
     Sends the actual selected keyframe images to Claude along with text context
@@ -699,7 +606,8 @@ def generate_transition_actions(yaml_path: str) -> None:
     import base64
     import os
 
-    data = load_narrative(yaml_path)
+    project_dir = Path(project_dir)
+    data = load_narrative(project_dir)
     work_dir = Path(data["_work_dir"])
     selected_dir = work_dir / "selected_keyframes"
 
@@ -784,7 +692,10 @@ def generate_transition_actions(yaml_path: str) -> None:
         tr["action"] = action
         _log(f"    Action: {action[:80]}...")
 
-    save_narrative(data, yaml_path)
+        # Persist action to DB immediately
+        from beatlab.db import update_transition
+        update_transition(project_dir, tr["id"], action=action)
+
     _log("Transition action generation complete.")
 
 
@@ -792,7 +703,7 @@ def generate_transition_actions(yaml_path: str) -> None:
 
 
 def generate_slot_keyframe_candidates(
-    yaml_path: str,
+    project_dir: str | Path,
     vertex: bool = False,
     candidates_per_slot: int | None = None,
     use_replicate: bool = False,
@@ -801,7 +712,8 @@ def generate_slot_keyframe_candidates(
 
     Produces a combined grid per transition: rows=intermediate slots, columns=variants.
     """
-    data = load_narrative(yaml_path)
+    project_dir = Path(project_dir)
+    data = load_narrative(project_dir)
     work_dir = Path(data["_work_dir"])
     n_candidates = candidates_per_slot or data["meta"]["candidates_per_slot"]
 
@@ -928,13 +840,13 @@ def generate_slot_keyframe_candidates(
             make_slot_grid(all_slot_images, grid_path, f"{tr['id']} — {n_intermediates} intermediate keyframes", slot_labels)
             _log(f"    Combined grid: {grid_path}")
 
-    save_narrative(data, yaml_path)
     _log("Slot keyframe candidate generation complete.")
 
 
-def apply_slot_keyframe_selection(yaml_path: str, selections: dict[str, int]) -> None:
+def apply_slot_keyframe_selection(project_dir: str | Path, selections: dict[str, int]) -> None:
     """Apply slot keyframe selections: {tr_id_slot_N: variant_index (1-based)}."""
-    data = load_narrative(yaml_path)
+    project_dir = Path(project_dir)
+    data = load_narrative(project_dir)
     work_dir = Path(data["_work_dir"])
     selected_dir = work_dir / "selected_slot_keyframes"
     selected_dir.mkdir(parents=True, exist_ok=True)
@@ -967,7 +879,6 @@ def apply_slot_keyframe_selection(yaml_path: str, selections: dict[str, int]) ->
                     tr["selected_slot_keyframes"] = {}
                 tr["selected_slot_keyframes"][slot_key] = variant
 
-    save_narrative(data, yaml_path)
     _log("Slot keyframe selections applied.")
 
 
@@ -975,7 +886,7 @@ def apply_slot_keyframe_selection(yaml_path: str, selections: dict[str, int]) ->
 
 
 def generate_transition_candidates(
-    yaml_path: str,
+    project_dir: str | Path,
     vertex: bool = False,
     candidates_per_slot: int | None = None,
     segment_filter: set[str] | None = None,
@@ -984,10 +895,11 @@ def generate_transition_candidates(
     duration_seconds: int | None = None,
 ) -> None:
     """Generate Veo transition video candidates for each slot."""
+    project_dir = Path(project_dir)
     # First resolve boundary frames from any existing segments
-    resolve_existing_boundary_frames(yaml_path)
+    resolve_existing_boundary_frames(project_dir)
 
-    data = load_narrative(yaml_path)
+    data = load_narrative(project_dir)
     work_dir = Path(data["_work_dir"])
     n_candidates = candidates_per_slot or 1
     max_seconds = duration_seconds or data["meta"]["transition_max_seconds"]
@@ -1122,9 +1034,10 @@ def generate_transition_candidates(
     _log("Transition candidate generation complete.")
 
 
-def apply_transition_selection(yaml_path: str, selections: dict[str, int]) -> None:
+def apply_transition_selection(project_dir: str | Path, selections: dict[str, int]) -> None:
     """Apply transition selections: {tr_id_slot_N: variant_index (1-based)}."""
-    data = load_narrative(yaml_path)
+    project_dir = Path(project_dir)
+    data = load_narrative(project_dir)
     work_dir = Path(data["_work_dir"])
     selected_dir = work_dir / "selected_transitions"
     selected_dir.mkdir(parents=True, exist_ok=True)
@@ -1161,7 +1074,18 @@ def apply_transition_selection(yaml_path: str, selections: dict[str, int]) -> No
                 tr["selected"] = [None] * n_slots
             tr["selected"][slot_idx] = variant
 
-    save_narrative(data, yaml_path)
+    # Persist selections to DB
+    from beatlab.db import update_transition
+    for key, variant in selections.items():
+        if "_slot_" in key:
+            tr_id, slot_part = key.rsplit("_slot_", 1)
+            slot_idx = int(slot_part)
+        else:
+            tr_id = key
+            slot_idx = 0
+        tr = tr_by_id.get(tr_id)
+        if tr:
+            update_transition(project_dir, tr_id, selected=tr.get("selected", [variant]))
     _log("Transition selections applied.")
 
 
@@ -1339,7 +1263,7 @@ def _blend_frames(base, overlay, mode: str = "normal", opacity: float = 1.0):
     return r
 
 
-def assemble_final(yaml_path: str, output_path: str, max_time: float | None = None, crossfade_frames: int | None = None, start_time: float | None = None, enable_flash: bool = False) -> str:
+def assemble_final(project_dir: str | Path, output_path: str, max_time: float | None = None, crossfade_frames: int | None = None, start_time: float | None = None, enable_flash: bool = False) -> str:
     """Time-remap selected transitions, concatenate, and mux audio.
 
     Args:
@@ -1350,21 +1274,15 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
     """
     import subprocess
 
-    # DB is source of truth — segments built directly from DB below
-    yaml_dir = Path(yaml_path).parent
-
-    data = load_narrative(yaml_path)
+    project_dir = Path(project_dir)
+    data = load_narrative(project_dir)
     work_dir = Path(data["_work_dir"])
     meta = data["meta"]
     selected_tr_dir = work_dir / "selected_transitions"
     remapped_dir = work_dir / "remapped"
     remapped_dir.mkdir(parents=True, exist_ok=True)
 
-    transitions = data["transitions"]
     max_seconds = meta["transition_max_seconds"]
-
-    # Build keyframe timestamp lookup for computing timeline durations
-    kf_by_id = {kf["id"]: kf for kf in data["keyframes"]}
 
     def _parse_ts(ts):
         parts = str(ts).split(":")
@@ -1372,84 +1290,11 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
             return int(parts[0]) * 60 + float(parts[1])
         return 0.0
 
-    # Sort transitions by timeline order
-    transitions = sorted(transitions, key=lambda tr: _parse_ts(
-        kf_by_id.get(tr.get("from", ""), {}).get("timestamp", "99:99")
-    ))
-
-    # Collect clip info with timeline durations
-    clips_info = []
-    for tr in transitions:
-        n_slots = tr["slots"]
-        if n_slots == 0:
-            continue
-
-        from_kf = kf_by_id.get(tr.get("from", ""))
-        to_kf = kf_by_id.get(tr.get("to", ""))
-        if from_kf and to_kf:
-            timeline_duration = _parse_ts(to_kf["timestamp"]) - _parse_ts(from_kf["timestamp"])
-        else:
-            timeline_duration = tr["duration_seconds"]
-
-        if timeline_duration <= 0:
-            continue
-
-        selected = selected_tr_dir / f"{tr['id']}_slot_0.mp4"
-        if not selected.exists():
-            # Fallback: use from-keyframe image as a still frame
-            kf_image = work_dir / "selected_keyframes" / f"{tr.get('from', '')}.png"
-            if kf_image.exists():
-                _log(f"  {tr['id']}: no video, using keyframe image {kf_image.name}")
-                clips_info.append({
-                    "tr": tr,
-                    "selected": str(kf_image),
-                    "is_still": True,
-                    "from_ts": _parse_ts(from_kf["timestamp"]) if from_kf else 0,
-                    "to_ts": _parse_ts(to_kf["timestamp"]) if to_kf else 0,
-                    "timeline_dur": timeline_duration,
-                })
-            else:
-                _log(f"  WARNING: Missing {selected} (no keyframe fallback)")
-            continue
-
-        clips_info.append({
-            "tr": tr,
-            "selected": str(selected),
-            "is_still": False,
-            "from_ts": _parse_ts(from_kf["timestamp"]) if from_kf else 0,
-            "to_ts": _parse_ts(to_kf["timestamp"]) if to_kf else 0,
-            "timeline_dur": timeline_duration,
-        })
-
-    if not clips_info:
-        raise RuntimeError("No clips to assemble")
-
-    # Apply start_time filter
-    if start_time is not None:
-        clips_info = [ci for ci in clips_info if ci["to_ts"] > start_time]
-        _log(f"  start_time={start_time:.1f}s → {len(clips_info)} clips")
-
-    # Apply max_time filter
-    if max_time is not None:
-        clips_info = [ci for ci in clips_info if ci["from_ts"] < max_time]
-        # Clamp last clip's to_ts
-        if clips_info and clips_info[-1]["to_ts"] > max_time:
-            clips_info[-1]["to_ts"] = max_time
-            clips_info[-1]["timeline_dur"] = max_time - clips_info[-1]["from_ts"]
-        _log(f"  max_time={max_time:.1f}s → {len(clips_info)} clips")
-
-    n_clips = len(clips_info)
     fps = 24.0
-    # Crossfade frames: CLI arg > settings.yaml > default 8
+    # Crossfade frames: CLI arg > DB settings > default 8
     if crossfade_frames is None:
-        import yaml as _yaml
-        settings_path = work_dir / "settings.yaml"
-        if settings_path.exists():
-            with open(settings_path) as f:
-                _settings = _yaml.safe_load(f) or {}
-            crossfade_frames = _settings.get("crossfade_frames", 8)
-        else:
-            crossfade_frames = 8
+        from beatlab.db import get_setting
+        crossfade_frames = get_setting(project_dir, "crossfade_frames", 8)
     XFADE_FRAMES = crossfade_frames
     HALF = XFADE_FRAMES // 2
 
@@ -1773,17 +1618,7 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
                         **({k: v for k, v in color_grading.items() if v} if has_grading else {}),
                         **(transform_data if has_transform else {}),
                     })
-    else:
-        # Fallback to YAML-based clips_info
-        for ci in clips_info:
-            remap = ci["tr"].get("remap", {})
-            segments.append({
-                "from_ts": ci["from_ts"], "to_ts": ci["to_ts"],
-                "source": ci["selected"], "is_still": ci.get("is_still", False),
-                "remap_method": remap.get("method", "linear"),
-                "curve_points": remap.get("curve_points"),
-                "effects": [],
-            })
+    # (YAML fallback removed — DB is sole source of truth)
 
     # Sort by from_ts and deduplicate overlaps (keep longest)
     segments.sort(key=lambda s: (s["from_ts"], -(s["to_ts"] - s["from_ts"])))

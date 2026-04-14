@@ -38,13 +38,9 @@ def _next_variant(directory: Path, ext: str = ".png") -> int:
 
 
 def _get_project_settings(project_dir: Path) -> dict:
-    """Read settings.yaml for a project."""
-    import yaml
-    settings_path = project_dir / "settings.yaml"
-    if settings_path.exists():
-        with open(settings_path) as f:
-            return yaml.safe_load(f) or {}
-    return {}
+    """Read settings from DB for a project."""
+    from beatlab.db import get_settings
+    return get_settings(project_dir)
 
 
 def _get_image_backend(project_dir: Path) -> str:
@@ -70,8 +66,8 @@ def make_handler(work_dir: Path):
                 _project_locks[project_name] = threading.Lock()
             return _project_locks[project_name]
 
-    def _yaml_lock(project_name: str):
-        """Context manager for serializing YAML read-modify-write operations on a project."""
+    def _project_lock(project_name: str):
+        """Context manager for serializing per-project read-modify-write operations."""
         return _get_project_lock(project_name)
 
     class SceneCraftHandler(BaseHTTPRequestHandler):
@@ -166,15 +162,9 @@ def make_handler(work_dir: Path):
                 project_dir = self._require_project_dir(m.group(1))
                 if project_dir is None: return
                 from datetime import datetime as _dt
-                import yaml as _yaml
-                # Load manifest for names
-                manifest_path = project_dir / "checkpoints.yaml"
-                name_map = {}
-                if manifest_path.exists():
-                    with open(manifest_path) as _mf:
-                        for entry in (_yaml.safe_load(_mf) or []):
-                            if isinstance(entry, dict):
-                                name_map[entry.get("filename", "")] = entry.get("name", "")
+                from beatlab.db import get_checkpoints
+                cp_entries = get_checkpoints(project_dir)
+                name_map = {e["filename"]: e["name"] for e in cp_entries}
                 checkpoints = []
                 for f in sorted(project_dir.glob("project.db.checkpoint-*"), reverse=True):
                     stat = f.stat()
@@ -647,16 +637,9 @@ def make_handler(work_dir: Path):
                 finally:
                     dst_conn.close()
                     src_conn.close()
-                # Save metadata to checkpoints.yaml
-                import yaml as _yaml
-                manifest_path = project_dir / "checkpoints.yaml"
-                manifest = []
-                if manifest_path.exists():
-                    with open(manifest_path) as _mf:
-                        manifest = _yaml.safe_load(_mf) or []
-                manifest.append({"filename": filename, "name": name or "", "created": datetime.now().isoformat()})
-                with open(manifest_path, "w") as _mf:
-                    _yaml.dump(manifest, _mf, default_flow_style=False)
+                # Save metadata to checkpoints.db
+                from beatlab.db import add_checkpoint
+                add_checkpoint(project_dir, filename, name or "", datetime.now().isoformat())
 
                 _log(f"checkpoint: {m.group(1)} -> {filename}{' (' + name + ')' if name else ''}")
                 return self._json_response({"success": True, "filename": filename, "name": name})
@@ -792,13 +775,8 @@ def make_handler(work_dir: Path):
                 if project_dir is None: return
                 rules = body.get("rules", [])
                 # Update the active audio intelligence file with new rules
-                import yaml as pyyaml
-                settings_path = project_dir / "settings.yaml"
-                ai_file = None
-                if settings_path.exists():
-                    with open(settings_path) as f:
-                        s = pyyaml.safe_load(f) or {}
-                    ai_file = s.get("audio_intelligence_file")
+                from beatlab.db import get_setting
+                ai_file = get_setting(project_dir, "audio_intelligence_file")
                 if not ai_file:
                     candidates = sorted(project_dir.glob("audio_intelligence*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
                     if candidates:
@@ -823,13 +801,8 @@ def make_handler(work_dir: Path):
                 project_dir = self._require_project_dir(m.group(1))
                 if project_dir is None: return
 
-                import yaml as pyyaml
-                settings_path = project_dir / "settings.yaml"
-                ai_file = None
-                if settings_path.exists():
-                    with open(settings_path) as f:
-                        s = pyyaml.safe_load(f) or {}
-                    ai_file = s.get("audio_intelligence_file")
+                from beatlab.db import get_setting
+                ai_file = get_setting(project_dir, "audio_intelligence_file")
                 if not ai_file:
                     candidates = sorted(project_dir.glob("audio_intelligence*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
                     if candidates:
@@ -1692,14 +1665,14 @@ def make_handler(work_dir: Path):
                 filenames = [f.name for f in files]
                 has_audio = any(f.endswith((".wav", ".mp3")) for f in filenames)
                 has_video = any(f.endswith(".mp4") for f in filenames)
-                has_yaml = "narrative_keyframes.yaml" in filenames or "timeline.yaml" in filenames
+                has_db = "project.db" in filenames
                 has_beats = "beats.json" in filenames
 
                 projects.append({
                     "name": entry.name,
                     "hasAudio": has_audio,
                     "hasVideo": has_video,
-                    "hasYaml": has_yaml,
+                    "hasDb": has_db,
                     "hasBeats": has_beats,
                     "fileCount": len(files),
                     "modified": entry.stat().st_mtime * 1000,
@@ -4228,8 +4201,8 @@ def make_handler(work_dir: Path):
 
             tr_id = body.get("transitionId")  # optional — generate for specific transition or all
 
-            yaml_path = self._require_yaml_path(project_name)
-            if yaml_path is None:
+            project_dir = self._require_project_dir(project_name)
+            if project_dir is None:
                 return
 
             _log(f"generate-slot-keyframe-candidates: tr_id={tr_id or 'all'}")
@@ -4239,7 +4212,7 @@ def make_handler(work_dir: Path):
             def _run():
                 try:
                     from beatlab.render.narrative import generate_slot_keyframe_candidates
-                    generate_slot_keyframe_candidates(str(yaml_path), vertex=False)
+                    generate_slot_keyframe_candidates(str(project_dir), vertex=False)
 
                     # Collect results
                     project_dir = work_dir / project_name
@@ -4742,13 +4715,8 @@ def make_handler(work_dir: Path):
             project_dir = work_dir / project_name
 
             # Determine which file to use
-            import yaml as pyyaml
-            settings_path = project_dir / "settings.yaml"
-            ai_file = None
-            if settings_path.exists():
-                with open(settings_path) as f:
-                    s = pyyaml.safe_load(f) or {}
-                ai_file = s.get("audio_intelligence_file")
+            from beatlab.db import get_setting
+            ai_file = get_setting(project_dir, "audio_intelligence_file")
 
             # Auto-detect latest if not configured
             if not ai_file:
@@ -4793,22 +4761,19 @@ def make_handler(work_dir: Path):
                 self._error(500, "INTERNAL_ERROR", str(e))
 
         def _handle_get_settings(self, project_name: str):
-            """GET /api/projects/:name/settings — read project settings from settings.yaml."""
+            """GET /api/projects/:name/settings — read project settings from DB."""
             _log(f"get-settings: {project_name}")
-            import yaml as pyyaml
-            settings_path = work_dir / project_name / "settings.yaml"
+            project_dir = work_dir / project_name
+            from beatlab.db import get_settings
             defaults = {
                 "preview_quality": 50,
                 "audio_intelligence_file": None,
                 "render_preview_fps": 24,
             }
-            if settings_path.exists():
-                with open(settings_path) as f:
-                    saved = pyyaml.safe_load(f) or {}
-                defaults.update(saved)
+            saved = get_settings(project_dir)
+            defaults.update(saved)
 
             # Also list available audio intelligence files
-            project_dir = work_dir / project_name
             ai_files = sorted([
                 f.name for f in project_dir.glob("audio_intelligence*.json")
             ], reverse=True)
@@ -4816,30 +4781,23 @@ def make_handler(work_dir: Path):
             self._json_response({**defaults, "available_audio_intelligence_files": ai_files})
 
         def _handle_update_settings(self, project_name: str):
-            """POST /api/projects/:name/settings — update project settings in settings.yaml."""
+            """POST /api/projects/:name/settings — update project settings in DB."""
             body = self._read_json_body()
             if body is None:
                 return
 
             _log(f"update-settings: settings updated")
-            import yaml as pyyaml
-            settings_path = work_dir / project_name / "settings.yaml"
-
-            existing = {}
-            if settings_path.exists():
-                with open(settings_path) as f:
-                    existing = pyyaml.safe_load(f) or {}
+            project_dir = work_dir / project_name
+            from beatlab.db import get_settings, set_setting
 
             # Only allow known fields
             allowed = {"preview_quality", "audio_intelligence_file", "render_preview_fps"}
             for key in allowed:
                 if key in body:
-                    existing[key] = body[key]
+                    set_setting(project_dir, key, body[key])
 
-            with open(settings_path, "w") as f:
-                pyyaml.dump(existing, f, default_flow_style=False, allow_unicode=True)
-
-            self._json_response({"success": True, **existing})
+            result = get_settings(project_dir)
+            self._json_response({"success": True, **result})
 
         def _handle_get_watched_folders(self, project_name: str):
             """GET /api/projects/:name/watched-folders — list persisted watched folders."""
@@ -5306,74 +5264,29 @@ def make_handler(work_dir: Path):
         def _handle_get_timelines(self, project_name: str):
             """GET /api/projects/:name/timelines — list available timelines."""
             _log(f"get-timelines: {project_name}")
-            from beatlab.project import get_timelines
             project_dir = work_dir / project_name
             if not project_dir.is_dir():
                 return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
-            try:
-                result = get_timelines(project_dir)
-                self._json_response(result)
-            except Exception as e:
-                self._error(500, "INTERNAL_ERROR", str(e))
+            self._json_response({"active": "default", "timelines": ["default"]})
 
         def _handle_timeline_switch(self, project_name: str):
-            """POST /api/projects/:name/timeline/switch — switch active timeline."""
-            from beatlab.project import switch_timeline
+            """POST /api/projects/:name/timeline/switch — no-op, single timeline in DB."""
             body = self._read_json_body()
             if body is None:
                 return
             name = body.get("name")
             if not name:
                 return self._error(400, "BAD_REQUEST", "Missing 'name'")
-            project_dir = work_dir / project_name
-            if not project_dir.is_dir():
-                return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
-            try:
-                _log(f"timeline-switch: {name}")
-                switch_timeline(project_dir, name)
-                self._json_response({"success": True, "active": name})
-            except ValueError as e:
-                self._error(404, "NOT_FOUND", str(e))
+            _log(f"timeline-switch: {name} (no-op, single timeline)")
+            self._json_response({"success": True, "active": "default"})
 
         def _handle_timeline_import(self, project_name: str):
-            """POST /api/projects/:name/timeline/import — import timeline from source."""
-            from beatlab.project import import_timeline
-            body = self._read_json_body()
-            if body is None:
-                return
-            source_path = body.get("sourcePath")
-            timeline_name = body.get("timelineName")
-            if not source_path:
-                return self._error(400, "BAD_REQUEST", "Missing 'sourcePath'")
-            project_dir = work_dir / project_name
-            if not project_dir.is_dir():
-                return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
-            try:
-                _log(f"timeline-import: source={source_path}")
-                result = import_timeline(project_dir, source_path, timeline_name)
-                self._json_response({"success": True, **result})
-            except Exception as e:
-                self._error(500, "INTERNAL_ERROR", str(e))
+            """POST /api/projects/:name/timeline/import — not yet supported in DB mode."""
+            self._error(501, "NOT_IMPLEMENTED", "Multi-timeline not yet supported in DB mode")
 
         def _handle_timeline_create(self, project_name: str):
-            """POST /api/projects/:name/timeline/create — create new timeline."""
-            from beatlab.project import create_timeline
-            body = self._read_json_body()
-            if body is None:
-                return
-            name = body.get("name")
-            copy_from = body.get("copyFrom")
-            if not name:
-                return self._error(400, "BAD_REQUEST", "Missing 'name'")
-            project_dir = work_dir / project_name
-            if not project_dir.is_dir():
-                return self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
-            try:
-                _log(f"timeline-create: {name}")
-                create_timeline(project_dir, name, copy_from)
-                self._json_response({"success": True, "name": name})
-            except ValueError as e:
-                self._error(400, "BAD_REQUEST", str(e))
+            """POST /api/projects/:name/timeline/create — not yet supported in DB mode."""
+            self._error(501, "NOT_IMPLEMENTED", "Multi-timeline not yet supported in DB mode")
 
         # ── Git Version Handlers ─────────────────────────────────
 
@@ -5613,15 +5526,6 @@ def make_handler(work_dir: Path):
             project_dir = work_dir / project_name
             if not project_dir.is_dir():
                 return None
-            db_path = project_dir / "project.db"
-            if not db_path.exists():
-                # Auto-import from YAML on first access
-                yaml_exists = (project_dir / "timeline.yaml").exists() or (project_dir / "narrative_keyframes.yaml").exists()
-                if yaml_exists:
-                    from beatlab.db import import_from_yaml
-                    _log(f"Auto-importing {project_name} from YAML to SQLite...")
-                    import_from_yaml(project_dir)
-                    _log(f"  Import complete")
             return project_dir
 
         def _require_project_dir(self, project_name: str) -> Path | None:
@@ -5631,89 +5535,6 @@ def make_handler(work_dir: Path):
                 self._error(404, "NOT_FOUND", f"Project not found: {project_name}")
                 return None
             return d
-
-        def _get_yaml_path(self, project_name: str) -> Path | None:
-            """Get the YAML path for a project — prefers timeline.yaml (split format), falls back to legacy."""
-            project_dir = work_dir / project_name
-            split = project_dir / "timeline.yaml"
-            if split.exists():
-                return split
-            legacy = project_dir / "narrative_keyframes.yaml"
-            if legacy.exists():
-                return legacy
-            return None
-
-        def _load_timeline_data(self, parsed: dict) -> dict:
-            """Extract the active timeline's data from either split or legacy format.
-            Returns a dict with 'keyframes', 'transitions', 'bin', 'transition_bin' keys.
-            Also sets '_split' flag and '_active' name if split format.
-            """
-            if "timelines" in parsed:
-                active = parsed.get("active_timeline", "default")
-                tl = parsed.get("timelines", {}).get(active, {})
-                return {
-                    "keyframes": tl.get("keyframes", []),
-                    "transitions": tl.get("transitions", []),
-                    "bin": tl.get("bin", []),
-                    "transition_bin": tl.get("transition_bin", []),
-                    "_split": True,
-                    "_active": active,
-                }
-            return {
-                "keyframes": parsed.get("keyframes", []),
-                "transitions": parsed.get("transitions", []),
-                "bin": parsed.get("bin", []),
-                "transition_bin": parsed.get("transition_bin", []),
-                "_split": False,
-            }
-
-        def _save_timeline_data(self, parsed: dict, tl_data: dict):
-            """Write timeline data back into the parsed YAML structure."""
-            if tl_data.get("_split"):
-                active = tl_data.get("_active", "default")
-                if "timelines" not in parsed:
-                    parsed["timelines"] = {}
-                parsed["timelines"][active] = {
-                    "keyframes": tl_data["keyframes"],
-                    "transitions": tl_data["transitions"],
-                    "bin": tl_data["bin"],
-                    "transition_bin": tl_data["transition_bin"],
-                }
-            else:
-                parsed["keyframes"] = tl_data["keyframes"]
-                parsed["transitions"] = tl_data["transitions"]
-                parsed["bin"] = tl_data["bin"]
-                parsed["transition_bin"] = tl_data["transition_bin"]
-
-        def _require_yaml_path(self, project_name: str) -> Path | None:
-            """Get YAML path or send 404 error. Returns None if error was sent."""
-            path = self._get_yaml_path(project_name)
-            if path is None:
-                self._error(404, "NOT_FOUND", "No narrative_keyframes.yaml found")
-                return None
-            return path
-
-        def _ruamel_load(self, yaml_path):
-            """Load YAML with ruamel for round-trip editing."""
-            from ruamel.yaml import YAML
-            ryaml = YAML()
-            ryaml.width = 1000
-            ryaml.preserve_quotes = True
-            with open(yaml_path) as f:
-                return ryaml, ryaml.load(f)
-
-        def _ruamel_save(self, ryaml, parsed, yaml_path):
-            """Save YAML with ruamel, preserving formatting."""
-            with open(yaml_path, "w") as f:
-                ryaml.dump(parsed, f)
-
-        def _has_project_yaml(self, project_name: str) -> bool:
-            """Check if a project has any YAML data (split or legacy)."""
-            project_dir = work_dir / project_name
-            return (
-                (project_dir / "narrative_keyframes.yaml").exists()
-                or (project_dir / "timeline.yaml").exists()
-            )
 
         def _read_json_body(self) -> dict | None:
             """Read and parse JSON body from request."""

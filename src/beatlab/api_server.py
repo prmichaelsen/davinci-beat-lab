@@ -2195,20 +2195,24 @@ def make_handler(work_dir: Path):
             if kf_dir.is_dir():
                 for f in sorted(kf_dir.iterdir()):
                     if f.suffix.lower() in ('.png', '.jpg', '.jpeg', '.webp'):
+                        st = f.stat()
                         keyframes.append({
                             "name": f.name,
                             "path": f"pool/keyframes/{f.name}",
-                            "size": f.stat().st_size,
+                            "size": st.st_size,
+                            "modified": st.st_mtime,
                         })
 
             segments = []
             if seg_dir.is_dir():
                 for f in sorted(seg_dir.iterdir()):
                     if f.suffix.lower() in ('.mp4', '.webm', '.mov'):
+                        st = f.stat()
                         segments.append({
                             "name": f.name,
                             "path": f"pool/segments/{f.name}",
-                            "size": f.stat().st_size,
+                            "size": st.st_size,
+                            "modified": st.st_mtime,
                         })
 
             self._json_response({"keyframes": keyframes, "segments": segments})

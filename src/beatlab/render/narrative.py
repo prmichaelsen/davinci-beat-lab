@@ -1296,6 +1296,8 @@ def _remap_with_curve(
     shutil.rmtree(str(out_dir))
 
 
+_blend_debug_t = None  # set to a timestamp to enable debug logging
+
 def _blend_frames(base, overlay, mode: str = "normal", opacity: float = 1.0):
     """Composite overlay frame onto base using blend mode (OpenCV, matching WebGL compositor)."""
     import cv2
@@ -1305,6 +1307,9 @@ def _blend_frames(base, overlay, mode: str = "normal", opacity: float = 1.0):
         return overlay
     if overlay is None:
         return base
+
+    if _blend_debug_t is not None:
+        _log(f"      _blend_frames: mode={mode} opacity={opacity:.2f} base_mean={np.mean(base):.1f} overlay_mean={np.mean(overlay):.1f}")
 
     # Normalize to float 0-1
     b = base.astype(np.float32) / 255.0
@@ -1326,25 +1331,27 @@ def _blend_frames(base, overlay, mode: str = "normal", opacity: float = 1.0):
 
     # Mix with opacity
     result = b * (1.0 - opacity) + blended * opacity
-    return np.clip(result * 255, 0, 255).astype(np.uint8)
+    r = np.clip(result * 255, 0, 255).astype(np.uint8)
+
+    if _blend_debug_t is not None:
+        _log(f"        -> result_mean={np.mean(r):.1f}")
+
+    return r
 
 
-def assemble_final(yaml_path: str, output_path: str, max_time: float | None = None, crossfade_frames: int | None = None, start_time: float | None = None) -> str:
+def assemble_final(yaml_path: str, output_path: str, max_time: float | None = None, crossfade_frames: int | None = None, start_time: float | None = None, enable_flash: bool = False) -> str:
     """Time-remap selected transitions, concatenate, and mux audio.
 
     Args:
         max_time: Stop assembling after this timeline time (seconds). None = full track.
         start_time: Start assembling from this timeline time (seconds). None = beginning.
-        crossfade_frames: Number of frames for crossfade transitions. Default from settings.yaml or 8.
+        crossfade_frames: Number of frames for crossfade transitions. Default from settings or 8.
+        enable_flash: Enable flash effects (disabled by default).
     """
     import subprocess
 
-    # Export DB to YAML first so curve_points and other DB-only edits are included
+    # DB is source of truth — segments built directly from DB below
     yaml_dir = Path(yaml_path).parent
-    if (yaml_dir / "project.db").exists():
-        from beatlab.db import export_to_yaml
-        export_to_yaml(yaml_dir)
-        _log("  Exported DB to YAML before assembly")
 
     data = load_narrative(yaml_path)
     work_dir = Path(data["_work_dir"])
@@ -1495,8 +1502,13 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
 
     effect_events.sort(key=lambda e: e["time"])
 
-    # Remove hard_cuts
-    effect_events = [e for e in effect_events if e.get("effect") != "hard_cut"]
+    # Remove hard_cuts always; remove flash unless explicitly enabled
+    skip_effects = {"hard_cut"}
+    if not enable_flash:
+        skip_effects.add("flash")
+    effect_events = [e for e in effect_events if e.get("effect") not in skip_effects]
+    # TEMP DEBUG: disable ALL beat effects to isolate compositing
+    effect_events = []
 
     def _effect_category(effect):
         if effect in ("zoom_pulse", "zoom_bounce", "zoom"):
@@ -2172,6 +2184,8 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
             # Store for next frame's crossfade
             _overlay_prev[ti] = {"clip_idx": active_idx, "frame": frame.copy()}
 
+            if _blend_debug_t is not None:
+                _log(f"    COMPOSITING track_idx={ti} clip_video={matched_clip.get('video','')!s:.80s} clip_still={matched_clip.get('still','')!s:.80s} blend={clip_blend} opacity={clip_opacity:.2f} from={matched_clip['from_ts']:.2f} to={matched_clip['to_ts']:.2f}")
             result = _blend_frames(result, frame, clip_blend, clip_opacity)
 
             # Release handles for passed clips
@@ -2238,8 +2252,11 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
         seg["_loaded"] = True
         _loaded_segs.add(seg_idx)
 
-    # Compute total output duration and frames
+    # Compute total output duration from base + all overlay tracks
     end_time = segments[-1]["to_ts"] if segments else 0
+    for otrack in overlay_tracks:
+        for oclip in otrack["clips"]:
+            end_time = max(end_time, oclip["to_ts"])
     render_start = start_time or 0.0
     total_output_frames = round((end_time - render_start) * fps)
     _log(f"Phase 2: Per-frame render — {total_output_frames} frames ({render_start:.2f}s → {end_time:.2f}s), {w}x{h} @ {fps}fps")
@@ -2284,6 +2301,10 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
 
     for frame_num in range(total_output_frames):
         t = render_start + frame_num / fps
+        global _blend_debug_t
+        _blend_debug_t = t if abs(t - 1592) < 0.05 else None
+        if _blend_debug_t:
+            _log(f"\n=== DEBUG FRAME t={t:.3f} (frame {frame_num}) ===")
         seg_idx = _find_segment(t)
 
         if seg_idx < 0:

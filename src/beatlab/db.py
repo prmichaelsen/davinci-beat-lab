@@ -318,6 +318,28 @@ def _ensure_schema(conn: sqlite3.Connection):
     if "type" not in marker_cols:
         conn.execute("ALTER TABLE markers ADD COLUMN type TEXT NOT NULL DEFAULT 'note'")
 
+    # Migrate transition-level chroma_key to transition_effects
+    try:
+        rows = conn.execute("SELECT id, chroma_key FROM transitions WHERE chroma_key IS NOT NULL AND chroma_key != '' AND chroma_key != 'null' AND deleted_at IS NULL").fetchall()
+        for row in rows:
+            tr_id = row[0]
+            ck = json.loads(row[1]) if isinstance(row[1], str) else row[1]
+            if ck and isinstance(ck, dict) and ck.get("color"):
+                # Check if already migrated (has a chroma-key effect)
+                existing = conn.execute("SELECT 1 FROM transition_effects WHERE transition_id = ? AND type = 'chroma-key'", (tr_id,)).fetchone()
+                if not existing:
+                    import time as _t
+                    fx_id = f"fx_{int(_t.time() * 1000)}_{tr_id}"
+                    c = ck["color"]
+                    params = json.dumps({"r": c[0], "g": c[1], "b": c[2], "threshold": ck.get("threshold", 0.3), "feather": ck.get("feather", 0.1)})
+                    conn.execute("INSERT INTO transition_effects (id, transition_id, type, params, enabled) VALUES (?, ?, 'chroma-key', ?, 1)", (fx_id, tr_id, params))
+            # Clear the old chroma_key field
+            conn.execute("UPDATE transitions SET chroma_key = NULL WHERE id = ?", (tr_id,))
+        if rows:
+            conn.commit()
+    except Exception:
+        pass
+
     # Ensure default track exists
     try:
         if not conn.execute("SELECT 1 FROM tracks WHERE id = 'track_1'").fetchone():
@@ -1400,7 +1422,7 @@ def load_narrative_from_db(project_dir: Path) -> dict:
             kf["_source_resolved"] = str(source)
 
         # Resolve existing_keyframe if present
-        ekf = kf.get("existing_keyframe") or kf.get("context", {}).get("existing_keyframe")
+        ekf = kf.get("existing_keyframe") or (kf.get("context") or {}).get("existing_keyframe")
         if ekf:
             p = Path(ekf)
             kf["_existing_keyframe_resolved"] = str(project_dir / p) if not p.is_absolute() else str(p)

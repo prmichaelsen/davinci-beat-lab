@@ -2313,10 +2313,12 @@ def select_transitions_cmd(yaml_path, selections):
 @narrative.command()
 @click.argument("yaml_path", type=click.Path(exists=True))
 @click.option("--output", "-o", default="narrative_output.mp4", help="Output video path")
-def assemble(yaml_path, output):
+@click.option("--start-time", default=None, type=float, help="Start time in seconds (e.g. 1590 for 26:30)")
+@click.option("--max-time", default=None, type=float, help="End time in seconds (e.g. 1620 for 27:00)")
+def assemble(yaml_path, output, start_time, max_time):
     """Time-remap, concatenate, and mux audio into final video."""
     from beatlab.render.narrative import assemble_final
-    assemble_final(yaml_path, output)
+    assemble_final(yaml_path, output, start_time=start_time, max_time=max_time)
 
 
 @main.command(name="crossfade")

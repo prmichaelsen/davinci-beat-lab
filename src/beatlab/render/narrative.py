@@ -1329,11 +1329,12 @@ def _blend_frames(base, overlay, mode: str = "normal", opacity: float = 1.0):
     return np.clip(result * 255, 0, 255).astype(np.uint8)
 
 
-def assemble_final(yaml_path: str, output_path: str, max_time: float | None = None, crossfade_frames: int | None = None) -> str:
+def assemble_final(yaml_path: str, output_path: str, max_time: float | None = None, crossfade_frames: int | None = None, start_time: float | None = None) -> str:
     """Time-remap selected transitions, concatenate, and mux audio.
 
     Args:
         max_time: Stop assembling after this timeline time (seconds). None = full track.
+        start_time: Start assembling from this timeline time (seconds). None = beginning.
         crossfade_frames: Number of frames for crossfade transitions. Default from settings.yaml or 8.
     """
     import subprocess
@@ -1415,6 +1416,11 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
 
     if not clips_info:
         raise RuntimeError("No clips to assemble")
+
+    # Apply start_time filter
+    if start_time is not None:
+        clips_info = [ci for ci in clips_info if ci["to_ts"] > start_time]
+        _log(f"  start_time={start_time:.1f}s → {len(clips_info)} clips")
 
     # Apply max_time filter
     if max_time is not None:
@@ -1668,6 +1674,8 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
             from_ts = _parse_ts(from_kf["timestamp"])
             to_ts = _parse_ts(to_kf["timestamp"])
             if to_ts <= from_ts:
+                continue
+            if start_time is not None and to_ts <= start_time:
                 continue
             if max_time is not None and from_ts >= max_time:
                 continue
@@ -2232,8 +2240,9 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
 
     # Compute total output duration and frames
     end_time = segments[-1]["to_ts"] if segments else 0
-    total_output_frames = round(end_time * fps)
-    _log(f"Phase 2: Per-frame render — {total_output_frames} frames ({end_time:.2f}s), {w}x{h} @ {fps}fps")
+    render_start = start_time or 0.0
+    total_output_frames = round((end_time - render_start) * fps)
+    _log(f"Phase 2: Per-frame render — {total_output_frames} frames ({render_start:.2f}s → {end_time:.2f}s), {w}x{h} @ {fps}fps")
     _log(f"  {len(segments)} segments, {XFADE_FRAMES}-frame crossfade, {len(effect_events)} effect events")
 
     tmp_path = output_path + ".tmp.mp4"
@@ -2274,7 +2283,7 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
     black_frame = np.zeros((h, w, 3), dtype=np.uint8)
 
     for frame_num in range(total_output_frames):
-        t = frame_num / fps
+        t = render_start + frame_num / fps
         seg_idx = _find_segment(t)
 
         if seg_idx < 0:
@@ -2374,10 +2383,11 @@ def assemble_final(yaml_path: str, output_path: str, max_time: float | None = No
     else:
         encode_opts = ["-preset", "fast", "-crf", "18"]
 
+    audio_seek = ["-ss", str(render_start)] if render_start > 0 else []
     subprocess.run([
         "ffmpeg", "-y",
         "-i", tmp_path,
-        "-i", audio_path,
+        *audio_seek, "-i", audio_path,
         "-map", "0:v", "-map", "1:a",
         "-c:v", "libx264", "-pix_fmt", "yuv420p", *encode_opts,
         "-c:a", "aac",

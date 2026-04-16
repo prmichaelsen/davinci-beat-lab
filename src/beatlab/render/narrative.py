@@ -1352,8 +1352,6 @@ def assemble_final(project_dir: str | Path, output_path: str, max_time: float | 
     if not enable_flash:
         skip_effects.add("flash")
     effect_events = [e for e in effect_events if e.get("effect") not in skip_effects]
-    # TEMP DEBUG: disable ALL beat effects to isolate compositing
-    effect_events = []
 
     def _effect_category(effect):
         if effect in ("zoom_pulse", "zoom_bounce", "zoom"):
@@ -1467,6 +1465,8 @@ def assemble_final(project_dir: str | Path, output_path: str, max_time: float | 
                 contrast_amount = max(contrast_amount, 0.4 * ei)
             elif effect == "glow_swell":
                 glow_amount = max(glow_amount, 0.3 * ei)
+            elif effect == "pulse":
+                zoom_amount = max(zoom_amount, 0.12 * ei)
 
         if zoom_amount > 0.001:
             zoom = 1.0 + zoom_amount
@@ -1682,6 +1682,15 @@ def assemble_final(project_dir: str | Path, output_path: str, max_time: float | 
                 tr_blend = tr.get("blend_mode") or blend_mode
                 from beatlab.db import get_transition_effects
                 tr_effects = get_transition_effects(work_dir, tr["id"])
+                # Resolve chroma key: per-transition overrides track-level
+                tr_chroma = tr.get("chroma_key") or track.get("chroma_key")
+                if isinstance(tr_chroma, str):
+                    import json as _json_ck
+                    try:
+                        tr_chroma = _json_ck.loads(tr_chroma)
+                    except Exception:
+                        tr_chroma = None
+
                 clip_data = {
                     "from_ts": ft, "to_ts": tt, "opacity": tr_opacity, "opacity_curve": tr_opacity_curve, "blend_mode": tr_blend, "effects": tr_effects,
                     "red_curve": tr.get("red_curve"), "green_curve": tr.get("green_curve"), "blue_curve": tr.get("blue_curve"),
@@ -1695,6 +1704,7 @@ def assemble_final(project_dir: str | Path, output_path: str, max_time: float | 
                     "transform_x_curve": tr.get("transform_x_curve"), "transform_y_curve": tr.get("transform_y_curve"), "transform_z_curve": tr.get("transform_z_curve"),
                     "remap_method": tr.get("remap", {}).get("method", "linear") if isinstance(tr.get("remap"), dict) else "linear",
                     "curve_points": tr.get("remap", {}).get("curve_points") if isinstance(tr.get("remap"), dict) else None,
+                    "chroma_key": tr_chroma,
                 }
                 if sel and sel not in (0, "null") and video_path.exists():
                     clip_data.update({"video": str(video_path), "still": None})
@@ -1881,6 +1891,9 @@ def assemble_final(project_dir: str | Path, output_path: str, max_time: float | 
         frame = _read_overlay_frame(oclip, progress, ow, oh)
         if frame is None:
             return None, 0, "normal"
+        if _blend_debug_t is not None:
+            import numpy as _np
+            _log(f"      _process: video={oclip.get('video','')!s:.60s} still={oclip.get('still','')!s:.60s} progress={progress:.3f} frame_mean={_np.mean(frame):.1f}")
 
         # Clip opacity
         opacity = 1.0
@@ -1891,8 +1904,9 @@ def assemble_final(project_dir: str | Path, output_path: str, max_time: float | 
 
         blend = oclip.get("blend_mode") or "normal"
 
-        # Effects (strobe, invert)
+        # Effects (strobe, invert, chroma-key)
         clip_invert = 0.0
+        effect_chroma = None
         for efx in oclip.get("effects", []):
             if not efx.get("enabled", True):
                 continue
@@ -1904,6 +1918,17 @@ def assemble_final(project_dir: str | Path, output_path: str, max_time: float | 
                     opacity = 0
             elif efx["type"] == "invert":
                 clip_invert = efx["params"].get("amount", 1.0)
+            elif efx["type"] == "chroma-key":
+                effect_chroma = {
+                    "color": [efx["params"].get("r", 0), efx["params"].get("g", 1), efx["params"].get("b", 0)],
+                    "threshold": efx["params"].get("threshold", 0.3),
+                    "feather": efx["params"].get("feather", 0.1),
+                }
+        # Store chroma key for compositor (effect overrides transition/track level)
+        if effect_chroma:
+            oclip["_chroma_key"] = effect_chroma
+        elif oclip.get("chroma_key"):
+            oclip["_chroma_key"] = oclip["chroma_key"]
         if clip_invert > 0 and not oclip.get("invert_curve"):
             oclip["_effect_invert"] = clip_invert
 
@@ -2021,7 +2046,39 @@ def assemble_final(project_dir: str | Path, output_path: str, max_time: float | 
 
             if _blend_debug_t is not None:
                 _log(f"    COMPOSITING track_idx={ti} clip_video={matched_clip.get('video','')!s:.80s} clip_still={matched_clip.get('still','')!s:.80s} blend={clip_blend} opacity={clip_opacity:.2f} from={matched_clip['from_ts']:.2f} to={matched_clip['to_ts']:.2f}")
-            result = _blend_frames(result, frame, clip_blend, clip_opacity)
+
+            # Chroma key: compute per-pixel alpha, then apply blend mode with that alpha
+            chroma = matched_clip.get("_chroma_key")
+            if chroma:
+                key_color = chroma.get("color", [0, 1, 0])  # RGB 0-1
+                threshold = chroma.get("threshold", 0.3)
+                feather = chroma.get("feather", 0.1)
+                o = frame.astype(np.float32) / 255.0
+                # key_color is RGB, OpenCV is BGR
+                key_bgr = np.array([key_color[2], key_color[1], key_color[0]], dtype=np.float32)
+                cdist = np.sqrt(np.sum((o - key_bgr) ** 2, axis=2))
+                # smoothstep: 0 where close to key (transparent), 1 where far (visible)
+                feather_end = threshold + max(feather, 0.001)
+                calpha = np.clip((cdist - threshold) / (feather_end - threshold), 0, 1)
+                calpha = (calpha * clip_opacity)[:, :, np.newaxis]
+                # Blend visible pixels using the blend mode, masked by chroma alpha
+                b = result.astype(np.float32) / 255.0
+                if clip_blend == "multiply":
+                    blended = b * o
+                elif clip_blend == "screen":
+                    blended = 1.0 - (1.0 - b) * (1.0 - o)
+                elif clip_blend == "overlay":
+                    mask = (b < 0.5).astype(np.float32)
+                    blended = mask * (2.0 * b * o) + (1.0 - mask) * (1.0 - 2.0 * (1.0 - b) * (1.0 - o))
+                elif clip_blend == "difference":
+                    blended = np.abs(b - o)
+                elif clip_blend == "add":
+                    blended = np.minimum(b + o, 1.0)
+                else:
+                    blended = o
+                result = np.clip((b * (1.0 - calpha) + blended * calpha) * 255, 0, 255).astype(np.uint8)
+            else:
+                result = _blend_frames(result, frame, clip_blend, clip_opacity)
 
             # Release handles for passed clips
             for oclip in clips:
@@ -2092,6 +2149,8 @@ def assemble_final(project_dir: str | Path, output_path: str, max_time: float | 
     for otrack in overlay_tracks:
         for oclip in otrack["clips"]:
             end_time = max(end_time, oclip["to_ts"])
+    if max_time is not None:
+        end_time = min(end_time, max_time)
     render_start = start_time or 0.0
     total_output_frames = round((end_time - render_start) * fps)
     _log(f"Phase 2: Per-frame render — {total_output_frames} frames ({render_start:.2f}s → {end_time:.2f}s), {w}x{h} @ {fps}fps")
@@ -2100,7 +2159,7 @@ def assemble_final(project_dir: str | Path, output_path: str, max_time: float | 
     tmp_path = output_path + ".tmp.mp4"
     out = cv2.VideoWriter(tmp_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
 
-    start_time = _time.time()
+    wall_start = _time.time()
     xfade_dur = XFADE_FRAMES / fps
     half_xfade = xfade_dur / 2
 
@@ -2220,13 +2279,13 @@ def assemble_final(project_dir: str | Path, output_path: str, max_time: float | 
         out.write(frame)
 
         if (frame_num + 1) % 1000 == 0 or frame_num == total_output_frames - 1:
-            elapsed = _time.time() - start_time
+            elapsed = _time.time() - wall_start
             fps_actual = (frame_num + 1) / elapsed if elapsed > 0 else 0
             eta = (total_output_frames - frame_num - 1) / fps_actual / 60 if fps_actual > 0 else 0
             _log(f"  [{frame_num+1}/{total_output_frames}] {fps_actual:.0f} fps, ETA {eta:.1f}m")
 
     out.release()
-    elapsed = _time.time() - start_time
+    elapsed = _time.time() - wall_start
     _log(f"  Render done in {elapsed:.0f}s ({total_output_frames / elapsed:.0f} fps)")
     _log(f"  Output: {total_output_frames} frames ({total_output_frames / fps:.2f}s)")
 

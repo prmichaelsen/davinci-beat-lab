@@ -939,7 +939,7 @@ def make_handler(work_dir: Path):
                         from beatlab.render.google_video import GoogleVideoClient
                         from beatlab.db import get_meta as _get_meta
                         img_client = GoogleVideoClient(vertex=True)
-                        _image_model = _get_meta(project_dir).get("image_model", "replicate/nano-banana-2")
+                        _image_model = _get_project_settings(project_dir).get("image_model", "vertex")
                         candidates_dir = project_dir / "keyframe_candidates" / "candidates" / f"section_{kf_id}"
                         candidates_dir.mkdir(parents=True, exist_ok=True)
                         existing = _next_variant(candidates_dir, ".png") - 1
@@ -1040,9 +1040,8 @@ def make_handler(work_dir: Path):
                         _log(f"[job {job_id}] Got {len(prompts)} escalation prompts")
 
                         from beatlab.render.google_video import GoogleVideoClient
-                        from beatlab.db import get_meta as _get_meta2
                         img_client = GoogleVideoClient(vertex=True)
-                        _image_model = _get_meta2(project_dir).get("image_model", "replicate/nano-banana-2")
+                        _image_model = _get_project_settings(project_dir).get("image_model", "vertex")
                         candidates_dir = project_dir / "keyframe_candidates" / "candidates" / f"section_{kf_id}"
                         candidates_dir.mkdir(parents=True, exist_ok=True)
                         existing = _next_variant(candidates_dir, ".png") - 1
@@ -1988,6 +1987,18 @@ def make_handler(work_dir: Path):
                         dest = selected_dir / f"{tr_id}_slot_{slot_idx}.mp4"
                         if source.exists():
                             shutil.copy2(str(source), str(dest))
+                            # Extract first frame as keyframe image for the 'from' keyframe
+                            if slot_idx == 0:
+                                from beatlab.db import get_transition
+                                tr = get_transition(project_dir, tr_id)
+                                if tr and tr.get("from"):
+                                    import cv2
+                                    cap = cv2.VideoCapture(str(dest))
+                                    ret, frame = cap.read()
+                                    cap.release()
+                                    if ret:
+                                        kf_img = project_dir / "selected_keyframes" / f"{tr['from']}.png"
+                                        cv2.imwrite(str(kf_img), frame)
                     else:
                         # Deselect — remove the selected video
                         dest = selected_dir / f"{tr_id}_slot_{slot_idx}.mp4"
@@ -4402,7 +4413,7 @@ def make_handler(work_dir: Path):
                     from beatlab.db import get_meta as _get_meta_gen
                     from concurrent.futures import ThreadPoolExecutor
                     client = GoogleVideoClient(vertex=True)
-                    _img_model = _get_meta_gen(project_dir).get("image_model", "replicate/nano-banana-2")
+                    _img_model = _get_project_settings(project_dir).get("image_model", "vertex")
 
                     def _gen_one(v):
                         import time as _time
@@ -5706,7 +5717,7 @@ def make_handler(work_dir: Path):
                     from beatlab.render.google_video import GoogleVideoClient
                     from beatlab.db import get_meta as _get_meta_stg
                     client = GoogleVideoClient(vertex=True)
-                    _img_model = _get_meta_stg(project_dir).get("image_model", "replicate/nano-banana-2")
+                    _img_model = _get_project_settings(project_dir).get("image_model", "vertex")
 
                     staging_dir = project_dir / "staging" / staging_id
                     staging_dir.mkdir(parents=True, exist_ok=True)

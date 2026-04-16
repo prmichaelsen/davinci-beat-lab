@@ -249,8 +249,13 @@ class GoogleVideoClient:
 
         provider, _, model_name = image_model.partition("/")
         if not model_name:
-            model_name = provider
-            provider = "replicate"
+            # No slash — treat the whole string as the provider with default model
+            if provider == "vertex":
+                return self._stylize_vertex(image_path, style_prompt, output_path)
+            else:
+                # Legacy: bare model name defaults to replicate
+                model_name = provider
+                provider = "replicate"
 
         if provider == "replicate":
             return self._stylize_replicate(image_path, style_prompt, output_path, model_name)

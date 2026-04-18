@@ -2585,6 +2585,9 @@ def make_handler(work_dir: Path):
                     sec = s - m * 60
                     return f"{m}:{sec:05.2f}"
 
+                from datetime import datetime, timezone
+                now = datetime.now(timezone.utc).isoformat()
+
                 target_time = parse_ts(target_time_str)
 
                 # 1. Read source keyframes, sort by time
@@ -2595,6 +2598,23 @@ def make_handler(work_dir: Path):
                         src_kfs.append(kf)
                 if not src_kfs:
                     return self._error(404, "NOT_FOUND", "No valid keyframes found")
+
+                # Extend selection to include the `to` keyframe of any transition
+                # whose `from` is in the selection. This lets users select N kfs
+                # and get N trs (including the outgoing one from the last kf).
+                _all_trs_early = db_get_trs(project_dir)
+                _selected_ids = {k["id"] for k in src_kfs}
+                _extra_kf_ids = set()
+                for t in _all_trs_early:
+                    if t.get("deleted_at"):
+                        continue
+                    if t["from"] in _selected_ids and t["to"] not in _selected_ids:
+                        _extra_kf_ids.add(t["to"])
+                for kid in _extra_kf_ids:
+                    kf = db_get_kf(project_dir, kid)
+                    if kf and not kf.get("deleted_at"):
+                        src_kfs.append(kf)
+                        kf_ids.append(kid)
 
                 src_kfs.sort(key=lambda k: parse_ts(k["timestamp"]))
                 min_time = parse_ts(src_kfs[0]["timestamp"])
@@ -2649,19 +2669,30 @@ def make_handler(work_dir: Path):
                                 if t["from"] in src_kf_set and t["to"] in src_kf_set
                                 and not t.get("deleted_at")]
 
-                # Build existing time ranges on target track for overlap check
-                from beatlab.db import get_keyframes as db_get_kfs_paste
+                # Build existing transitions on target track for overlap handling.
+                # We'll mutate this list as we carve out space for pasted transitions.
+                from beatlab.db import get_keyframes as db_get_kfs_paste, update_transition as db_update_tr
                 all_kfs_paste = {k["id"]: k for k in db_get_kfs_paste(project_dir) if not k.get("deleted_at")}
                 target_trs = [t for t in all_trs
                               if t.get("track_id") == target_track and not t.get("deleted_at")]
-                existing_ranges = []
-                for t in target_trs:
+
+                def _tr_range(t):
                     fk = all_kfs_paste.get(t["from"])
                     tk = all_kfs_paste.get(t["to"])
-                    if fk and tk:
-                        existing_ranges.append((parse_ts(fk["timestamp"]), parse_ts(tk["timestamp"])))
+                    if not fk or not tk:
+                        return None
+                    return (parse_ts(fk["timestamp"]), parse_ts(tk["timestamp"]))
+
+                def _is_ghost(t):
+                    sel = t.get("selected")
+                    if not sel or sel == 0 or sel == "null":
+                        return True
+                    vid = project_dir / "selected_transitions" / f"{t['id']}_slot_0.mp4"
+                    return not vid.exists()
 
                 created_trs = []
+                skipped_trs = []  # overlaps with real (non-ghost) content
+                cleared_ghosts = []  # ghost trs we shortened/deleted to make room
                 for src_tr in internal_trs:
                     new_from = id_map.get(src_tr["from"])
                     new_to = id_map.get(src_tr["to"])
@@ -2674,9 +2705,61 @@ def make_handler(work_dir: Path):
                     if to_ts - from_ts <= 0.05:
                         continue
 
-                    # Skip if overlaps an existing transition on the target track
-                    overlaps = any(ef < to_ts and et > from_ts for ef, et in existing_ranges)
-                    if overlaps:
+                    # Check for overlapping transitions on target track and resolve
+                    blocked = False
+                    for existing in list(target_trs):
+                        er = _tr_range(existing)
+                        if er is None:
+                            continue
+                        ef, et = er
+                        if ef >= to_ts or et <= from_ts:
+                            continue  # no overlap
+                        if _is_ghost(existing):
+                            # Shorten/split the ghost to make room
+                            if ef < from_ts and et > to_ts:
+                                # Ghost fully contains the paste: shorten end, we lose the tail (acceptable for ghosts)
+                                # Find or create a keyframe at from_ts on the target track to anchor the ghost's new end
+                                anchor_kf = next((kid for kid, kf in all_kfs_paste.items()
+                                                  if kf.get("track_id") == target_track
+                                                  and abs(parse_ts(kf["timestamp"]) - from_ts) < 0.01), None)
+                                if anchor_kf:
+                                    db_update_tr(project_dir, existing["id"], to=anchor_kf)
+                                    cleared_ghosts.append({"id": existing["id"], "action": "shortened", "newEnd": anchor_kf})
+                                    target_trs.remove(existing)  # remove; will not match future paste items
+                                else:
+                                    # No matching kf — soft-delete the ghost entirely
+                                    db_update_tr(project_dir, existing["id"], deleted_at=now)
+                                    cleared_ghosts.append({"id": existing["id"], "action": "deleted"})
+                                    target_trs.remove(existing)
+                            elif ef >= from_ts and et <= to_ts:
+                                # Ghost fully inside paste: delete it
+                                db_update_tr(project_dir, existing["id"], deleted_at=now)
+                                cleared_ghosts.append({"id": existing["id"], "action": "deleted"})
+                                target_trs.remove(existing)
+                            elif ef < from_ts:
+                                # Ghost's tail overlaps: shorten ghost end
+                                anchor_kf = next((kid for kid, kf in all_kfs_paste.items()
+                                                  if kf.get("track_id") == target_track
+                                                  and abs(parse_ts(kf["timestamp"]) - from_ts) < 0.01), None)
+                                if anchor_kf:
+                                    db_update_tr(project_dir, existing["id"], to=anchor_kf)
+                                    cleared_ghosts.append({"id": existing["id"], "action": "shortened", "newEnd": anchor_kf})
+                                    target_trs.remove(existing)
+                            else:
+                                # Ghost's head overlaps: shorten ghost start
+                                anchor_kf = next((kid for kid, kf in all_kfs_paste.items()
+                                                  if kf.get("track_id") == target_track
+                                                  and abs(parse_ts(kf["timestamp"]) - to_ts) < 0.01), None)
+                                if anchor_kf:
+                                    db_update_tr(project_dir, existing["id"], **{"from": anchor_kf})
+                                    cleared_ghosts.append({"id": existing["id"], "action": "shortened", "newStart": anchor_kf})
+                                    target_trs.remove(existing)
+                        else:
+                            # Real content overlap — skip this paste item
+                            blocked = True
+                            break
+                    if blocked:
+                        skipped_trs.append({"sourceId": src_tr["id"], "reason": "overlaps existing non-ghost transition"})
                         continue
 
                     new_tr_id = next_transition_id(project_dir)
@@ -2748,11 +2831,13 @@ def make_handler(work_dir: Path):
 
                     created_trs.append({"id": new_tr_id, "from": new_from, "to": new_to})
 
-                _log(f"paste-group: {len(created_kfs)} kfs, {len(created_trs)} trs pasted at {target_time_str} on {target_track}")
+                _log(f"paste-group: {len(created_kfs)} kfs, {len(created_trs)} trs pasted at {target_time_str} on {target_track} (skipped {len(skipped_trs)}, cleared {len(cleared_ghosts)} ghosts)")
                 self._json_response({
                     "success": True,
                     "keyframes": created_kfs,
                     "transitions": created_trs,
+                    "skipped": skipped_trs,
+                    "clearedGhosts": cleared_ghosts,
                 })
             except Exception as e:
                 _log(f"paste-group FAILED: {e}")

@@ -160,6 +160,25 @@ However, some frontend actions do trigger multiple API calls rapidly (e.g. drag-
 
 > checkpoint is the closest thing to a save.
 
+<!-- [Agent Analysis]
+Checkpoints are full DB snapshots (`project.db.checkpoint-*` files) created via `POST /api/projects/:name/checkpoint`. They're coarse-grained named save states — orthogonal to the fine-grained undo_log.
+
+**Relationship to undo**:
+- Each API call = one undo_group (fine-grained, automatic)
+- Each checkpoint = full DB snapshot (coarse-grained, explicit)
+- Undo walks backward through individual operations
+- Restoring a checkpoint wholesale REPLACES the current DB (all undo_log lost, or at least invalidated)
+
+**Recommendation**: Treat checkpoints as independent from undo:
+- Taking a checkpoint does NOT create an undo entry — it's a "save-as" not an edit
+- Restoring a checkpoint should clear the undo_log (since the state it refers to no longer exists)
+- The undo history panel could optionally show checkpoint markers inline so users know where "save points" are in the timeline of operations
+
+Would you like to accept this recommendation? (yes/no)
+-->
+
+>
+
 - When you split a transition, the undo needs to know the original video reference. Should we store a snapshot of the full row state before modification?
 
 > we need to store all context required to perform an undo
@@ -182,6 +201,27 @@ No explicit snapshot needed — the triggers ARE the snapshot.
 - Do you need redo (undo the undo)?
 
 > plan for it, but not P0
+
+<!-- [Agent Analysis]
+"Plan for it, not P0" interpretation — design the schema to support redo from day one, ship without exposing it:
+
+**Schema (ship in P0)**:
+- `undo_log` has `undone` boolean column (default 0)
+- Instead of DELETE on undo, flip `undone = 1` so the row can be re-applied
+- `redo` = find most recently-undone group, re-apply its original SQL (not the inverse)
+- This means storing both forward and inverse SQL per undo_log row
+
+**Frontend (ship later)**:
+- Ctrl+Shift+Z binding
+- Redo button in undo history panel
+- `POST /api/projects/:name/redo` endpoint
+
+**Tradeoff**: Storing both forward+inverse SQL roughly doubles undo_log size, but SQLite rows are cheap and 1000 groups * ~10 rows each = 10k rows max. Negligible.
+
+Would you like to accept this recommendation? (yes/no)
+-->
+
+>
 
 - Should redo history be cleared when a new operation is performed (standard behavior)?
 

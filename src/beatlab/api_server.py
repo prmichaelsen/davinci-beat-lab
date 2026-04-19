@@ -2599,22 +2599,25 @@ def make_handler(work_dir: Path):
                 if not src_kfs:
                     return self._error(404, "NOT_FOUND", "No valid keyframes found")
 
-                # Extend selection to include the `to` keyframe of any transition
-                # whose `from` is in the selection. This lets users select N kfs
-                # and get N trs (including the outgoing one from the last kf).
+                # Extend selection to include the `to` keyframe of the transition
+                # whose `from` is the LAST selected kf (chronologically). This lets
+                # users select N kfs and get N trs (including the outgoing tr from
+                # the last kf). The trailing kf is created as an EMPTY placeholder
+                # (no content copied) since the user only wants the transition, not
+                # the destination kf's content.
                 _all_trs_early = db_get_trs(project_dir)
                 _selected_ids = {k["id"] for k in src_kfs}
-                _extra_kf_ids = set()
+                _last_kf_id = max(src_kfs, key=lambda k: parse_ts(k["timestamp"]))["id"]
                 for t in _all_trs_early:
                     if t.get("deleted_at"):
                         continue
-                    if t["from"] in _selected_ids and t["to"] not in _selected_ids:
-                        _extra_kf_ids.add(t["to"])
-                for kid in _extra_kf_ids:
-                    kf = db_get_kf(project_dir, kid)
-                    if kf and not kf.get("deleted_at"):
-                        src_kfs.append(kf)
-                        kf_ids.append(kid)
+                    if t["from"] == _last_kf_id and t["to"] not in _selected_ids:
+                        kf = db_get_kf(project_dir, t["to"])
+                        if kf and not kf.get("deleted_at"):
+                            kf = {**kf, "_paste_empty": True}
+                            src_kfs.append(kf)
+                            kf_ids.append(t["to"])
+                        break  # only one outgoing tr from last kf
 
                 src_kfs.sort(key=lambda k: parse_ts(k["timestamp"]))
                 min_time = parse_ts(src_kfs[0]["timestamp"])
@@ -2628,6 +2631,19 @@ def make_handler(work_dir: Path):
                     new_ts = secs_to_ts(new_time)
                     new_id = next_keyframe_id(project_dir)
                     id_map[src["id"]] = new_id
+
+                    # Trailing empty-placeholder kf: create empty, skip content copy
+                    if src.get("_paste_empty"):
+                        db_add_kf(project_dir, {
+                            "id": new_id, "timestamp": new_ts,
+                            "section": "", "source": "", "prompt": "",
+                            "candidates": [], "selected": None,
+                            "track_id": target_track,
+                            "label": "", "label_color": "",
+                            "blend_mode": "", "opacity": None,
+                        })
+                        created_kfs.append({"id": new_id, "timestamp": new_ts})
+                        continue
 
                     # Copy candidate files
                     src_cand_dir = project_dir / "keyframe_candidates" / "candidates" / f"section_{src['id']}"
